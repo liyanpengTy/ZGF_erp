@@ -1,9 +1,9 @@
 from flask import Flask
+from werkzeug.exceptions import NotFound
 from app.config import Config
 from app.extensions import db, migrate, jwt, bcrypt, cors
 from app.commands import register_commands
 from app.utils.response import ApiResponse
-
 
 def create_app():
     app = Flask(__name__)
@@ -28,9 +28,17 @@ def create_app():
     # 注册命令行命令
     register_commands(app)
 
-    # 全局错误处理
+    # 404 错误处理（针对 favicon.ico 等不存在的路径）
+    @app.errorhandler(404)
+    def not_found(error):
+        return ApiResponse.error('接口不存在', 404)
+
+    # 全局错误处理（排除 404）
     @app.errorhandler(Exception)
     def handle_exception(e):
+        # 如果是 404 错误，交给 not_found 处理
+        if isinstance(e, NotFound):
+            return not_found(e)
         app.logger.error(f"全局错误: {str(e)}")
         return ApiResponse.error(str(e), 500)
 
