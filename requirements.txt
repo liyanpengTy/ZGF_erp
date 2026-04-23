@@ -1,0 +1,26 @@
+# Core Framework
+Flask==2.3.3
+Flask-SQLAlchemy==3.1.1
+Flask-Migrate==4.0.5
+Flask-RESTX==1.2.0
+Flask-JWT-Extended==4.5.3
+Flask-Bcrypt==1.0.1
+Flask-CORS==4.0.1
+
+# Database
+PyMySQL==1.1.0
+redis==5.0.1
+
+# Serialization
+marshmallow==3.20.1
+marshmallow-sqlalchemy==0.29.0
+
+# Utils
+python-dotenv==1.0.0
+loguru==0.7.2
+requests==2.31.0
+
+# Task Queue (可选，后续需要定时任务时安装)
+# celery==5.3.4
+
+psutil==5.9.6
