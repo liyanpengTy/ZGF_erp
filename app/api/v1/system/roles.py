@@ -114,25 +114,20 @@ class RoleList(Resource):
         name = args.get('name', '')
         status = args.get('status')
 
-        # 只有公司内部人员可以查看所有工厂的角色
+        # 公司内部人员：可以查看平台角色 + 指定工厂的角色
         if current_user.is_admin == 1:
             factory_id = args.get('factory_id')
             if not factory_id:
-                return ApiResponse.error('请指定工厂ID')
+                return ApiResponse.error('请指定工厂ID', 400)
+            # 查询平台角色 + 该工厂的角色
+            query = Role.query.filter(
+                (Role.factory_id == 0) | (Role.factory_id == factory_id),
+                Role.is_deleted == 0
+            )
         else:
-            # 普通用户只能查看自己关联工厂的角色
-            factory_id = args.get('factory_id')
-            if not factory_id:
-                return ApiResponse.error('请指定工厂ID')
-            # 验证用户是否关联该工厂
-            from app.models.system.user_factory import UserFactory
-            user_factory = UserFactory.query.filter_by(
-                user_id=current_user.id, factory_id=factory_id, status=1, is_deleted=0
-            ).first()
-            if not user_factory:
-                return ApiResponse.error('无权限查看该工厂的角色', 403)
-
-        query = Role.query.filter_by(factory_id=factory_id, is_deleted=0)
+            # 普通用户：只能查看自己工厂的角色
+            factory_id = current_user.factory_id
+            query = Role.query.filter_by(factory_id=factory_id, is_deleted=0)
 
         if name:
             query = query.filter(Role.name.like(f'%{name}%'))

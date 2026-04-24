@@ -5,6 +5,7 @@ from app.extensions import db, migrate, jwt, bcrypt, cors
 from app.commands import register_commands
 from app.utils.response import ApiResponse
 
+
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)

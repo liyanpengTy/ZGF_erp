@@ -222,8 +222,32 @@ class RefreshToken(Resource):
     @auth_ns.response(200, '刷新成功', refresh_response)
     @auth_ns.response(401, 'refresh_token无效或已过期', unauthorized_response)
     def post(self):
-        identity = get_jwt_identity()
-        access_token = create_access_token(identity=identity)
+        from flask_jwt_extended import get_jwt
+        old_claims = get_jwt()
+
+        user_id = old_claims.get('user_id')
+        if not user_id:
+            # 兼容旧 token（identity 直接是用户ID）
+            identity = get_jwt_identity()
+            if isinstance(identity, dict):
+                user_id = identity.get('user_id')
+            else:
+                user_id = int(identity)
+
+        additional_claims = {'user_id': user_id}
+
+        # 复制其他字段
+        if old_claims.get('factory_id'):
+            additional_claims['factory_id'] = old_claims['factory_id']
+        if old_claims.get('relation_type'):
+            additional_claims['relation_type'] = old_claims['relation_type']
+        if old_claims.get('is_admin'):
+            additional_claims['is_admin'] = old_claims['is_admin']
+
+        access_token = create_access_token(
+            identity=str(user_id),
+            additional_claims=additional_claims
+        )
         return ApiResponse.success({'access_token': access_token})
 
 
@@ -250,6 +274,7 @@ class UserInfo(Resource):
 
 @auth_ns.route('/switch-factory')
 class SwitchFactory(Resource):
+    """用户关联了多个工厂时，切换到当前工厂"""
     @jwt_required()
     @auth_ns.expect(switch_factory_model)
     @auth_ns.response(200, '切换成功', login_response)
@@ -262,7 +287,13 @@ class SwitchFactory(Resource):
         claims = get_jwt()
         user_id = claims.get('user_id')
 
-        data = request.get_json()
+        # 增加 JSON 解析错误处理
+        try:
+            data = request.get_json()
+        except Exception as e:
+            return ApiResponse.error('请正确输入参数', 400)
+
+        # data = request.get_json()
         factory_id = data.get('factory_id')
 
         if not factory_id:

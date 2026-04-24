@@ -333,27 +333,39 @@ class UserRoles(Resource):
         role_ids = data.get('role_ids', [])
         factory_id = data.get('factory_id')
 
-        if not factory_id:
+        if not factory_id and user.is_admin != 1:
             return ApiResponse.error('请指定工厂ID', 400)
 
         for role_id in role_ids:
             role = Role.query.filter_by(id=role_id, is_deleted=0).first()
             if not role:
                 return ApiResponse.error(f'角色ID {role_id} 不存在', 400)
+            # 平台角色可以分配给任何人，工厂角色需要校验工厂
+            if role.factory_id > 0 and role.factory_id != factory_id:
+                return ApiResponse.error(f'角色 {role.name} 不属于该工厂', 400)
 
         # 删除原有角色分配
-        db.session.execute(
-            UserFactoryRole.__table__.delete().where(
-                UserFactoryRole.user_id == user_id,
-                UserFactoryRole.factory_id == factory_id
+        if user.is_admin == 1:
+            # 平台用户：只需要 role_id，不需要 factory_id
+            db.session.execute(
+                UserFactoryRole.__table__.delete().where(
+                    UserFactoryRole.user_id == user_id
+                )
             )
-        )
+        else:
+            db.session.execute(
+                UserFactoryRole.__table__.delete().where(
+                    UserFactoryRole.user_id == user_id,
+                    UserFactoryRole.factory_id == factory_id
+                )
+            )
 
         # 添加新的角色分配
         for role_id in role_ids:
+            role = Role.query.get(role_id)
             ufr = UserFactoryRole(
                 user_id=user_id,
-                factory_id=factory_id,
+                factory_id=0 if role.factory_id == 0 else factory_id,
                 role_id=role_id
             )
             db.session.add(ufr)
