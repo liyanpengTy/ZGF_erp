@@ -4,6 +4,8 @@ from app.config import Config
 from app.extensions import db, migrate, jwt, bcrypt, cors
 from app.commands import register_commands
 from app.utils.response import ApiResponse
+from jwt.exceptions import DecodeError, PyJWTError
+from flask_jwt_extended.exceptions import NoAuthorizationError, JWTExtendedException
 
 
 def create_app():
@@ -33,6 +35,15 @@ def create_app():
     @app.errorhandler(404)
     def not_found(error):
         return ApiResponse.error('接口不存在', 404)
+
+    @app.errorhandler(DecodeError)
+    @app.errorhandler(PyJWTError)
+    @app.errorhandler(NoAuthorizationError)
+    @app.errorhandler(JWTExtendedException)
+    def handle_jwt_exception(e):
+        """处理 JWT 相关异常"""
+        app.logger.info(f"JWT 异常: {type(e).__name__}")
+        return ApiResponse.unauthorized('无效的token')
 
     # 全局错误处理（排除 404）
     @app.errorhandler(Exception)
