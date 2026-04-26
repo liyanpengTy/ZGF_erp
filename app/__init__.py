@@ -23,17 +23,13 @@ def create_app():
 
     # 注册蓝图
     from app.api.v1 import bp as v1_bp
-    # from app.api.v2 import bp as v2_bp
-
     app.register_blueprint(v1_bp)
-    # app.register_blueprint(v2_bp)
 
     # 注册命令行命令
     register_commands(app)
 
-    # ========== 错误处理器（修正缩进，不要嵌套） ==========
+    # ========== 错误处理器 ==========
 
-    # 404 错误处理
     @app.errorhandler(404)
     def not_found(error):
         return ApiResponse.error('接口不存在', 404)
@@ -42,9 +38,10 @@ def create_app():
     @app.errorhandler(NoAuthorizationError)
     def handle_no_authorization(e):
         app.logger.info(f"未提供认证信息: {str(e)}")
+        # 使用 unauthorized 方法返回401
         return ApiResponse.unauthorized('请先登录获取token')
 
-    # JWT: Token解码错误（格式不正确，比如段数不对）
+    # JWT: Token解码错误（格式不正确）
     @app.errorhandler(DecodeError)
     def handle_decode_error(e):
         app.logger.info(f"Token解码错误: {str(e)}")
