@@ -4,19 +4,20 @@ from flask_jwt_extended import JWTManager
 from flask_bcrypt import Bcrypt
 from flask_cors import CORS
 from app.utils.response import ApiResponse
+import logging
 
 db = SQLAlchemy()
 migrate = Migrate()
 jwt = JWTManager()
 bcrypt = Bcrypt()
 cors = CORS()
+logger = logging.getLogger(__name__)
 
-
-# ========== JWT 错误处理（全局生效） ==========
 
 @jwt.unauthorized_loader
 def unauthorized_response(callback):
     """请求中没有携带token时返回"""
+    logger.info("JWT invalid_token_response 被触发！")
     return ApiResponse.unauthorized('请先登录获取token')
 
 
@@ -24,6 +25,7 @@ def unauthorized_response(callback):
 def invalid_token_response(error):
     """token无效时返回（格式错误、签名错误等）"""
     # 针对不同的错误返回不同的提示
+    logger.info("JWT invalid_token_response 被触发！")
     if "Not enough segments" in str(error):
         return ApiResponse.unauthorized('Token格式错误，请重新登录')
     return ApiResponse.unauthorized('无效的token，请重新登录')
@@ -32,18 +34,21 @@ def invalid_token_response(error):
 @jwt.expired_token_loader
 def expired_token_response(jwt_header, jwt_payload):
     """token已过期时返回"""
+    logger.info("JWT invalid_token_response 被触发！")
     return ApiResponse.unauthorized('登录已过期，请重新登录')
 
 
 @jwt.revoked_token_loader
 def revoked_token_response(jwt_header, jwt_payload):
     """token已被撤销时返回"""
+    logger.info("JWT invalid_token_response 被触发！")
     return ApiResponse.unauthorized('token已失效，请重新登录')
 
 
 @jwt.needs_fresh_token_loader
 def needs_fresh_token_response(jwt_header, jwt_payload):
     """需要新鲜token时返回"""
+    logger.info("JWT invalid_token_response 被触发！")
     return ApiResponse.unauthorized('需要重新登录以获取新token')
 
 
@@ -51,6 +56,7 @@ def needs_fresh_token_response(jwt_header, jwt_payload):
 @jwt.revoked_token_loader
 def revoked_token_response(jwt_header, jwt_payload):
     """token被撤销时的处理"""
+    logger.info("JWT invalid_token_response 被触发！")
     return ApiResponse.unauthorized('token已被撤销，请重新登录')
 
 
@@ -58,6 +64,7 @@ def revoked_token_response(jwt_header, jwt_payload):
 @jwt.additional_claims_loader
 def add_claims_to_access_token(identity):
     """添加自定义claims到token"""
+    logger.info("JWT invalid_token_response 被触发！")
     return {
         'user_id': identity if isinstance(identity, int) else identity.get('user_id')
     }
