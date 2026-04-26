@@ -16,8 +16,8 @@ def index():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    # app.run(debug=True, port=5000)
     # host='0.0.0.0' 允许公网访问
     # port=5000 端口号
     # debug=False 生产环境关闭调试
-    # app.run(host='0.0.0.0', port=5000, debug=False)
+    app.run(host='0.0.0.0', port=5000, debug=False)
