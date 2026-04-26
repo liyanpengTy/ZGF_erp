@@ -75,4 +75,7 @@ def create_app():
         app.logger.error(f"全局错误: {str(e)}")
         return ApiResponse.error(str(e), 500)
 
+    app.logger.info("=== 错误处理器已注册 ===")
+    app.logger.info(f"NoAuthorizationError handler: {app.error_handler_spec.get(None, {}).get(NoAuthorizationError)}")
+
     return app
