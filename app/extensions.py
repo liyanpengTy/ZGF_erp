@@ -1,6 +1,5 @@
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from flask_restx import Api
 from flask_jwt_extended import JWTManager
 from flask_bcrypt import Bcrypt
 from flask_cors import CORS
@@ -13,26 +12,52 @@ bcrypt = Bcrypt()
 cors = CORS()
 
 
-# JWT 错误处理
+# ========== JWT 错误处理（全局生效） ==========
+
 @jwt.unauthorized_loader
 def unauthorized_response(callback):
-    """请求中没有携带token"""
-    return ApiResponse.unauthorized('未登录或token已过期')
+    """请求中没有携带token时返回"""
+    return ApiResponse.unauthorized('请先登录获取token')
 
 
 @jwt.invalid_token_loader
-def invalid_token_response(callback):
-    """token无效（格式错误、签名错误等）"""
-    return ApiResponse.unauthorized('无效的token')
+def invalid_token_response(error):
+    """token无效时返回（格式错误、签名错误等）"""
+    # 针对不同的错误返回不同的提示
+    if "Not enough segments" in str(error):
+        return ApiResponse.unauthorized('Token格式错误，请重新登录')
+    return ApiResponse.unauthorized('无效的token，请重新登录')
 
 
 @jwt.expired_token_loader
 def expired_token_response(jwt_header, jwt_payload):
-    """token已过期"""
-    return ApiResponse.unauthorized('token已过期')
+    """token已过期时返回"""
+    return ApiResponse.unauthorized('登录已过期，请重新登录')
 
 
 @jwt.revoked_token_loader
 def revoked_token_response(jwt_header, jwt_payload):
-    """token已被撤销"""
-    return ApiResponse.unauthorized('token已失效')
+    """token已被撤销时返回"""
+    return ApiResponse.unauthorized('token已失效，请重新登录')
+
+
+@jwt.needs_fresh_token_loader
+def needs_fresh_token_response(jwt_header, jwt_payload):
+    """需要新鲜token时返回"""
+    return ApiResponse.unauthorized('需要重新登录以获取新token')
+
+
+# 可选：添加token刷新时的错误处理
+@jwt.revoked_token_loader
+def revoked_token_response(jwt_header, jwt_payload):
+    """token被撤销时的处理"""
+    return ApiResponse.unauthorized('token已被撤销，请重新登录')
+
+
+# 可选：添加额外的claims验证
+@jwt.additional_claims_loader
+def add_claims_to_access_token(identity):
+    """添加自定义claims到token"""
+    return {
+        'user_id': identity if isinstance(identity, int) else identity.get('user_id')
+    }
