@@ -18,11 +18,19 @@ from app.api.v1.business.style_processes import style_process_ns
 from app.api.v1.business.style_elastics import style_elastic_ns
 from app.api.v1.business.style_splices import style_splice_ns
 from app.api.v1.profile.profile import profile_ns
+from app.utils.response import ApiResponse
+from flask_jwt_extended.exceptions import NoAuthorizationError
 
 bp = Blueprint('api_v1', __name__, url_prefix='/api/v1')
 
 api = Api(bp, doc='/docs', title='ZGF ERP PC端API', version='1.0',
           description='ZGF ERP 系统 PC 端 API 文档')
+
+
+@api.errorhandler(NoAuthorizationError)
+def handle_no_auth(error):
+    return ApiResponse.unauthorized('请先登录获取token')
+
 
 # 添加所有命名空间
 api.add_namespace(auth_ns, path='/auth')
