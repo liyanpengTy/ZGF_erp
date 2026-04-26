@@ -61,10 +61,19 @@ def revoked_token_response(jwt_header, jwt_payload):
 
 
 # 可选：添加额外的claims验证
-@jwt.additional_claims_loader
-def add_claims_to_access_token(identity):
-    """添加自定义claims到token"""
-    logger.info("JWT invalid_token_response 被触发！")
-    return {
-        'user_id': identity if isinstance(identity, int) else identity.get('user_id')
-    }
+# @jwt.additional_claims_loader
+# def add_claims_to_access_token(identity):
+#     """添加自定义claims到token"""
+#     # 兼容多种 identity 类型
+#     if isinstance(identity, str):
+#         # 如果是字符串，直接转换为整数
+#         return {'user_id': int(identity)}
+#     elif isinstance(identity, dict):
+#         # 如果是字典，取出 user_id
+#         return {'user_id': identity.get('user_id')}
+#     elif isinstance(identity, int):
+#         # 如果是整数，直接使用
+#         return {'user_id': identity}
+#     else:
+#         # 其他情况返回空
+#         return {}
