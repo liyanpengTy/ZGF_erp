@@ -36,14 +36,35 @@ def create_app():
     def not_found(error):
         return ApiResponse.error('接口不存在', 404)
 
-    @app.errorhandler(DecodeError)
-    @app.errorhandler(PyJWTError)
-    @app.errorhandler(NoAuthorizationError)
-    @app.errorhandler(JWTExtendedException)
-    def handle_jwt_exception(e):
-        """处理 JWT 相关异常"""
-        app.logger.info(f"JWT 异常: {type(e).__name__}")
-        return ApiResponse.unauthorized('无效的token')
+        # JWT 相关异常处理
+        @app.errorhandler(NoAuthorizationError)
+        def handle_no_authorization(e):
+            """没有提供认证信息（未传token或Authorization头缺失）"""
+            app.logger.info(f"未提供认证信息: {str(e)}")
+            return ApiResponse.unauthorized('请先登录')
+
+        @app.errorhandler(DecodeError)
+        def handle_decode_error(e):
+            """Token 解码错误（token格式不正确）"""
+            app.logger.info(f"Token解码错误: {str(e)}")
+            return ApiResponse.unauthorized('Token格式无效')
+
+        @app.errorhandler(JWTExtendedException)
+        def handle_jwt_extended_error(e):
+            """JWT扩展异常（包括token过期等）"""
+            app.logger.info(f"JWT扩展异常: {type(e).__name__} - {str(e)}")
+            error_msg = str(e)
+            if "Expired" in error_msg or "过期" in error_msg:
+                return ApiResponse.unauthorized('登录已过期，请重新登录')
+            elif "Invalid" in error_msg or "无效" in error_msg:
+                return ApiResponse.unauthorized('无效的登录凭证')
+            return ApiResponse.unauthorized('认证失败')
+
+        @app.errorhandler(PyJWTError)
+        def handle_pyjwt_error(e):
+            """PyJWT 通用错误"""
+            app.logger.info(f"PyJWT错误: {str(e)}")
+            return ApiResponse.unauthorized('登录凭证无效')
 
     # 全局错误处理（排除 404）
     @app.errorhandler(Exception)
