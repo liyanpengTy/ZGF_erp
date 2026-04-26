@@ -31,42 +31,45 @@ def create_app():
     # 注册命令行命令
     register_commands(app)
 
-    # 404 错误处理（针对 favicon.ico 等不存在的路径）
+    # ========== 错误处理器（修正缩进，不要嵌套） ==========
+
+    # 404 错误处理
     @app.errorhandler(404)
     def not_found(error):
         return ApiResponse.error('接口不存在', 404)
 
-        # JWT 相关异常处理
-        @app.errorhandler(NoAuthorizationError)
-        def handle_no_authorization(e):
-            """没有提供认证信息（未传token或Authorization头缺失）"""
-            app.logger.info(f"未提供认证信息: {str(e)}")
-            return ApiResponse.unauthorized('请先登录')
+    # JWT: 未提供认证信息（没有token或Authorization头缺失）
+    @app.errorhandler(NoAuthorizationError)
+    def handle_no_authorization(e):
+        app.logger.info(f"未提供认证信息: {str(e)}")
+        return ApiResponse.unauthorized('请先登录获取token')
 
-        @app.errorhandler(DecodeError)
-        def handle_decode_error(e):
-            """Token 解码错误（token格式不正确）"""
-            app.logger.info(f"Token解码错误: {str(e)}")
-            return ApiResponse.unauthorized('Token格式无效')
+    # JWT: Token解码错误（格式不正确，比如段数不对）
+    @app.errorhandler(DecodeError)
+    def handle_decode_error(e):
+        app.logger.info(f"Token解码错误: {str(e)}")
+        if "Not enough segments" in str(e):
+            return ApiResponse.unauthorized('Token格式错误，请重新登录获取新token')
+        return ApiResponse.unauthorized('Token格式无效')
 
-        @app.errorhandler(JWTExtendedException)
-        def handle_jwt_extended_error(e):
-            """JWT扩展异常（包括token过期等）"""
-            app.logger.info(f"JWT扩展异常: {type(e).__name__} - {str(e)}")
-            error_msg = str(e)
-            if "Expired" in error_msg or "过期" in error_msg:
-                return ApiResponse.unauthorized('登录已过期，请重新登录')
-            elif "Invalid" in error_msg or "无效" in error_msg:
-                return ApiResponse.unauthorized('无效的登录凭证')
-            return ApiResponse.unauthorized('认证失败')
+    # JWT: 扩展异常（包括过期等）
+    @app.errorhandler(JWTExtendedException)
+    def handle_jwt_extended_error(e):
+        app.logger.info(f"JWT扩展异常: {type(e).__name__} - {str(e)}")
+        error_msg = str(e)
+        if "Expired" in error_msg or "过期" in error_msg:
+            return ApiResponse.unauthorized('登录已过期，请重新登录')
+        elif "Invalid" in error_msg or "无效" in error_msg:
+            return ApiResponse.unauthorized('无效的登录凭证')
+        return ApiResponse.unauthorized('认证失败')
 
-        @app.errorhandler(PyJWTError)
-        def handle_pyjwt_error(e):
-            """PyJWT 通用错误"""
-            app.logger.info(f"PyJWT错误: {str(e)}")
-            return ApiResponse.unauthorized('登录凭证无效')
+    # PyJWT 通用错误
+    @app.errorhandler(PyJWTError)
+    def handle_pyjwt_error(e):
+        app.logger.info(f"PyJWT错误: {str(e)}")
+        return ApiResponse.unauthorized('登录凭证无效')
 
-    # 全局错误处理（排除 404）
+    # 全局错误处理
     @app.errorhandler(Exception)
     def handle_exception(e):
         # 如果是 404 错误，交给 not_found 处理
