@@ -7,6 +7,7 @@ from app.utils.response import ApiResponse
 from app.schemas.base_data.color import ColorSchema, ColorCreateSchema, ColorUpdateSchema
 from app.api.v1.shared_models import get_shared_models
 from marshmallow import ValidationError
+from app.utils.permissions import login_required
 
 color_ns = Namespace('colors', description='颜色管理')
 
@@ -61,7 +62,7 @@ color_update_schema = ColorUpdateSchema()
 
 @color_ns.route('')
 class ColorList(Resource):
-    @jwt_required()
+    @login_required
     @color_ns.expect(color_query_parser)
     @color_ns.response(200, '成功', color_list_response)
     @color_ns.response(401, '未登录', unauthorized_response)
@@ -107,7 +108,7 @@ class ColorList(Resource):
             'pages': pagination.pages
         })
 
-    @jwt_required()
+    @login_required
     @color_ns.expect(color_ns.model('ColorCreate', {
         'name': fields.String(required=True),
         'actual_name': fields.String(required=True),
@@ -154,7 +155,7 @@ class ColorList(Resource):
 
 @color_ns.route('/<int:color_id>')
 class ColorDetail(Resource):
-    @jwt_required()
+    @login_required
     @color_ns.response(200, '成功', color_item_response)
     @color_ns.response(404, '不存在', error_response)
     def get(self, color_id):
@@ -170,7 +171,7 @@ class ColorDetail(Resource):
 
         return ApiResponse.success(color_schema.dump(color))
 
-    @jwt_required()
+    @login_required
     @color_ns.expect(color_ns.model('ColorUpdate', {
         'name': fields.String(),
         'actual_name': fields.String(),
@@ -211,7 +212,7 @@ class ColorDetail(Resource):
 
         return ApiResponse.success(color_schema.dump(color), '更新成功')
 
-    @jwt_required()
+    @login_required
     @color_ns.response(200, '删除成功', base_response)
     @color_ns.response(404, '不存在', error_response)
     def delete(self, color_id):

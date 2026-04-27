@@ -8,6 +8,7 @@ from app.utils.response import ApiResponse
 from app.schemas.business.style import StyleSchema, StyleCreateSchema, StyleUpdateSchema
 from app.api.v1.shared_models import get_shared_models
 from marshmallow import ValidationError
+from app.utils.permissions import login_required
 
 style_ns = Namespace('styles', description='款号管理')
 
@@ -79,7 +80,7 @@ def get_category_name(category_id):
 
 @style_ns.route('')
 class StyleList(Resource):
-    @jwt_required()
+    @login_required
     @style_ns.expect(style_query_parser)
     @style_ns.response(200, '成功', style_list_response)
     @style_ns.response(401, '未登录', unauthorized_response)
@@ -134,7 +135,7 @@ class StyleList(Resource):
             'pages': pagination.pages
         })
 
-    @jwt_required()
+    @login_required
     @style_ns.expect(style_ns.model('StyleCreate', {
         'style_no': fields.String(required=True),
         'customer_style_no': fields.String(),
@@ -203,7 +204,7 @@ class StyleList(Resource):
 
 @style_ns.route('/<int:style_id>')
 class StyleDetail(Resource):
-    @jwt_required()
+    @login_required
     @style_ns.response(200, '成功', style_item_response)
     @style_ns.response(404, '不存在', error_response)
     def get(self, style_id):
@@ -222,7 +223,7 @@ class StyleDetail(Resource):
 
         return ApiResponse.success(result)
 
-    @jwt_required()
+    @login_required
     @style_ns.expect(style_ns.model('StyleUpdate', {
         'style_no': fields.String(),
         'customer_style_no': fields.String(),
@@ -302,7 +303,7 @@ class StyleDetail(Resource):
 
         return ApiResponse.success(result, '更新成功')
 
-    @jwt_required()
+    @login_required
     @style_ns.response(200, '删除成功', base_response)
     @style_ns.response(404, '不存在', error_response)
     def delete(self, style_id):

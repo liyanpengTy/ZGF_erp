@@ -9,6 +9,7 @@ from app.schemas.profile.profile import ProfileUpdateSchema, PasswordChangeSchem
 from app.utils.logger import log_operation
 from marshmallow import ValidationError
 from app.api.v1.shared_models import get_shared_models
+from app.utils.permissions import login_required
 
 profile_ns = Namespace('profile', description='个人中心')
 
@@ -83,7 +84,7 @@ password_change_schema = PasswordChangeSchema()
 
 @profile_ns.route('/info')
 class ProfileInfo(Resource):
-    @jwt_required()
+    @login_required
     @profile_ns.response(200, '成功', user_info_response)
     @profile_ns.response(401, '未登录', unauthorized_response)
     def get(self):
@@ -96,7 +97,7 @@ class ProfileInfo(Resource):
 
         return ApiResponse.success(user_schema.dump(user))
 
-    @jwt_required()
+    @login_required
     @log_operation('修改个人信息')
     @profile_ns.expect(profile_update_model)
     @profile_ns.response(200, '更新成功', user_info_response)
@@ -129,7 +130,7 @@ class ProfileInfo(Resource):
 
 @profile_ns.route('/password')
 class ChangePassword(Resource):
-    @jwt_required()
+    @login_required
     @log_operation('修改密码')
     @profile_ns.expect(password_change_model)
     @profile_ns.response(200, '修改成功', base_response)
@@ -165,7 +166,7 @@ class ChangePassword(Resource):
 
 @profile_ns.route('/avatar')
 class UploadAvatar(Resource):
-    @jwt_required()
+    @login_required
     @log_operation('上传头像')
     @profile_ns.response(200, '上传成功', avatar_response)
     @profile_ns.response(400, '上传失败', error_response)
@@ -216,7 +217,7 @@ class UploadAvatar(Resource):
 
 @profile_ns.route('/stats')
 class ProfileStats(Resource):
-    @jwt_required()
+    @login_required
     @profile_ns.response(200, '成功', profile_stats_response)
     @profile_ns.response(401, '未登录', unauthorized_response)
     def get(self):

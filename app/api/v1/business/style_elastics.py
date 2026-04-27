@@ -9,6 +9,7 @@ from app.utils.response import ApiResponse
 from app.schemas.business.style_elastic import StyleElasticSchema, StyleElasticCreateSchema, StyleElasticUpdateSchema
 from marshmallow import ValidationError
 from app.api.v1.shared_models import get_shared_models
+from app.utils.permissions import login_required
 
 style_elastic_ns = Namespace('style-elastics', description='款号橡筋管理')
 
@@ -68,7 +69,7 @@ def get_size_name(size_id):
 
 @style_elastic_ns.route('')
 class StyleElasticList(Resource):
-    @jwt_required()
+    @login_required
     @style_elastic_ns.expect(style_elastic_query_parser)
     @style_elastic_ns.response(200, '成功', style_elastic_list_response)
     @style_elastic_ns.response(401, '未登录', unauthorized_response)
@@ -113,7 +114,7 @@ class StyleElasticList(Resource):
             'pages': pagination.pages
         })
 
-    @jwt_required()
+    @login_required
     @style_elastic_ns.expect(style_elastic_ns.model('StyleElasticCreate', {
         'style_id': fields.Integer(required=True),
         'size_id': fields.Integer(),
@@ -165,7 +166,7 @@ class StyleElasticList(Resource):
 
 @style_elastic_ns.route('/<int:elastic_id>')
 class StyleElasticDetail(Resource):
-    @jwt_required()
+    @login_required
     @style_elastic_ns.response(200, '成功', style_elastic_item_response)
     @style_elastic_ns.response(404, '不存在', error_response)
     def get(self, elastic_id):
@@ -185,7 +186,7 @@ class StyleElasticDetail(Resource):
 
         return ApiResponse.success(result)
 
-    @jwt_required()
+    @login_required
     @style_elastic_ns.expect(style_elastic_ns.model('StyleElasticUpdate', {
         'size_id': fields.Integer(),
         'elastic_type': fields.String(),
@@ -234,7 +235,7 @@ class StyleElasticDetail(Resource):
 
         return ApiResponse.success(result, '更新成功')
 
-    @jwt_required()
+    @login_required
     @style_elastic_ns.response(200, '删除成功', base_response)
     @style_elastic_ns.response(404, '不存在', error_response)
     def delete(self, elastic_id):

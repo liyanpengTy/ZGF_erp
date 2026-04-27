@@ -10,6 +10,7 @@ from app.schemas.auth.user import UserLoginSchema
 from app.utils.logger import log_login
 from app.api.v1.shared_models import get_shared_models
 from datetime import datetime
+from app.utils.permissions import login_required
 
 auth_ns = Namespace('auth', description='认证管理')
 
@@ -253,7 +254,7 @@ class RefreshToken(Resource):
 
 @auth_ns.route('/userinfo')
 class UserInfo(Resource):
-    @jwt_required()
+    @login_required
     @auth_ns.response(200, '获取成功', user_info_response)
     @auth_ns.response(401, '未登录或token无效', unauthorized_response)
     def get(self):
@@ -275,7 +276,7 @@ class UserInfo(Resource):
 @auth_ns.route('/switch-factory')
 class SwitchFactory(Resource):
     """用户关联了多个工厂时，切换到当前工厂"""
-    @jwt_required()
+    @login_required
     @auth_ns.expect(switch_factory_model)
     @auth_ns.response(200, '切换成功', login_response)
     @auth_ns.response(400, '参数错误', error_response)
@@ -349,7 +350,7 @@ class SwitchFactory(Resource):
 
 @auth_ns.route('/my-factories')
 class MyFactories(Resource):
-    @jwt_required()
+    @login_required
     @auth_ns.response(200, '获取成功', base_response)
     @auth_ns.response(401, '未登录', unauthorized_response)
     def get(self):
@@ -363,7 +364,7 @@ class MyFactories(Resource):
 
 @auth_ns.route('/logout')
 class Logout(Resource):
-    @jwt_required()
+    @login_required
     @auth_ns.response(200, '登出成功', base_response)
     def post(self):
         return ApiResponse.success(message='登出成功')

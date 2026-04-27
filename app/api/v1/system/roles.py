@@ -10,6 +10,7 @@ from app.utils.response import ApiResponse
 from app.schemas.system.role import RoleSchema, RoleCreateSchema, RoleUpdateSchema, RoleAssignMenuSchema
 from marshmallow import ValidationError
 from app.api.v1.shared_models import get_shared_models
+from app.utils.permissions import login_required
 
 role_ns = Namespace('roles', description='角色管理')
 
@@ -95,7 +96,7 @@ role_assign_menu_schema = RoleAssignMenuSchema()
 
 @role_ns.route('')
 class RoleList(Resource):
-    @jwt_required()
+    @login_required
     @role_ns.expect(role_query_parser)
     @role_ns.response(200, '成功', role_list_response)
     @role_ns.response(401, '未登录', unauthorized_response)
@@ -146,7 +147,7 @@ class RoleList(Resource):
             'pages': pagination.pages
         })
 
-    @jwt_required()
+    @login_required
     @role_ns.expect(role_create_model)
     @role_ns.response(201, '创建成功', role_item_response)
     @role_ns.response(400, '参数错误', error_response)
@@ -193,7 +194,7 @@ class RoleList(Resource):
 
 @role_ns.route('/<int:role_id>')
 class RoleDetail(Resource):
-    @jwt_required()
+    @login_required
     @role_ns.response(200, '成功', role_item_response)
     @role_ns.response(404, '角色不存在', error_response)
     def get(self, role_id):
@@ -216,7 +217,7 @@ class RoleDetail(Resource):
 
         return ApiResponse.success(role_schema.dump(role))
 
-    @jwt_required()
+    @login_required
     @role_ns.expect(role_update_model)
     @role_ns.response(200, '更新成功', role_item_response)
     @role_ns.response(404, '角色不存在', error_response)
@@ -257,7 +258,7 @@ class RoleDetail(Resource):
 
         return ApiResponse.success(role_schema.dump(role), '更新成功')
 
-    @jwt_required()
+    @login_required
     @role_ns.response(200, '删除成功', base_response)
     @role_ns.response(404, '角色不存在', error_response)
     @role_ns.response(403, '无权限', forbidden_response)
@@ -286,7 +287,7 @@ class RoleDetail(Resource):
 
 @role_ns.route('/<int:role_id>/menus')
 class RoleMenus(Resource):
-    @jwt_required()
+    @login_required
     @role_ns.response(200, '成功', menu_ids_response)
     @role_ns.response(404, '角色不存在', error_response)
     def get(self, role_id):
@@ -311,7 +312,7 @@ class RoleMenus(Resource):
 
         return ApiResponse.success(menu_ids)
 
-    @jwt_required()
+    @login_required
     @role_ns.expect(role_assign_menu_model)
     @role_ns.response(200, '分配成功', base_response)
     @role_ns.response(404, '角色或菜单不存在', error_response)
@@ -352,7 +353,7 @@ class RoleMenus(Resource):
 
 @role_ns.route('/<int:role_id>/users')
 class RoleUsers(Resource):
-    @jwt_required()
+    @login_required
     @role_ns.response(200, '成功', role_users_response)
     @role_ns.response(404, '角色不存在', error_response)
     def get(self, role_id):

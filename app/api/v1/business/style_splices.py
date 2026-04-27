@@ -9,6 +9,7 @@ from app.utils.response import ApiResponse
 from app.schemas.business.style_splice import StyleSpliceSchema, StyleSpliceCreateSchema, StyleSpliceUpdateSchema
 from app.api.v1.shared_models import get_shared_models
 from marshmallow import ValidationError
+from app.utils.permissions import login_required
 
 style_splice_ns = Namespace('style-splices', description='款号拼接管理')
 
@@ -86,7 +87,7 @@ def get_material_info(material_id, splice_type):
 
 @style_splice_ns.route('')
 class StyleSpliceList(Resource):
-    @jwt_required()
+    @login_required
     @style_splice_ns.expect(style_splice_query_parser)
     @style_splice_ns.response(200, '成功', style_splice_list_response)
     @style_splice_ns.response(401, '未登录', unauthorized_response)
@@ -131,7 +132,7 @@ class StyleSpliceList(Resource):
             'pages': pagination.pages
         })
 
-    @jwt_required()
+    @login_required
     @style_splice_ns.expect(style_splice_ns.model('StyleSpliceCreate', {
         'style_id': fields.Integer(required=True),
         'splice_type': fields.String(required=True),
@@ -186,7 +187,7 @@ class StyleSpliceList(Resource):
 
 @style_splice_ns.route('/<int:splice_id>')
 class StyleSpliceDetail(Resource):
-    @jwt_required()
+    @login_required
     @style_splice_ns.response(200, '成功', style_splice_item_response)
     @style_splice_ns.response(404, '不存在', error_response)
     def get(self, splice_id):
@@ -206,7 +207,7 @@ class StyleSpliceDetail(Resource):
 
         return ApiResponse.success(result)
 
-    @jwt_required()
+    @login_required
     @style_splice_ns.expect(style_splice_ns.model('StyleSpliceUpdate', {
         'splice_type': fields.String(),
         'material_id': fields.Integer(),
@@ -254,7 +255,7 @@ class StyleSpliceDetail(Resource):
 
         return ApiResponse.success(result, '更新成功')
 
-    @jwt_required()
+    @login_required
     @style_splice_ns.response(200, '删除成功', base_response)
     @style_splice_ns.response(404, '不存在', error_response)
     def delete(self, splice_id):

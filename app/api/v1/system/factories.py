@@ -11,6 +11,7 @@ from app.schemas.auth.user import UserSchema
 from marshmallow import ValidationError
 from datetime import datetime
 from app.api.v1.shared_models import get_shared_models
+from app.utils.permissions import login_required
 
 factory_ns = Namespace('factories', description='工厂管理')
 
@@ -142,7 +143,7 @@ user_schema = UserSchema()
 
 @factory_ns.route('')
 class FactoryList(Resource):
-    @jwt_required()
+    @login_required
     @factory_ns.expect(factory_query_parser)
     @factory_ns.response(200, '成功', factory_list_response)
     @factory_ns.response(401, '未登录', unauthorized_response)
@@ -181,7 +182,7 @@ class FactoryList(Resource):
             'pages': pagination.pages
         })
 
-    @jwt_required()
+    @login_required
     @factory_ns.expect(factory_create_model)
     @factory_ns.response(201, '创建成功', factory_create_response)
     @factory_ns.response(400, '参数错误', error_response)
@@ -244,7 +245,7 @@ class FactoryList(Resource):
 
 @factory_ns.route('/<int:factory_id>')
 class FactoryDetail(Resource):
-    @jwt_required()
+    @login_required
     @factory_ns.response(200, '成功', factory_item_response)
     @factory_ns.response(404, '工厂不存在', error_response)
     def get(self, factory_id):
@@ -267,7 +268,7 @@ class FactoryDetail(Resource):
 
         return ApiResponse.success(factory_schema.dump(factory))
 
-    @jwt_required()
+    @login_required
     @factory_ns.expect(factory_update_model)
     @factory_ns.response(200, '更新成功', factory_item_response)
     @factory_ns.response(404, '工厂不存在', error_response)
@@ -306,7 +307,7 @@ class FactoryDetail(Resource):
 
         return ApiResponse.success(factory_schema.dump(factory), '更新成功')
 
-    @jwt_required()
+    @login_required
     @factory_ns.response(200, '删除成功', base_response)
     @factory_ns.response(404, '工厂不存在', error_response)
     @factory_ns.response(403, '只有管理员可以删除', forbidden_response)
@@ -335,7 +336,7 @@ class FactoryDetail(Resource):
 
 @factory_ns.route('/<int:factory_id>/users')
 class FactoryUsers(Resource):
-    @jwt_required()
+    @login_required
     @factory_ns.expect(factory_user_query_parser)
     @factory_ns.response(200, '成功', user_list_response)
     @factory_ns.response(404, '工厂不存在', error_response)
@@ -416,7 +417,7 @@ class FactoryUsers(Resource):
             'pages': pagination.pages
         })
 
-    @jwt_required()
+    @login_required
     @factory_ns.expect(add_user_model)
     @factory_ns.response(200, '添加成功', user_item_response)
     @factory_ns.response(403, '只有管理员可以添加', forbidden_response)
@@ -475,7 +476,7 @@ class FactoryUsers(Resource):
 
 @factory_ns.route('/<int:factory_id>/users/<int:user_id>')
 class FactoryUserDetail(Resource):
-    @jwt_required()
+    @login_required
     @factory_ns.response(200, '移除成功', base_response)
     @factory_ns.response(403, '只有管理员可以移除', forbidden_response)
     @factory_ns.response(404, '关联不存在', error_response)

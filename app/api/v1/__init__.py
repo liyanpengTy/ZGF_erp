@@ -28,40 +28,40 @@ api = Api(bp, doc='/docs', title='ZGF ERP PC端API', version='1.0',
           description='ZGF ERP 系统 PC 端 API 文档')
 
 
-# JWT 错误处理 - 修复版本
-@api.errorhandler(NoAuthorizationError)
-def handle_no_auth(error):
-    """缺少token"""
-    response, status_code = ApiResponse.unauthorized('请先登录获取token')
-    return response, status_code
-
-
-@api.errorhandler(DecodeError)
-def handle_decode_error(error):
-    """token格式错误"""
-    response, status_code = ApiResponse.unauthorized('Token格式错误，请重新登录')
-    return response, status_code
-
-
-@api.errorhandler(JWTExtendedException)
-def handle_jwt_error(error):
-    """token过期或其他JWT错误"""
-    if "Expired" in str(error):
-        response, status_code = ApiResponse.unauthorized('登录已过期，请重新登录')
-    else:
-        response, status_code = ApiResponse.unauthorized('认证失败')
-    return response, status_code
-
-
-@api.errorhandler(Exception)
-def handle_all_errors(error):
-    """其他所有异常 - 返回详细错误信息便于调试"""
-    # 打印日志便于调试
-    import traceback
-    traceback.print_exc()
-
-    response, status_code = ApiResponse.error(f'服务器错误: {str(error)}', 500)
-    return response, status_code
+# # JWT 错误处理 - 修复版本
+# @api.errorhandler(NoAuthorizationError)
+# def handle_no_auth(error):
+#     """缺少token"""
+#     response, status_code = ApiResponse.unauthorized('请先登录获取token')
+#     return response, status_code
+#
+#
+# @api.errorhandler(DecodeError)
+# def handle_decode_error(error):
+#     """token格式错误"""
+#     response, status_code = ApiResponse.unauthorized('Token格式错误，请重新登录')
+#     return response, status_code
+#
+#
+# @api.errorhandler(JWTExtendedException)
+# def handle_jwt_error(error):
+#     """token过期或其他JWT错误"""
+#     if "Expired" in str(error):
+#         response, status_code = ApiResponse.unauthorized('登录已过期，请重新登录')
+#     else:
+#         response, status_code = ApiResponse.unauthorized('认证失败')
+#     return response, status_code
+#
+#
+# @api.errorhandler(Exception)
+# def handle_all_errors(error):
+#     """其他所有异常 - 返回详细错误信息便于调试"""
+#     # 打印日志便于调试
+#     import traceback
+#     traceback.print_exc()
+#
+#     response, status_code = ApiResponse.error(f'服务器错误: {str(error)}', 500)
+#     return response, status_code
 
 
 # 添加所有命名空间

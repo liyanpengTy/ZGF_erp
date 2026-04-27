@@ -7,6 +7,7 @@ from app.utils.response import ApiResponse
 from app.schemas.base_data.size import SizeSchema, SizeCreateSchema, SizeUpdateSchema
 from app.api.v1.shared_models import get_shared_models
 from marshmallow import ValidationError
+from app.utils.permissions import login_required
 
 size_ns = Namespace('sizes', description='尺码管理')
 
@@ -58,7 +59,7 @@ size_update_schema = SizeUpdateSchema()
 
 @size_ns.route('')
 class SizeList(Resource):
-    @jwt_required()
+    @login_required
     @size_ns.expect(size_query_parser)
     @size_ns.response(200, '成功', size_list_response)
     @size_ns.response(401, '未登录', unauthorized_response)
@@ -101,7 +102,7 @@ class SizeList(Resource):
             'pages': pagination.pages
         })
 
-    @jwt_required()
+    @login_required
     @size_ns.expect(size_ns.model('SizeCreate', {
         'name': fields.String(required=True),
         'code': fields.String(required=True),
@@ -144,7 +145,7 @@ class SizeList(Resource):
 
 @size_ns.route('/<int:size_id>')
 class SizeDetail(Resource):
-    @jwt_required()
+    @login_required
     @size_ns.response(200, '成功', size_item_response)
     @size_ns.response(404, '不存在', error_response)
     def get(self, size_id):
@@ -160,7 +161,7 @@ class SizeDetail(Resource):
 
         return ApiResponse.success(size_schema.dump(size))
 
-    @jwt_required()
+    @login_required
     @size_ns.expect(size_ns.model('SizeUpdate', {
         'name': fields.String(),
         'sort_order': fields.Integer(),
@@ -195,7 +196,7 @@ class SizeDetail(Resource):
 
         return ApiResponse.success(size_schema.dump(size), '更新成功')
 
-    @jwt_required()
+    @login_required
     @size_ns.response(200, '删除成功', base_response)
     @size_ns.response(404, '不存在', error_response)
     def delete(self, size_id):

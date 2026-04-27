@@ -7,6 +7,7 @@ from app.utils.response import ApiResponse
 from app.schemas.base_data.category import CategorySchema, CategoryCreateSchema, CategoryUpdateSchema
 from marshmallow import ValidationError
 from app.api.v1.shared_models import get_shared_models
+from app.utils.permissions import login_required
 
 category_ns = Namespace('categories', description='分类管理')
 
@@ -77,7 +78,7 @@ def build_category_tree(categories, parent_id=0):
 
 @category_ns.route('')
 class CategoryList(Resource):
-    @jwt_required()
+    @login_required
     @category_ns.expect(category_query_parser)
     @category_ns.response(200, '成功', category_list_response)
     @category_ns.response(401, '未登录', unauthorized_response)
@@ -123,7 +124,7 @@ class CategoryList(Resource):
             'pages': pagination.pages
         })
 
-    @jwt_required()
+    @login_required
     @category_ns.response(201, '创建成功', category_item_response)
     @category_ns.response(400, '参数错误', error_response)
     @category_ns.response(409, '编码已存在', error_response)
@@ -167,7 +168,7 @@ class CategoryList(Resource):
 
 @category_ns.route('/tree')
 class CategoryTree(Resource):
-    @jwt_required()
+    @login_required
     @category_ns.response(200, '成功', category_tree_response)
     @category_ns.response(401, '未登录', unauthorized_response)
     def get(self):
@@ -188,7 +189,7 @@ class CategoryTree(Resource):
 
 @category_ns.route('/<int:category_id>')
 class CategoryDetail(Resource):
-    @jwt_required()
+    @login_required
     @category_ns.response(200, '成功', category_item_response)
     @category_ns.response(404, '不存在', error_response)
     def get(self, category_id):
@@ -204,7 +205,7 @@ class CategoryDetail(Resource):
 
         return ApiResponse.success(category_schema.dump(category))
 
-    @jwt_required()
+    @login_required
     @category_ns.response(200, '更新成功', category_item_response)
     @category_ns.response(404, '不存在', error_response)
     def put(self, category_id):
@@ -238,7 +239,7 @@ class CategoryDetail(Resource):
 
         return ApiResponse.success(category_schema.dump(category), '更新成功')
 
-    @jwt_required()
+    @login_required
     @category_ns.response(200, '删除成功', base_response)
     @category_ns.response(404, '不存在', error_response)
     def delete(self, category_id):

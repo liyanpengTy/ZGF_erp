@@ -10,6 +10,7 @@ from app.utils.response import ApiResponse
 from app.schemas.auth.user import UserSchema, UserCreateSchema, UserUpdateSchema, UserResetPasswordSchema
 from marshmallow import ValidationError
 from app.api.v1.shared_models import get_shared_models
+from app.utils.permissions import login_required
 
 user_ns = Namespace('users', description='用户管理')
 
@@ -85,7 +86,7 @@ user_reset_password_schema = UserResetPasswordSchema()
 
 @user_ns.route('')
 class UserList(Resource):
-    @jwt_required()
+    @login_required
     @user_ns.expect(user_query_parser)
     @user_ns.response(200, '成功', user_list_response)
     @user_ns.response(401, '未登录', unauthorized_response)
@@ -93,8 +94,11 @@ class UserList(Resource):
         args = user_query_parser.parse_args()
 
         identity = get_jwt_identity()
+        print(identity)
         current_user_id = identity.get('user_id') if isinstance(identity, dict) else int(identity)
+        print(current_user_id)
         current_user = User.query.filter_by(id=current_user_id, is_deleted=0).first()
+        print(current_user)
 
         if not current_user:
             return ApiResponse.error('用户不存在')
@@ -138,7 +142,7 @@ class UserList(Resource):
             'pages': pagination.pages
         })
 
-    @jwt_required()
+    @login_required
     @user_ns.expect(user_create_model)
     @user_ns.response(201, '创建成功', user_item_response)
     @user_ns.response(400, '参数错误', error_response)
@@ -179,7 +183,7 @@ class UserList(Resource):
 
 @user_ns.route('/<int:user_id>')
 class UserDetail(Resource):
-    @jwt_required()
+    @login_required
     @user_ns.response(200, '成功', user_item_response)
     @user_ns.response(404, '用户不存在', error_response)
     def get(self, user_id):
@@ -197,7 +201,7 @@ class UserDetail(Resource):
 
         return ApiResponse.success(user_schema.dump(user))
 
-    @jwt_required()
+    @login_required
     @user_ns.expect(user_update_model)
     @user_ns.response(200, '更新成功', user_item_response)
     @user_ns.response(404, '用户不存在', error_response)
@@ -230,7 +234,7 @@ class UserDetail(Resource):
 
         return ApiResponse.success(user_schema.dump(user), '更新成功')
 
-    @jwt_required()
+    @login_required
     @user_ns.response(200, '删除成功', base_response)
     @user_ns.response(404, '用户不存在', error_response)
     @user_ns.response(403, '不能删除自己', forbidden_response)
@@ -256,7 +260,7 @@ class UserDetail(Resource):
 
 @user_ns.route('/<int:user_id>/reset-password')
 class UserResetPassword(Resource):
-    @jwt_required()
+    @login_required
     @user_ns.expect(user_reset_password_model)
     @user_ns.response(200, '重置成功', base_response)
     @user_ns.response(404, '用户不存在', error_response)
@@ -286,7 +290,7 @@ class UserResetPassword(Resource):
 
 @user_ns.route('/<int:user_id>/roles')
 class UserRoles(Resource):
-    @jwt_required()
+    @login_required
     @user_ns.response(200, '成功', base_response)
     @user_ns.response(404, '用户不存在', error_response)
     def get(self, user_id):
@@ -311,7 +315,7 @@ class UserRoles(Resource):
 
         return ApiResponse.success(role_schema.dump(roles, many=True))
 
-    @jwt_required()
+    @login_required
     @user_ns.expect(user_assign_roles_model)
     @user_ns.response(200, '分配成功', base_response)
     @user_ns.response(403, '无权限', forbidden_response)

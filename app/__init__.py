@@ -20,14 +20,13 @@ def create_app():
     bcrypt.init_app(app)
     cors.init_app(app, supports_credentials=True, origins='*')
 
+    # 在 jwt.init_app 之后注册回调
     # 注册蓝图
     from app.api.v1 import bp as v1_bp
     app.register_blueprint(v1_bp)
 
     # 注册命令行命令
     register_commands(app)
-
-    # ========== Flask 应用级别的错误处理 ==========
 
     @app.errorhandler(404)
     def not_found(error):

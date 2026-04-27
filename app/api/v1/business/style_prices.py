@@ -9,6 +9,7 @@ from app.schemas.business.style_price import StylePriceSchema, StylePriceCreateS
 from app.api.v1.shared_models import get_shared_models
 from marshmallow import ValidationError
 from datetime import datetime
+from app.utils.permissions import login_required
 
 style_price_ns = Namespace('style-prices', description='款号价格管理')
 
@@ -68,7 +69,7 @@ style_price_create_schema = StylePriceCreateSchema()
 
 @style_price_ns.route('')
 class StylePriceList(Resource):
-    @jwt_required()
+    @login_required
     @style_price_ns.expect(style_price_query_parser)
     @style_price_ns.response(200, '成功', style_price_list_response)
     @style_price_ns.response(401, '未登录', unauthorized_response)
@@ -113,7 +114,7 @@ class StylePriceList(Resource):
             'pages': pagination.pages
         })
 
-    @jwt_required()
+    @login_required
     @style_price_ns.expect(style_price_ns.model('StylePriceCreate', {
         'price_type': fields.String(required=True),
         'price': fields.Float(required=True),
@@ -161,7 +162,7 @@ class StylePriceList(Resource):
 
 @style_price_ns.route('/<int:price_id>')
 class StylePriceDetail(Resource):
-    @jwt_required()
+    @login_required
     @style_price_ns.response(200, '成功', style_price_item_response)
     @style_price_ns.response(404, '不存在', error_response)
     def get(self, price_id):
@@ -181,7 +182,7 @@ class StylePriceDetail(Resource):
 
         return ApiResponse.success(result)
 
-    @jwt_required()
+    @login_required
     @style_price_ns.response(200, '删除成功', base_response)
     @style_price_ns.response(404, '不存在', error_response)
     def delete(self, price_id):

@@ -6,6 +6,7 @@ import psutil
 import platform
 from datetime import datetime
 from app.api.v1.shared_models import get_shared_models
+from app.utils.permissions import login_required
 
 monitor_ns = Namespace('monitor', description='服务监控')
 
@@ -46,7 +47,7 @@ def format_uptime(seconds):
 
 @monitor_ns.route('/info')
 class MonitorInfo(Resource):
-    @jwt_required()
+    @login_required
     @monitor_ns.response(200, '成功', monitor_response)
     @monitor_ns.response(401, '未登录', unauthorized_response)
     def get(self):
@@ -119,7 +120,7 @@ class MonitorInfo(Resource):
 
 @monitor_ns.route('/cpu')
 class CpuMonitor(Resource):
-    @jwt_required()
+    @login_required
     @monitor_ns.response(200, '成功', base_response)
     @monitor_ns.response(401, '未登录', unauthorized_response)
     def get(self):
@@ -142,7 +143,7 @@ class CpuMonitor(Resource):
 
 @monitor_ns.route('/memory')
 class MemoryMonitor(Resource):
-    @jwt_required()
+    @login_required
     @monitor_ns.response(200, '成功', base_response)
     @monitor_ns.response(401, '未登录', unauthorized_response)
     def get(self):
@@ -168,7 +169,7 @@ class MemoryMonitor(Resource):
 
 @monitor_ns.route('/disk')
 class DiskMonitor(Resource):
-    @jwt_required()
+    @login_required
     @monitor_ns.response(200, '成功', base_response)
     @monitor_ns.response(401, '未登录', unauthorized_response)
     def get(self):
@@ -194,7 +195,7 @@ class DiskMonitor(Resource):
 
 @monitor_ns.route('/system')
 class SystemMonitor(Resource):
-    @jwt_required()
+    @login_required
     @monitor_ns.response(200, '成功', base_response)
     @monitor_ns.response(401, '未登录', unauthorized_response)
     def get(self):

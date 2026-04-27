@@ -10,6 +10,7 @@ from app.utils.response import ApiResponse
 from app.schemas.system.menu import MenuSchema, MenuCreateSchema, MenuUpdateSchema
 from marshmallow import ValidationError
 from app.api.v1.shared_models import get_shared_models
+from app.utils.permissions import login_required
 
 menu_ns = Namespace('menus', description='菜单管理')
 
@@ -92,7 +93,7 @@ def build_menu_tree(menus, parent_id=0):
 
 @menu_ns.route('')
 class MenuList(Resource):
-    @jwt_required()
+    @login_required
     @menu_ns.expect(menu_query_parser)
     @menu_ns.response(200, '成功', menu_list_response)
     @menu_ns.response(401, '未登录', unauthorized_response)
@@ -124,7 +125,7 @@ class MenuList(Resource):
 
         return ApiResponse.success(menu_tree)
 
-    @jwt_required()
+    @login_required
     @menu_ns.expect(menu_create_model)
     @menu_ns.response(201, '创建成功', menu_item_response)
     @menu_ns.response(400, '参数错误', error_response)
@@ -165,7 +166,7 @@ class MenuList(Resource):
 
 @menu_ns.route('/<int:menu_id>')
 class MenuDetail(Resource):
-    @jwt_required()
+    @login_required
     @menu_ns.response(200, '成功', menu_item_response)
     @menu_ns.response(404, '菜单不存在', error_response)
     def get(self, menu_id):
@@ -182,7 +183,7 @@ class MenuDetail(Resource):
 
         return ApiResponse.success(menu_schema.dump(menu))
 
-    @jwt_required()
+    @login_required
     @menu_ns.expect(menu_update_model)
     @menu_ns.response(200, '更新成功', menu_item_response)
     @menu_ns.response(404, '菜单不存在', error_response)
@@ -234,7 +235,7 @@ class MenuDetail(Resource):
 
         return ApiResponse.success(menu_schema.dump(menu), '更新成功')
 
-    @jwt_required()
+    @login_required
     @menu_ns.response(200, '删除成功', base_response)
     @menu_ns.response(404, '菜单不存在', error_response)
     @menu_ns.response(403, '只有管理员可以删除', forbidden_response)
@@ -266,7 +267,7 @@ class MenuDetail(Resource):
 
 @menu_ns.route('/tree')
 class MenuTree(Resource):
-    @jwt_required()
+    @login_required
     @menu_ns.response(200, '成功', menu_list_response)
     @menu_ns.response(401, '未登录', unauthorized_response)
     def get(self):
@@ -285,7 +286,7 @@ class MenuTree(Resource):
 
 @menu_ns.route('/user-menus')
 class UserMenus(Resource):
-    @jwt_required()
+    @login_required
     @menu_ns.response(200, '成功', menu_list_response)
     @menu_ns.response(401, '未登录', unauthorized_response)
     def get(self):

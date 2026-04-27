@@ -8,6 +8,7 @@ from app.utils.response import ApiResponse
 from app.schemas.business.style_process import StyleProcessSchema, StyleProcessCreateSchema, StyleProcessUpdateSchema
 from app.api.v1.shared_models import get_shared_models
 from marshmallow import ValidationError
+from app.utils.permissions import login_required
 
 style_process_ns = Namespace('style-processes', description='款号工艺管理')
 
@@ -65,7 +66,7 @@ style_process_update_schema = StyleProcessUpdateSchema()
 
 @style_process_ns.route('')
 class StyleProcessList(Resource):
-    @jwt_required()
+    @login_required
     @style_process_ns.expect(style_process_query_parser)
     @style_process_ns.response(200, '成功', style_process_list_response)
     @style_process_ns.response(401, '未登录', unauthorized_response)
@@ -110,7 +111,7 @@ class StyleProcessList(Resource):
             'pages': pagination.pages
         })
 
-    @jwt_required()
+    @login_required
     @style_process_ns.expect(style_process_ns.model('StyleProcessCreate', {
         'style_id': fields.Integer(required=True),
         'process_type': fields.String(required=True),
@@ -153,7 +154,7 @@ class StyleProcessList(Resource):
 
 @style_process_ns.route('/<int:process_id>')
 class StyleProcessDetail(Resource):
-    @jwt_required()
+    @login_required
     @style_process_ns.response(200, '成功', style_process_item_response)
     @style_process_ns.response(404, '不存在', error_response)
     def get(self, process_id):
@@ -173,7 +174,7 @@ class StyleProcessDetail(Resource):
 
         return ApiResponse.success(result)
 
-    @jwt_required()
+    @login_required
     @style_process_ns.expect(style_process_ns.model('StyleProcessUpdate', {
         'process_type': fields.String(),
         'process_name': fields.String(),
@@ -212,7 +213,7 @@ class StyleProcessDetail(Resource):
 
         return ApiResponse.success(result, '更新成功')
 
-    @jwt_required()
+    @login_required
     @style_process_ns.response(200, '删除成功', base_response)
     @style_process_ns.response(404, '不存在', error_response)
     def delete(self, process_id):

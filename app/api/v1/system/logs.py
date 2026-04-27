@@ -7,6 +7,7 @@ from app.models.system.user_factory import UserFactory
 from app.utils.response import ApiResponse
 from app.schemas.system.log import OperationLogSchema, LoginLogSchema
 from app.api.v1.shared_models import get_shared_models
+from app.utils.permissions import login_required
 
 log_ns = Namespace('logs', description='日志管理')
 
@@ -100,7 +101,7 @@ def get_user_factory_ids(user_id):
 
 @log_ns.route('/operation')
 class OperationLogList(Resource):
-    @jwt_required()
+    @login_required
     @log_ns.expect(operation_log_query_parser)
     @log_ns.response(200, '成功', log_list_response)
     @log_ns.response(401, '未登录', unauthorized_response)
@@ -164,7 +165,7 @@ class OperationLogList(Resource):
 
 @log_ns.route('/operation/<int:log_id>')
 class OperationLogDetail(Resource):
-    @jwt_required()
+    @login_required
     @log_ns.response(200, '成功', base_response)
     @log_ns.response(404, '日志不存在', error_response)
     def get(self, log_id):
@@ -189,7 +190,7 @@ class OperationLogDetail(Resource):
 
 @log_ns.route('/login')
 class LoginLogList(Resource):
-    @jwt_required()
+    @login_required
     @log_ns.expect(login_log_query_parser)
     @log_ns.response(200, '成功', log_list_response)
     @log_ns.response(401, '未登录', unauthorized_response)
@@ -253,7 +254,7 @@ class LoginLogList(Resource):
 
 @log_ns.route('/login/<int:log_id>')
 class LoginLogDetail(Resource):
-    @jwt_required()
+    @login_required
     @log_ns.response(200, '成功', base_response)
     @log_ns.response(404, '日志不存在', error_response)
     def get(self, log_id):
@@ -273,7 +274,7 @@ class LoginLogDetail(Resource):
 
 @log_ns.route('/stats')
 class LogStats(Resource):
-    @jwt_required()
+    @login_required
     @log_ns.response(200, '成功', stats_response)
     @log_ns.response(401, '未登录', unauthorized_response)
     def get(self):
