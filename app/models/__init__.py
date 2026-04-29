@@ -13,7 +13,6 @@ from app.models.business.style import Style
 from app.models.business.style_price import StylePrice
 from app.models.business.style_process import StyleProcess
 from app.models.business.style_elastic import StyleElastic
-from app.models.business.style_splice import StyleSplice
 
 __all__ = [
     'BaseModel',
@@ -33,5 +32,4 @@ __all__ = [
     'StylePrice',
     'StyleProcess',
     'StyleElastic',
-    'StyleSplice',
 ]

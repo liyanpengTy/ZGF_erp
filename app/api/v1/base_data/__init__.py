@@ -1,6 +1,6 @@
-from flask import Blueprint
-from app.api.v1.base_data.sizes import size_ns
+"""基础数据接口模块"""
 from app.api.v1.base_data.categories import category_ns
 from app.api.v1.base_data.colors import color_ns
+from app.api.v1.base_data.sizes import size_ns
 
-bp = Blueprint('base_data', __name__, url_prefix='/base_data')
+__all__ = ['category_ns', 'color_ns', 'size_ns']

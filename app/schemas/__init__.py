@@ -11,7 +11,6 @@ from app.schemas.business.style import StyleSchema, StyleCreateSchema, StyleUpda
 from app.schemas.business.style_price import StylePriceSchema, StylePriceCreateSchema
 from app.schemas.business.style_process import StyleProcessSchema, StyleProcessCreateSchema, StyleProcessUpdateSchema
 from app.schemas.business.style_elastic import StyleElasticSchema, StyleElasticCreateSchema, StyleElasticUpdateSchema
-from app.schemas.business.style_splice import StyleSpliceSchema, StyleSpliceCreateSchema, StyleSpliceUpdateSchema
 from app.schemas.profile.profile import ProfileUpdateSchema, PasswordChangeSchema
 
 __all__ = [
@@ -28,6 +27,5 @@ __all__ = [
     'StylePriceSchema', 'StylePriceCreateSchema',
     'StyleProcessSchema', 'StyleProcessCreateSchema', 'StyleProcessUpdateSchema',
     'StyleElasticSchema', 'StyleElasticCreateSchema', 'StyleElasticUpdateSchema',
-    'StyleSpliceSchema', 'StyleSpliceCreateSchema', 'StyleSpliceUpdateSchema',
     'ProfileUpdateSchema', 'PasswordChangeSchema',
 ]

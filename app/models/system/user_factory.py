@@ -15,7 +15,7 @@ class UserFactory(BaseModel):
     user_id = db.Column(db.Integer, db.ForeignKey('sys_user.id'), nullable=False, comment='用户ID')
     factory_id = db.Column(db.Integer, db.ForeignKey('sys_factory.id'), nullable=False, comment='工厂ID')
     relation_type = db.Column(db.String(20), nullable=False,
-                              comment='关系类型：employee-员工，customer-客户，collaborator-协作用户')
+                              comment='关系类型：owner-工厂主体账号，employee-员工，customer-客户，collaborator-协作用户')
     status = db.Column(db.SmallInteger, default=1, comment='关联状态：1-在职/有效，0-离职/无效')
     entry_date = db.Column(db.Date, comment='入职日期/关联日期')
     leave_date = db.Column(db.Date, comment='离职日期/解除日期')

@@ -1,13 +1,10 @@
+"""日志管理接口"""
 from flask_restx import Namespace, Resource, fields
-from flask_jwt_extended import jwt_required, get_jwt_identity
-from app.extensions import db
-from app.models.auth.user import User
-from app.models.system.log import OperationLog, LoginLog
-from app.models.system.user_factory import UserFactory
 from app.utils.response import ApiResponse
-from app.schemas.system.log import OperationLogSchema, LoginLogSchema
 from app.api.v1.shared_models import get_shared_models
 from app.utils.permissions import login_required
+from app.services import AuthService, LogService
+from app.schemas.system.log import OperationLogSchema, LoginLogSchema
 
 log_ns = Namespace('logs', description='日志管理')
 
@@ -17,6 +14,7 @@ error_response = shared['error_response']
 unauthorized_response = shared['unauthorized_response']
 forbidden_response = shared['forbidden_response']
 
+# ========== 请求解析器 ==========
 operation_log_query_parser = log_ns.parser()
 operation_log_query_parser.add_argument('page', type=int, default=1, location='args', help='页码')
 operation_log_query_parser.add_argument('page_size', type=int, default=10, location='args', help='每页数量')
@@ -37,6 +35,7 @@ login_log_query_parser.add_argument('start_time', type=str, location='args', hel
 login_log_query_parser.add_argument('end_time', type=str, location='args', help='结束时间（YYYY-MM-DD）')
 login_log_query_parser.add_argument('factory_id', type=int, location='args', help='工厂ID（管理员使用）')
 
+# ========== 响应模型 ==========
 operation_log_item_model = log_ns.model('OperationLogItem', {
     'id': fields.Integer(),
     'user_id': fields.Integer(),
@@ -87,16 +86,17 @@ stats_response = log_ns.clone('StatsResponse', base_response, {
     'data': fields.Nested(stats_data)
 })
 
+# ========== Schema 初始化 ==========
 operation_log_schema = OperationLogSchema()
 operation_logs_schema = OperationLogSchema(many=True)
 login_log_schema = LoginLogSchema()
 login_logs_schema = LoginLogSchema(many=True)
 
 
-def get_user_factory_ids(user_id):
-    """获取用户关联的工厂ID列表"""
-    user_factories = UserFactory.query.filter_by(user_id=user_id, status=1, is_deleted=0).all()
-    return [uf.factory_id for uf in user_factories]
+# ========== 辅助函数 ==========
+def get_current_user():
+    """获取当前登录用户"""
+    return AuthService.get_current_user()
 
 
 @log_ns.route('/operation')
@@ -107,59 +107,19 @@ class OperationLogList(Resource):
     @log_ns.response(401, '未登录', unauthorized_response)
     def get(self):
         args = operation_log_query_parser.parse_args()
-
-        identity = get_jwt_identity()
-        current_user_id = identity.get('user_id') if isinstance(identity, dict) else int(identity)
-        current_user = User.query.filter_by(id=current_user_id, is_deleted=0).first()
+        current_user = get_current_user()
 
         if not current_user:
             return ApiResponse.error('用户不存在')
 
-        page = args['page']
-        page_size = args['page_size']
-        username = args.get('username', '')
-        operation = args.get('operation', '')
-        status = args.get('status')
-        start_time = args.get('start_time', '')
-        end_time = args.get('end_time', '')
-
-        query = OperationLog.query
-
-        # 权限过滤
-        if current_user.is_admin == 1:
-            # 公司内部人员：可以指定工厂ID查看
-            factory_id = args.get('factory_id')
-            if factory_id:
-                query = query.filter_by(factory_id=factory_id)
-        else:
-            # 普通用户：只能查看自己关联工厂的日志
-            factory_ids = get_user_factory_ids(current_user.id)
-            if factory_ids:
-                query = query.filter(OperationLog.factory_id.in_(factory_ids))
-            else:
-                query = query.filter(OperationLog.user_id == current_user.id)
-
-        if username:
-            query = query.filter(OperationLog.username.like(f'%{username}%'))
-        if operation:
-            query = query.filter(OperationLog.operation.like(f'%{operation}%'))
-        if status is not None:
-            query = query.filter_by(status=status)
-        if start_time:
-            query = query.filter(OperationLog.create_time >= start_time)
-        if end_time:
-            query = query.filter(OperationLog.create_time <= end_time)
-
-        pagination = query.order_by(OperationLog.id.desc()).paginate(
-            page=page, per_page=page_size, error_out=False
-        )
+        result = LogService.get_operation_log_list(current_user, args)
 
         return ApiResponse.success({
-            'items': operation_logs_schema.dump(pagination.items),
-            'total': pagination.total,
-            'page': page,
-            'page_size': page_size,
-            'pages': pagination.pages
+            'items': operation_logs_schema.dump(result['items']),
+            'total': result['total'],
+            'page': result['page'],
+            'page_size': result['page_size'],
+            'pages': result['pages']
         })
 
 
@@ -169,21 +129,15 @@ class OperationLogDetail(Resource):
     @log_ns.response(200, '成功', base_response)
     @log_ns.response(404, '日志不存在', error_response)
     def get(self, log_id):
-        identity = get_jwt_identity()
-        current_user_id = identity.get('user_id') if isinstance(identity, dict) else int(identity)
-        current_user = User.query.filter_by(id=current_user_id, is_deleted=0).first()
+        current_user = get_current_user()
 
-        log = OperationLog.query.get(log_id)
+        log = LogService.get_operation_log_by_id(log_id)
         if not log:
             return ApiResponse.error('日志不存在')
 
-        # 权限验证
-        if current_user.is_admin == 1:
-            pass
-        else:
-            factory_ids = get_user_factory_ids(current_user.id)
-            if log.factory_id not in factory_ids and log.user_id != current_user.id:
-                return ApiResponse.error('无权限查看', 403)
+        has_permission, error = LogService.check_operation_log_permission(current_user, log)
+        if not has_permission:
+            return ApiResponse.error(error, 403)
 
         return ApiResponse.success(operation_log_schema.dump(log))
 
@@ -196,59 +150,19 @@ class LoginLogList(Resource):
     @log_ns.response(401, '未登录', unauthorized_response)
     def get(self):
         args = login_log_query_parser.parse_args()
-
-        identity = get_jwt_identity()
-        current_user_id = identity.get('user_id') if isinstance(identity, dict) else int(identity)
-        current_user = User.query.filter_by(id=current_user_id, is_deleted=0).first()
+        current_user = get_current_user()
 
         if not current_user:
             return ApiResponse.error('用户不存在')
 
-        page = args['page']
-        page_size = args['page_size']
-        username = args.get('username', '')
-        login_type = args.get('login_type', '')
-        status = args.get('status')
-        start_time = args.get('start_time', '')
-        end_time = args.get('end_time', '')
-
-        query = LoginLog.query
-
-        # 权限过滤
-        if current_user.is_admin == 1:
-            factory_id = args.get('factory_id')
-            if factory_id:
-                # 获取该工厂下的用户ID列表
-                user_ids = db.session.query(UserFactory.user_id).filter_by(
-                    factory_id=factory_id, status=1, is_deleted=0
-                ).all()
-                user_ids = [u[0] for u in user_ids]
-                if user_ids:
-                    query = query.filter(LoginLog.user_id.in_(user_ids))
-        else:
-            query = query.filter_by(user_id=current_user.id)
-
-        if username:
-            query = query.filter(LoginLog.username.like(f'%{username}%'))
-        if login_type:
-            query = query.filter_by(login_type=login_type)
-        if status is not None:
-            query = query.filter_by(status=status)
-        if start_time:
-            query = query.filter(LoginLog.create_time >= start_time)
-        if end_time:
-            query = query.filter(LoginLog.create_time <= end_time)
-
-        pagination = query.order_by(LoginLog.id.desc()).paginate(
-            page=page, per_page=page_size, error_out=False
-        )
+        result = LogService.get_login_log_list(current_user, args)
 
         return ApiResponse.success({
-            'items': login_logs_schema.dump(pagination.items),
-            'total': pagination.total,
-            'page': page,
-            'page_size': page_size,
-            'pages': pagination.pages
+            'items': login_logs_schema.dump(result['items']),
+            'total': result['total'],
+            'page': result['page'],
+            'page_size': result['page_size'],
+            'pages': result['pages']
         })
 
 
@@ -258,16 +172,15 @@ class LoginLogDetail(Resource):
     @log_ns.response(200, '成功', base_response)
     @log_ns.response(404, '日志不存在', error_response)
     def get(self, log_id):
-        identity = get_jwt_identity()
-        current_user_id = identity.get('user_id') if isinstance(identity, dict) else int(identity)
-        current_user = User.query.filter_by(id=current_user_id, is_deleted=0).first()
+        current_user = get_current_user()
 
-        log = LoginLog.query.get(log_id)
+        log = LogService.get_login_log_by_id(log_id)
         if not log:
             return ApiResponse.error('日志不存在')
 
-        if current_user.is_admin != 1 and log.user_id != current_user.id:
-            return ApiResponse.error('无权限查看', 403)
+        has_permission, error = LogService.check_login_log_permission(current_user, log)
+        if not has_permission:
+            return ApiResponse.error(error, 403)
 
         return ApiResponse.success(login_log_schema.dump(log))
 
@@ -278,39 +191,11 @@ class LogStats(Resource):
     @log_ns.response(200, '成功', stats_response)
     @log_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        identity = get_jwt_identity()
-        current_user_id = identity.get('user_id') if isinstance(identity, dict) else int(identity)
-        current_user = User.query.filter_by(id=current_user_id, is_deleted=0).first()
+        current_user = get_current_user()
 
         if not current_user:
             return ApiResponse.error('用户不存在')
 
-        from sqlalchemy import func
+        stats = LogService.get_log_stats(current_user)
 
-        query_op = OperationLog.query
-        query_login = LoginLog.query
-
-        if current_user.is_admin == 1:
-            pass
-        else:
-            factory_ids = get_user_factory_ids(current_user.id)
-            if factory_ids:
-                query_op = query_op.filter(OperationLog.factory_id.in_(factory_ids))
-                query_login = query_login.filter(LoginLog.user_id == current_user.id)
-            else:
-                query_op = query_op.filter_by(user_id=current_user.id)
-                query_login = query_login.filter_by(user_id=current_user.id)
-
-        today = func.date(OperationLog.create_time) == func.current_date()
-        today_op_count = query_op.filter(today).count()
-
-        today_login_count = query_login.filter(today).count()
-        today_success_login = query_login.filter(today, LoginLog.status == 1).count()
-        today_fail_login = query_login.filter(today, LoginLog.status == 0).count()
-
-        return ApiResponse.success({
-            'today_operation_count': today_op_count,
-            'today_login_count': today_login_count,
-            'today_success_login': today_success_login,
-            'today_fail_login': today_fail_login
-        })
+        return ApiResponse.success(stats)

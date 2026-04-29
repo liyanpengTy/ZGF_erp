@@ -17,6 +17,8 @@ class StyleSchema(Schema):
     need_cutting = fields.Int(default=0)
     cutting_reserve = fields.Float(default=0)
     custom_attributes = fields.Dict()
+    is_splice = fields.Int(default=0, validate=validate.OneOf([0, 1]))
+    splice_data = fields.List(fields.Dict(), description='拼接数据，格式：[{"sequence":1,"description":"红色棉麻"}]')
     create_time = fields.DateTime()
     update_time = fields.DateTime()
 
@@ -34,6 +36,8 @@ class StyleCreateSchema(Schema):
     need_cutting = fields.Int(default=0)
     cutting_reserve = fields.Float(default=0)
     custom_attributes = fields.Dict()
+    is_splice = fields.Int(default=0, validate=validate.OneOf([0, 1]))
+    splice_data = fields.List(fields.Dict(), description='拼接数据')
 
 
 class StyleUpdateSchema(Schema):
@@ -50,3 +54,5 @@ class StyleUpdateSchema(Schema):
     need_cutting = fields.Int()
     cutting_reserve = fields.Float()
     custom_attributes = fields.Dict()
+    is_splice = fields.Int(validate=validate.OneOf([0, 1]))
+    splice_data = fields.List(fields.Dict(), description='拼接数据')

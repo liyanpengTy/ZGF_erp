@@ -24,6 +24,8 @@ class Style(BaseModel):
     images = db.Column(db.JSON, comment='产品图片URL列表，JSON数组格式')
     need_cutting = db.Column(db.SmallInteger, default=0, comment='是否需要切捆条：1-是，0-否')
     cutting_reserve = db.Column(db.Numeric(10, 2), default=0, comment='捆条预留长度(厘米)，每件预留多少cm')
+    is_splice = db.Column(db.SmallInteger, default=0, comment='是否拼接款：0-否，1-是')
+    splice_data = db.Column(db.JSON, default=list, comment='拼接数据，格式：[{"sequence":1,"description":"红色棉麻"},{"sequence":2,"description":"绿色梭织"}]')
     custom_attributes = db.Column(db.JSON, comment='自定义属性，JSON格式，如：{"属性名":"属性值"}')
     is_deleted = db.Column(db.SmallInteger, default=0, comment='逻辑删除：0-未删除，1-已删除')
     create_time = db.Column(db.DateTime, default=datetime.now, comment='创建时间')

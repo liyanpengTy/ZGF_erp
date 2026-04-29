@@ -1,4 +1,3 @@
-# 创建管理员/初始化命令
 import click
 from flask.cli import with_appcontext
 from app.extensions import db, bcrypt

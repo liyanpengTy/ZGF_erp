@@ -1,14 +1,14 @@
+"""款号工艺管理接口"""
 from flask_restx import Namespace, Resource, fields
 from flask import request
-from flask_jwt_extended import jwt_required, get_jwt_identity
-from app.models.auth.user import User
-from app.models.business.style import Style
-from app.models.business.style_process import StyleProcess
 from app.utils.response import ApiResponse
-from app.schemas.business.style_process import StyleProcessSchema, StyleProcessCreateSchema, StyleProcessUpdateSchema
-from app.api.v1.shared_models import get_shared_models
+from app.schemas.business.style_process import (
+    StyleProcessSchema, StyleProcessCreateSchema, StyleProcessUpdateSchema
+)
 from marshmallow import ValidationError
+from app.api.v1.shared_models import get_shared_models
 from app.utils.permissions import login_required
+from app.services import AuthService, StyleProcessService
 
 style_process_ns = Namespace('style-processes', description='款号工艺管理')
 
@@ -16,8 +16,8 @@ shared = get_shared_models(style_process_ns)
 base_response = shared['base_response']
 error_response = shared['error_response']
 unauthorized_response = shared['unauthorized_response']
-forbidden_response = shared['forbidden_response']
 
+# ========== 请求解析器 ==========
 style_process_query_parser = style_process_ns.parser()
 style_process_query_parser.add_argument('page', type=int, default=1, location='args', help='页码')
 style_process_query_parser.add_argument('page_size', type=int, default=10, location='args', help='每页数量')
@@ -25,6 +25,7 @@ style_process_query_parser.add_argument('style_id', type=int, required=True, loc
 style_process_query_parser.add_argument('process_type', type=str, location='args', help='工艺类型',
                                         choices=['embroidery', 'print', 'other'])
 
+# ========== 响应模型 ==========
 style_process_item_model = style_process_ns.model('StyleProcessItem', {
     'id': fields.Integer(),
     'style_id': fields.Integer(),
@@ -52,16 +53,17 @@ style_process_item_response = style_process_ns.clone('StyleProcessItemResponse',
     'data': fields.Nested(style_process_item_model)
 })
 
-process_type_labels = {
-    'embroidery': '刺绣',
-    'print': '印花',
-    'other': '其他'
-}
-
+# ========== Schema 初始化 ==========
 style_process_schema = StyleProcessSchema()
 style_processes_schema = StyleProcessSchema(many=True)
 style_process_create_schema = StyleProcessCreateSchema()
 style_process_update_schema = StyleProcessUpdateSchema()
+
+
+# ========== 辅助函数 ==========
+def get_current_user():
+    """获取当前登录用户"""
+    return AuthService.get_current_user()
 
 
 @style_process_ns.route('')
@@ -72,59 +74,48 @@ class StyleProcessList(Resource):
     @style_process_ns.response(401, '未登录', unauthorized_response)
     def get(self):
         args = style_process_query_parser.parse_args()
-
-        current_user_id = int(get_jwt_identity())
-        current_user = User.query.get(current_user_id)
+        current_user = get_current_user()
 
         if not current_user:
             return ApiResponse.error('用户不存在')
 
         style_id = args['style_id']
-        page = args['page']
-        page_size = args['page_size']
-        process_type = args.get('process_type')
 
-        style = Style.query.filter_by(id=style_id, factory_id=current_user.factory_id, is_deleted=0).first()
-        if not style:
-            return ApiResponse.error('款号不存在或无权限')
+        # 验证权限
+        style, error = StyleProcessService.check_style_permission(current_user, style_id)
+        if error:
+            return ApiResponse.error(error, 403 if '无权限' in error else 404)
 
-        query = StyleProcess.query.filter_by(style_id=style_id, is_deleted=0)
-
-        if process_type:
-            query = query.filter_by(process_type=process_type)
-
-        pagination = query.order_by(StyleProcess.id.desc()).paginate(
-            page=page, per_page=page_size, error_out=False
-        )
+        result = StyleProcessService.get_process_list(style_id, args)
 
         items = []
-        for process in pagination.items:
+        for process in result['items']:
             item = style_process_schema.dump(process)
-            item['process_type_label'] = process_type_labels.get(process.process_type, process.process_type)
+            item = StyleProcessService.enrich_with_label(item, process)
             items.append(item)
 
         return ApiResponse.success({
             'items': items,
-            'total': pagination.total,
-            'page': page,
-            'page_size': page_size,
-            'pages': pagination.pages
+            'total': result['total'],
+            'page': result['page'],
+            'page_size': result['page_size'],
+            'pages': result['pages']
         })
 
     @login_required
     @style_process_ns.expect(style_process_ns.model('StyleProcessCreate', {
-        'style_id': fields.Integer(required=True),
-        'process_type': fields.String(required=True),
-        'process_name': fields.String(),
-        'remark': fields.String()
+        'style_id': fields.Integer(required=True, description='款号ID'),
+        'process_type': fields.String(required=True, description='工艺类型',
+                                      choices=['embroidery', 'print', 'other']),
+        'process_name': fields.String(description='工艺名称'),
+        'remark': fields.String(description='备注')
     }))
     @style_process_ns.response(201, '创建成功', style_process_item_response)
     @style_process_ns.response(400, '参数错误', error_response)
-    @style_process_ns.response(403, '无权限', forbidden_response)
+    @style_process_ns.response(403, '无权限', error_response)
     @style_process_ns.response(404, '款号不存在', error_response)
     def post(self):
-        current_user_id = int(get_jwt_identity())
-        current_user = User.query.get(current_user_id)
+        current_user = get_current_user()
 
         if not current_user:
             return ApiResponse.error('用户不存在')
@@ -134,20 +125,15 @@ class StyleProcessList(Resource):
         except ValidationError as e:
             return ApiResponse.error(str(e.messages), 400)
 
-        style = Style.query.filter_by(id=data['style_id'], factory_id=current_user.factory_id, is_deleted=0).first()
-        if not style:
-            return ApiResponse.error('款号不存在或无权限')
+        # 验证权限
+        style, error = StyleProcessService.check_style_permission(current_user, data['style_id'])
+        if error:
+            return ApiResponse.error(error, 403 if '无权限' in error else 404)
 
-        process = StyleProcess(
-            style_id=data['style_id'],
-            process_type=data['process_type'],
-            process_name=data.get('process_name', ''),
-            remark=data.get('remark', '')
-        )
-        process.save()
+        process = StyleProcessService.create_process(data)
 
         result = style_process_schema.dump(process)
-        result['process_type_label'] = process_type_labels.get(process.process_type, process.process_type)
+        result = StyleProcessService.enrich_with_label(result, process)
 
         return ApiResponse.success(result, '创建成功', 201)
 
@@ -158,58 +144,57 @@ class StyleProcessDetail(Resource):
     @style_process_ns.response(200, '成功', style_process_item_response)
     @style_process_ns.response(404, '不存在', error_response)
     def get(self, process_id):
-        current_user_id = int(get_jwt_identity())
-        current_user = User.query.get(current_user_id)
+        current_user = get_current_user()
 
-        process = StyleProcess.query.filter_by(id=process_id, is_deleted=0).first()
+        if not current_user:
+            return ApiResponse.error('用户不存在')
+
+        process = StyleProcessService.get_process_by_id(process_id)
         if not process:
             return ApiResponse.error('工艺记录不存在')
 
-        style = Style.query.filter_by(id=process.style_id, factory_id=current_user.factory_id, is_deleted=0).first()
-        if not style:
-            return ApiResponse.error('无权限查看', 403)
+        # 验证权限
+        has_permission, error = StyleProcessService.check_process_permission(current_user, process)
+        if not has_permission:
+            return ApiResponse.error(error, 403)
 
         result = style_process_schema.dump(process)
-        result['process_type_label'] = process_type_labels.get(process.process_type, process.process_type)
+        result = StyleProcessService.enrich_with_label(result, process)
 
         return ApiResponse.success(result)
 
     @login_required
     @style_process_ns.expect(style_process_ns.model('StyleProcessUpdate', {
-        'process_type': fields.String(),
-        'process_name': fields.String(),
-        'remark': fields.String()
+        'process_type': fields.String(description='工艺类型', choices=['embroidery', 'print', 'other']),
+        'process_name': fields.String(description='工艺名称'),
+        'remark': fields.String(description='备注')
     }))
     @style_process_ns.response(200, '更新成功', style_process_item_response)
     @style_process_ns.response(404, '不存在', error_response)
     def put(self, process_id):
-        current_user_id = int(get_jwt_identity())
-        current_user = User.query.get(current_user_id)
+        current_user = get_current_user()
 
-        process = StyleProcess.query.filter_by(id=process_id, is_deleted=0).first()
+        if not current_user:
+            return ApiResponse.error('用户不存在')
+
+        process = StyleProcessService.get_process_by_id(process_id)
         if not process:
             return ApiResponse.error('工艺记录不存在')
 
-        style = Style.query.filter_by(id=process.style_id, factory_id=current_user.factory_id, is_deleted=0).first()
-        if not style:
-            return ApiResponse.error('无权限修改', 403)
+        # 验证权限
+        has_permission, error = StyleProcessService.check_process_permission(current_user, process)
+        if not has_permission:
+            return ApiResponse.error(error, 403)
 
         try:
             data = style_process_update_schema.load(request.get_json())
         except ValidationError as e:
             return ApiResponse.error(str(e.messages), 400)
 
-        if 'process_type' in data:
-            process.process_type = data['process_type']
-        if 'process_name' in data:
-            process.process_name = data['process_name']
-        if 'remark' in data:
-            process.remark = data['remark']
-
-        process.save()
+        process = StyleProcessService.update_process(process, data)
 
         result = style_process_schema.dump(process)
-        result['process_type_label'] = process_type_labels.get(process.process_type, process.process_type)
+        result = StyleProcessService.enrich_with_label(result, process)
 
         return ApiResponse.success(result, '更新成功')
 
@@ -217,17 +202,20 @@ class StyleProcessDetail(Resource):
     @style_process_ns.response(200, '删除成功', base_response)
     @style_process_ns.response(404, '不存在', error_response)
     def delete(self, process_id):
-        current_user_id = int(get_jwt_identity())
-        current_user = User.query.get(current_user_id)
+        current_user = get_current_user()
 
-        process = StyleProcess.query.filter_by(id=process_id, is_deleted=0).first()
+        if not current_user:
+            return ApiResponse.error('用户不存在')
+
+        process = StyleProcessService.get_process_by_id(process_id)
         if not process:
             return ApiResponse.error('工艺记录不存在')
 
-        style = Style.query.filter_by(id=process.style_id, factory_id=current_user.factory_id, is_deleted=0).first()
-        if not style:
-            return ApiResponse.error('无权限删除', 403)
+        # 验证权限
+        has_permission, error = StyleProcessService.check_process_permission(current_user, process)
+        if not has_permission:
+            return ApiResponse.error(error, 403)
 
-        process.delete()
+        StyleProcessService.delete_process(process)
 
         return ApiResponse.success(message='删除成功')
