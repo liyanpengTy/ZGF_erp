@@ -5,7 +5,8 @@ from app.api.v1.auth.auth import auth_ns
 from app.api.v1.system import user_ns, role_ns, menu_ns, factory_ns, log_ns, monitor_ns
 from app.api.v1.profile.profile import profile_ns
 from app.api.v1.base_data import category_ns, color_ns, size_ns
-from app.api.v1.business import style_ns, style_price_ns, style_process_ns, style_elastic_ns
+from app.api.v1.business import style_ns, style_price_ns, style_process_ns, style_elastic_ns, process_ns, order_ns
+
 
 bp = Blueprint('api_v1', __name__, url_prefix='/api/v1')
 
@@ -28,4 +29,6 @@ api.add_namespace(style_ns, path='/business/styles')
 api.add_namespace(style_price_ns, path='/business/style-prices')
 api.add_namespace(style_process_ns, path='/business/style-processes')
 api.add_namespace(style_elastic_ns, path='/business/style-elastics')
+api.add_namespace(process_ns, path='/business/processes')
+api.add_namespace(order_ns, path='/business/order_ns')
 

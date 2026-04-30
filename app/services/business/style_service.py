@@ -1,5 +1,4 @@
 """款号管理服务"""
-from app.extensions import db
 from app.models.business.style import Style
 from app.models.base_data.category import Category
 from app.models.business.style_price import StylePrice

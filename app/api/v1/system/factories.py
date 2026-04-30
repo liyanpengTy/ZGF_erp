@@ -370,6 +370,7 @@ class FactoryUserDetail(Resource):
     @factory_ns.response(403, '只有管理员可以移除', forbidden_response)
     @factory_ns.response(404, '关联不存在', error_response)
     def delete(self, factory_id, user_id):
+        """移除工厂用户关联关系"""
         current_user = get_current_user()
 
         if current_user.is_admin != 1:
