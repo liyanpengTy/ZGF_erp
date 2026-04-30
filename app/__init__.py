@@ -16,7 +16,7 @@ def create_app():
     # 初始化扩展（JWT的错误处理器会在此时自动注册）
     db.init_app(app)
     migrate.init_app(app, db)
-    jwt.init_app(app)  # 这一行会触发 extensions.py 中的错误处理器
+    jwt.init_app(app)
     bcrypt.init_app(app)
     cors.init_app(app, supports_credentials=True, origins='*')
 
