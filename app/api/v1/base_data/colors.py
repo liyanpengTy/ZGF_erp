@@ -74,6 +74,7 @@ class ColorList(Resource):
     @color_ns.response(200, '成功', color_list_response)
     @color_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """颜色列表"""
         args = color_query_parser.parse_args()
         current_user = get_current_user()
 
@@ -102,6 +103,7 @@ class ColorList(Resource):
     @color_ns.response(400, '参数错误', error_response)
     @color_ns.response(409, '编码已存在', error_response)
     def post(self):
+        """创建颜色"""
         current_user = get_current_user()
 
         if not current_user:
@@ -125,6 +127,7 @@ class ColorDetail(Resource):
     @color_ns.response(200, '成功', color_item_response)
     @color_ns.response(404, '不存在', error_response)
     def get(self, color_id):
+        """颜色详情"""
         current_user = get_current_user()
 
         color = ColorService.get_color_by_id(color_id)
@@ -148,6 +151,7 @@ class ColorDetail(Resource):
     @color_ns.response(200, '更新成功', color_item_response)
     @color_ns.response(404, '不存在', error_response)
     def put(self, color_id):
+        """更新颜色"""
         current_user = get_current_user()
 
         color = ColorService.get_color_by_id(color_id)
@@ -172,6 +176,7 @@ class ColorDetail(Resource):
     @color_ns.response(200, '删除成功', base_response)
     @color_ns.response(404, '不存在', error_response)
     def delete(self, color_id):
+        """删除颜色"""
         current_user = get_current_user()
 
         color = ColorService.get_color_by_id(color_id)

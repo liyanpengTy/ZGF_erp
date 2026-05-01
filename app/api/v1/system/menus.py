@@ -92,6 +92,7 @@ class MenuList(Resource):
     @menu_ns.response(200, '成功', menu_list_response)
     @menu_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """菜单列表（树型）"""
         args = menu_query_parser.parse_args()
         current_user = get_current_user()
 
@@ -114,6 +115,7 @@ class MenuList(Resource):
     @menu_ns.response(400, '参数错误', error_response)
     @menu_ns.response(403, '只有管理员可以创建', forbidden_response)
     def post(self):
+        """创建菜单"""
         current_user = get_current_user()
 
         has_permission, error = MenuService.check_admin_permission(current_user)
@@ -138,6 +140,7 @@ class MenuDetail(Resource):
     @menu_ns.response(200, '成功', menu_item_response)
     @menu_ns.response(404, '菜单不存在', error_response)
     def get(self, menu_id):
+        """菜单详情"""
         current_user = get_current_user()
 
         has_permission, error = MenuService.check_admin_permission(current_user)
@@ -156,6 +159,7 @@ class MenuDetail(Resource):
     @menu_ns.response(404, '菜单不存在', error_response)
     @menu_ns.response(403, '只有管理员可以更新', forbidden_response)
     def put(self, menu_id):
+        """更新菜单"""
         current_user = get_current_user()
 
         has_permission, error = MenuService.check_admin_permission(current_user)
@@ -183,6 +187,7 @@ class MenuDetail(Resource):
     @menu_ns.response(403, '只有管理员可以删除', forbidden_response)
     @menu_ns.response(409, '存在子菜单或关联角色', error_response)
     def delete(self, menu_id):
+        """删除菜单"""
         current_user = get_current_user()
 
         has_permission, error = MenuService.check_admin_permission(current_user)
@@ -206,6 +211,7 @@ class MenuTree(Resource):
     @menu_ns.response(200, '成功', menu_list_response)
     @menu_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """菜单树（分配权限使用）"""
         current_user = get_current_user()
 
         has_permission, error = MenuService.check_admin_permission(current_user)
@@ -224,6 +230,7 @@ class UserMenus(Resource):
     @menu_ns.response(200, '成功', menu_list_response)
     @menu_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """当前用户菜单"""
         current_user = get_current_user()
 
         if not current_user:

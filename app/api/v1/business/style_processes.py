@@ -73,6 +73,7 @@ class StyleProcessList(Resource):
     @style_process_ns.response(200, '成功', style_process_list_response)
     @style_process_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """工艺列表"""
         args = style_process_query_parser.parse_args()
         current_user = get_current_user()
 
@@ -115,6 +116,7 @@ class StyleProcessList(Resource):
     @style_process_ns.response(403, '无权限', error_response)
     @style_process_ns.response(404, '款号不存在', error_response)
     def post(self):
+        """创建工艺"""
         current_user = get_current_user()
 
         if not current_user:
@@ -144,6 +146,7 @@ class StyleProcessDetail(Resource):
     @style_process_ns.response(200, '成功', style_process_item_response)
     @style_process_ns.response(404, '不存在', error_response)
     def get(self, process_id):
+        """工艺详情"""
         current_user = get_current_user()
 
         if not current_user:
@@ -172,6 +175,7 @@ class StyleProcessDetail(Resource):
     @style_process_ns.response(200, '更新成功', style_process_item_response)
     @style_process_ns.response(404, '不存在', error_response)
     def put(self, process_id):
+        """更新工艺"""
         current_user = get_current_user()
 
         if not current_user:
@@ -202,6 +206,7 @@ class StyleProcessDetail(Resource):
     @style_process_ns.response(200, '删除成功', base_response)
     @style_process_ns.response(404, '不存在', error_response)
     def delete(self, process_id):
+        """删除工艺"""
         current_user = get_current_user()
 
         if not current_user:

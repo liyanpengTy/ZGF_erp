@@ -71,6 +71,7 @@ class StylePriceList(Resource):
     @style_price_ns.response(200, '成功', style_price_list_response)
     @style_price_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """价格列表"""
         args = style_price_query_parser.parse_args()
         current_user = get_current_user()
 
@@ -114,6 +115,7 @@ class StylePriceList(Resource):
     @style_price_ns.response(403, '无权限', error_response)
     @style_price_ns.response(404, '款号不存在', error_response)
     def post(self):
+        """创建价格"""
         current_user = get_current_user()
 
         if not current_user:
@@ -147,6 +149,7 @@ class StylePriceDetail(Resource):
     @style_price_ns.response(200, '成功', style_price_item_response)
     @style_price_ns.response(404, '不存在', error_response)
     def get(self, price_id):
+        """价格详情"""
         current_user = get_current_user()
 
         if not current_user:
@@ -170,6 +173,7 @@ class StylePriceDetail(Resource):
     @style_price_ns.response(200, '删除成功', base_response)
     @style_price_ns.response(404, '不存在', error_response)
     def delete(self, price_id):
+        """删除价格"""
         current_user = get_current_user()
 
         if not current_user:

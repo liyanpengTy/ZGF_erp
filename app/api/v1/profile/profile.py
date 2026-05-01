@@ -95,6 +95,7 @@ class ProfileInfo(Resource):
     @profile_ns.response(200, '成功', user_info_response)
     @profile_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """获取个人信息"""
         user = get_current_user()
 
         if not user:
@@ -109,6 +110,7 @@ class ProfileInfo(Resource):
     @profile_ns.response(400, '参数错误', error_response)
     @profile_ns.response(401, '未登录', unauthorized_response)
     def put(self):
+        """更新个人信息"""
         user = get_current_user()
 
         if not user:
@@ -133,6 +135,7 @@ class ChangePassword(Resource):
     @profile_ns.response(400, '参数错误', error_response)
     @profile_ns.response(401, '未登录', unauthorized_response)
     def put(self):
+        """修改密码"""
         user = get_current_user()
 
         if not user:
@@ -164,6 +167,7 @@ class UploadAvatar(Resource):
     @profile_ns.response(400, '上传失败', error_response)
     @profile_ns.response(401, '未登录', unauthorized_response)
     def post(self):
+        """上传头像"""
         user = get_current_user()
 
         if not user:
@@ -188,6 +192,7 @@ class ProfileStats(Resource):
     @profile_ns.response(200, '成功', profile_stats_response)
     @profile_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """个人统计"""
         user = get_current_user()
 
         if not user:

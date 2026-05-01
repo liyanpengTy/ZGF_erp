@@ -98,6 +98,7 @@ class StyleElasticList(Resource):
     @style_elastic_ns.response(200, '分组成功', style_elastic_grouped_response)
     @style_elastic_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """橡筋信息列表"""
         args = style_elastic_query_parser.parse_args()
         current_user = get_current_user()
 
@@ -156,6 +157,7 @@ class StyleElasticList(Resource):
     @style_elastic_ns.response(403, '无权限', error_response)
     @style_elastic_ns.response(404, '款号不存在', error_response)
     def post(self):
+        """为款号创建橡筋信息"""
         current_user = get_current_user()
 
         if not current_user:
@@ -238,6 +240,7 @@ class StyleElasticDetail(Resource):
     @style_elastic_ns.response(200, '成功', style_elastic_item_response)
     @style_elastic_ns.response(404, '不存在', error_response)
     def get(self, elastic_id):
+        """款号的橡筋详情"""
         current_user = get_current_user()
 
         if not current_user:
@@ -268,6 +271,7 @@ class StyleElasticDetail(Resource):
     @style_elastic_ns.response(200, '更新成功', style_elastic_item_response)
     @style_elastic_ns.response(404, '不存在', error_response)
     def put(self, elastic_id):
+        """为款号更新橡筋信息"""
         current_user = get_current_user()
 
         if not current_user:
@@ -304,6 +308,7 @@ class StyleElasticDetail(Resource):
     @style_elastic_ns.response(200, '删除成功', base_response)
     @style_elastic_ns.response(404, '不存在', error_response)
     def delete(self, elastic_id):
+        """删除橡筋信息"""
         current_user = get_current_user()
 
         if not current_user:

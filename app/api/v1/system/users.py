@@ -102,6 +102,7 @@ class UserList(Resource):
     @user_ns.response(200, '成功', user_list_response)
     @user_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """获取用户列表"""
         args = user_query_parser.parse_args()
         current_user = get_current_user()
 
@@ -124,6 +125,7 @@ class UserList(Resource):
     @user_ns.response(400, '参数错误', error_response)
     @user_ns.response(409, '用户名已存在', error_response)
     def post(self):
+        """创建用户"""
         current_user = get_current_user()
 
         if not current_user:
@@ -151,6 +153,7 @@ class UserDetail(Resource):
     @user_ns.response(200, '成功', user_item_response)
     @user_ns.response(404, '用户不存在', error_response)
     def get(self, user_id):
+        """获取用户详情"""
         current_user = get_current_user()
 
         user = UserService.get_user_by_id(user_id)
@@ -168,6 +171,7 @@ class UserDetail(Resource):
     @user_ns.response(200, '更新成功', user_item_response)
     @user_ns.response(404, '用户不存在', error_response)
     def put(self, user_id):
+        """更新用户信息"""
         current_user = get_current_user()
 
         user = UserService.get_user_by_id(user_id)
@@ -192,6 +196,7 @@ class UserDetail(Resource):
     @user_ns.response(404, '用户不存在', error_response)
     @user_ns.response(403, '不能删除自己', forbidden_response)
     def delete(self, user_id):
+        """删除用户"""
         current_user = get_current_user()
 
         user = UserService.get_user_by_id(user_id)
@@ -216,6 +221,7 @@ class UserResetPassword(Resource):
     @user_ns.response(200, '重置成功', base_response)
     @user_ns.response(404, '用户不存在', error_response)
     def post(self, user_id):
+        """重置密码"""
         current_user = get_current_user()
 
         user = UserService.get_user_by_id(user_id)
@@ -242,6 +248,7 @@ class UserRoles(Resource):
     @user_ns.response(200, '成功', base_response)
     @user_ns.response(404, '用户不存在', error_response)
     def get(self, user_id):
+        """获取用户角色"""
         user = UserService.get_user_by_id(user_id)
         if not user:
             return ApiResponse.error('用户不存在')
@@ -265,6 +272,7 @@ class UserRoles(Resource):
     @user_ns.response(403, '无权限', forbidden_response)
     @user_ns.response(404, '用户不存在', error_response)
     def put(self, user_id):
+        """分配角色"""
         current_user = get_current_user()
 
         # 只有公司内部人员可以分配角色
@@ -287,6 +295,24 @@ class UserRoles(Resource):
             return ApiResponse.error(error, 400)
 
         return ApiResponse.success(message='角色分配成功')
+
+
+@user_ns.route('/permissions')
+class UserPermissions(Resource):
+    @login_required
+    @user_ns.response(200, '成功', base_response)
+    @user_ns.response(401, '未登录', unauthorized_response)
+    def get(self):
+        """获取当前用户的权限列表"""
+        current_user = get_current_user()
+
+        if not current_user:
+            return ApiResponse.error('用户不存在')
+
+        # 获取用户权限（需要在 UserService 中实现 get_user_permissions 方法）
+        permissions = UserService.get_user_permissions(current_user.id)
+
+        return ApiResponse.success(permissions)
 
 
 @user_ns.route('/test')

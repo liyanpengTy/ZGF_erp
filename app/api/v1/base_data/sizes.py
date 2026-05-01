@@ -71,6 +71,7 @@ class SizeList(Resource):
     @size_ns.response(200, '成功', size_list_response)
     @size_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """尺码列表"""
         args = size_query_parser.parse_args()
         current_user = get_current_user()
 
@@ -97,6 +98,7 @@ class SizeList(Resource):
     @size_ns.response(400, '参数错误', error_response)
     @size_ns.response(409, '编码已存在', error_response)
     def post(self):
+        """创建尺码"""
         current_user = get_current_user()
 
         if not current_user:
@@ -120,6 +122,7 @@ class SizeDetail(Resource):
     @size_ns.response(200, '成功', size_item_response)
     @size_ns.response(404, '不存在', error_response)
     def get(self, size_id):
+        """尺码详情"""
         current_user = get_current_user()
 
         size = SizeService.get_size_by_id(size_id)
@@ -141,6 +144,7 @@ class SizeDetail(Resource):
     @size_ns.response(200, '更新成功', size_item_response)
     @size_ns.response(404, '不存在', error_response)
     def put(self, size_id):
+        """更新尺码"""
         current_user = get_current_user()
 
         size = SizeService.get_size_by_id(size_id)
@@ -165,6 +169,7 @@ class SizeDetail(Resource):
     @size_ns.response(200, '删除成功', base_response)
     @size_ns.response(404, '不存在', error_response)
     def delete(self, size_id):
+        """删除尺码"""
         current_user = get_current_user()
 
         size = SizeService.get_size_by_id(size_id)

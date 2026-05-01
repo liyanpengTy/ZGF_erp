@@ -28,6 +28,7 @@ class MonitorInfo(Resource):
     @monitor_ns.response(200, '成功', monitor_response)
     @monitor_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """完整监控信息"""
         current_user = get_current_user()
 
         if not current_user:
@@ -49,6 +50,7 @@ class CpuMonitor(Resource):
     @monitor_ns.response(200, '成功', base_response)
     @monitor_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """CPU信息"""
         current_user = get_current_user()
 
         if not current_user or current_user.is_admin != 1:
@@ -64,6 +66,7 @@ class MemoryMonitor(Resource):
     @monitor_ns.response(200, '成功', base_response)
     @monitor_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """内存信息"""
         current_user = get_current_user()
 
         if not current_user or current_user.is_admin != 1:
@@ -79,6 +82,7 @@ class DiskMonitor(Resource):
     @monitor_ns.response(200, '成功', base_response)
     @monitor_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """磁盘信息"""
         current_user = get_current_user()
 
         if not current_user or current_user.is_admin != 1:
@@ -94,6 +98,7 @@ class SystemMonitor(Resource):
     @monitor_ns.response(200, '成功', base_response)
     @monitor_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """系统信息"""
         current_user = get_current_user()
 
         if not current_user or current_user.is_admin != 1:

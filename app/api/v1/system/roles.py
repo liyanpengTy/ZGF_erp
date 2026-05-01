@@ -108,6 +108,7 @@ class RoleList(Resource):
     @role_ns.response(200, '成功', role_list_response)
     @role_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """角色列表"""
         args = role_query_parser.parse_args()
         current_user = get_current_user()
 
@@ -133,6 +134,7 @@ class RoleList(Resource):
     @role_ns.response(403, '只有管理员可以创建', forbidden_response)
     @role_ns.response(409, '角色编码或名称已存在', error_response)
     def post(self):
+        """创建角色"""
         current_user = get_current_user()
 
         # 只有公司内部人员可以创建角色
@@ -161,6 +163,7 @@ class RoleDetail(Resource):
     @role_ns.response(200, '成功', role_item_response)
     @role_ns.response(404, '角色不存在', error_response)
     def get(self, role_id):
+        """角色详情"""
         current_user = get_current_user()
 
         role = RoleService.get_role_by_id(role_id)
@@ -179,6 +182,7 @@ class RoleDetail(Resource):
     @role_ns.response(404, '角色不存在', error_response)
     @role_ns.response(403, '无权限', forbidden_response)
     def put(self, role_id):
+        """更新角色"""
         current_user = get_current_user()
 
         if current_user.is_admin != 1:
@@ -205,6 +209,7 @@ class RoleDetail(Resource):
     @role_ns.response(403, '无权限', forbidden_response)
     @role_ns.response(409, '角色已被使用', error_response)
     def delete(self, role_id):
+        """删除角色"""
         current_user = get_current_user()
 
         if current_user.is_admin != 1:
@@ -227,6 +232,7 @@ class RoleMenus(Resource):
     @role_ns.response(200, '成功', menu_ids_response)
     @role_ns.response(404, '角色不存在', error_response)
     def get(self, role_id):
+        """获取角色菜单"""
         current_user = get_current_user()
 
         role = RoleService.get_role_by_id(role_id)
@@ -246,6 +252,7 @@ class RoleMenus(Resource):
     @role_ns.response(404, '角色或菜单不存在', error_response)
     @role_ns.response(403, '无权限', forbidden_response)
     def put(self, role_id):
+        """分配菜单权限"""
         current_user = get_current_user()
 
         if current_user.is_admin != 1:
@@ -275,6 +282,7 @@ class RoleUsers(Resource):
     @role_ns.response(200, '成功', role_users_response)
     @role_ns.response(404, '角色不存在', error_response)
     def get(self, role_id):
+        """获取角色下的用户"""
         current_user = get_current_user()
 
         role = RoleService.get_role_by_id(role_id)

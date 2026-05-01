@@ -79,6 +79,7 @@ class Login(Resource):
     @auth_ns.response(400, '用户名或密码错误', error_response)
     @auth_ns.response(401, '账号已被禁用', unauthorized_response)
     def post(self):
+        """PC登录"""
         data = request.get_json()
         username = data.get('username')
         password = data.get('password')
@@ -120,6 +121,7 @@ class RefreshToken(Resource):
     @auth_ns.response(200, '刷新成功', refresh_response)
     @auth_ns.response(401, 'refresh_token无效或已过期', unauthorized_response)
     def post(self):
+        """刷新token"""
         old_claims = get_jwt()
         user_id = old_claims.get('user_id')
 
@@ -151,6 +153,7 @@ class UserInfo(Resource):
     @auth_ns.response(200, '获取成功', user_info_response)
     @auth_ns.response(401, '未登录或token无效', unauthorized_response)
     def get(self):
+        """获取当前用户信息"""
         user = AuthService.get_current_user()
         if not user:
             return ApiResponse.error('用户不存在')
@@ -170,6 +173,7 @@ class SwitchFactory(Resource):
     @auth_ns.response(400, '参数错误', error_response)
     @auth_ns.response(403, '无权限', forbidden_response)
     def post(self):
+        """切换工厂"""
         user = AuthService.get_current_user()
         if not user:
             return ApiResponse.error('用户不存在')
@@ -219,6 +223,7 @@ class MyFactories(Resource):
     @auth_ns.response(200, '获取成功', base_response)
     @auth_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """获取我的工厂列表"""
         user = AuthService.get_current_user()
         if not user:
             return ApiResponse.error('用户不存在')
@@ -232,4 +237,5 @@ class Logout(Resource):
     @login_required
     @auth_ns.response(200, '登出成功', base_response)
     def post(self):
+        """PC端登出"""
         return ApiResponse.success(message='登出成功')

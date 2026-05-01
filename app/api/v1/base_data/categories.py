@@ -78,6 +78,7 @@ class CategoryList(Resource):
     @category_ns.response(200, '成功', category_list_response)
     @category_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """分类列表"""
         args = category_query_parser.parse_args()
         current_user = get_current_user()
 
@@ -105,6 +106,7 @@ class CategoryList(Resource):
     @category_ns.response(400, '参数错误', error_response)
     @category_ns.response(409, '编码已存在', error_response)
     def post(self):
+        """创建分类"""
         current_user = get_current_user()
 
         if not current_user:
@@ -128,6 +130,7 @@ class CategoryTree(Resource):
     @category_ns.response(200, '成功', category_tree_response)
     @category_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """分类树"""
         current_user = get_current_user()
 
         if not current_user:
@@ -144,6 +147,7 @@ class CategoryDetail(Resource):
     @category_ns.response(200, '成功', category_item_response)
     @category_ns.response(404, '不存在', error_response)
     def get(self, category_id):
+        """分类详情"""
         current_user = get_current_user()
 
         category = CategoryService.get_category_by_id(category_id)
@@ -166,6 +170,7 @@ class CategoryDetail(Resource):
     @category_ns.response(200, '更新成功', category_item_response)
     @category_ns.response(404, '不存在', error_response)
     def put(self, category_id):
+        """更新分类"""
         current_user = get_current_user()
 
         category = CategoryService.get_category_by_id(category_id)
@@ -190,6 +195,7 @@ class CategoryDetail(Resource):
     @category_ns.response(200, '删除成功', base_response)
     @category_ns.response(404, '不存在', error_response)
     def delete(self, category_id):
+        """删除分类"""
         current_user = get_current_user()
 
         category = CategoryService.get_category_by_id(category_id)

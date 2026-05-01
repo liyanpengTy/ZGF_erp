@@ -3,8 +3,9 @@ from app.extensions import db, bcrypt
 from app.models.auth.user import User
 from app.models.system.user_factory import UserFactory
 from app.models.system.user_factory_role import UserFactoryRole
-from app.models.system.role import Role
+from app.models.system.role import Role, role_menu
 from app.services.base.base_service import BaseService
+from app.models.system.menu import Menu
 
 
 class UserService(BaseService):
@@ -170,3 +171,57 @@ class UserService(BaseService):
         if isinstance(identity, dict):
             return identity.get('user_id')
         return int(identity)
+
+    @staticmethod
+    def get_user_permissions(user_id):
+        """获取用户的权限标识列表"""
+        user = User.query.filter_by(id=user_id, is_deleted=0).first()
+        if not user:
+            return []
+
+        # 公司内部人员返回所有权限
+        if user.is_admin == 1:
+            menus = Menu.query.filter(
+                Menu.permission.isnot(None),
+                Menu.permission != '',
+                Menu.status == 1,
+                Menu.is_deleted == 0
+            ).all()
+            return [m.permission for m in menus]
+
+        # 获取用户所在的工厂（从 Token 或关联表）
+        from flask_jwt_extended import get_jwt
+        claims = get_jwt()
+        factory_id = claims.get('factory_id')
+
+        if not factory_id:
+            return []
+
+        # 获取用户在该工厂下的角色
+        role_records = UserFactoryRole.query.filter_by(
+            user_id=user.id, factory_id=factory_id, is_deleted=0
+        ).all()
+        role_ids = [r.role_id for r in role_records]
+
+        if not role_ids:
+            return []
+
+        # 获取角色关联的菜单权限
+        menu_records = db.session.query(role_menu).filter(
+            role_menu.c.role_id.in_(role_ids)
+        ).all()
+        menu_ids = list(set([r.menu_id for r in menu_records]))
+
+        if not menu_ids:
+            return []
+
+        # 获取权限标识
+        menus = Menu.query.filter(
+            Menu.id.in_(menu_ids),
+            Menu.permission.isnot(None),
+            Menu.permission != '',
+            Menu.status == 1,
+            Menu.is_deleted == 0
+        ).all()
+
+        return [m.permission for m in menus]

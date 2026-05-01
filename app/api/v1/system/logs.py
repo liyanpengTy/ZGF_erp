@@ -106,6 +106,7 @@ class OperationLogList(Resource):
     @log_ns.response(200, '成功', log_list_response)
     @log_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """操作日志列表"""
         args = operation_log_query_parser.parse_args()
         current_user = get_current_user()
 
@@ -129,6 +130,7 @@ class OperationLogDetail(Resource):
     @log_ns.response(200, '成功', base_response)
     @log_ns.response(404, '日志不存在', error_response)
     def get(self, log_id):
+        """操作日志详情"""
         current_user = get_current_user()
 
         log = LogService.get_operation_log_by_id(log_id)
@@ -149,6 +151,7 @@ class LoginLogList(Resource):
     @log_ns.response(200, '成功', log_list_response)
     @log_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """登录日志列表"""
         args = login_log_query_parser.parse_args()
         current_user = get_current_user()
 
@@ -172,6 +175,7 @@ class LoginLogDetail(Resource):
     @log_ns.response(200, '成功', base_response)
     @log_ns.response(404, '日志不存在', error_response)
     def get(self, log_id):
+        """登录日志详情"""
         current_user = get_current_user()
 
         log = LogService.get_login_log_by_id(log_id)
@@ -191,6 +195,7 @@ class LogStats(Resource):
     @log_ns.response(200, '成功', stats_response)
     @log_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """日志统计"""
         current_user = get_current_user()
 
         if not current_user:

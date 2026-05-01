@@ -86,6 +86,7 @@ class StyleList(Resource):
     @style_ns.response(200, '成功', style_list_response)
     @style_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """款号列表"""
         args = style_query_parser.parse_args()
         current_user = get_current_user()
 
@@ -129,6 +130,7 @@ class StyleList(Resource):
     @style_ns.response(400, '参数错误', error_response)
     @style_ns.response(409, '款号已存在', error_response)
     def post(self):
+        """创建款号"""
         current_user = get_current_user()
 
         if not current_user:
@@ -155,6 +157,7 @@ class StyleDetail(Resource):
     @style_ns.response(200, '成功', style_item_response)
     @style_ns.response(404, '不存在', error_response)
     def get(self, style_id):
+        """款号详情"""
         current_user = get_current_user()
 
         style = StyleService.get_style_by_id(style_id)
@@ -191,6 +194,7 @@ class StyleDetail(Resource):
     @style_ns.response(200, '更新成功', style_item_response)
     @style_ns.response(404, '不存在', error_response)
     def put(self, style_id):
+        """更新款号"""
         current_user = get_current_user()
 
         style = StyleService.get_style_by_id(style_id)
@@ -218,6 +222,7 @@ class StyleDetail(Resource):
     @style_ns.response(200, '删除成功', base_response)
     @style_ns.response(404, '不存在', error_response)
     def delete(self, style_id):
+        """删除款号"""
         current_user = get_current_user()
 
         style = StyleService.get_style_by_id(style_id)

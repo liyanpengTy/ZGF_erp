@@ -154,6 +154,7 @@ class FactoryList(Resource):
     @factory_ns.response(200, '成功', factory_list_response)
     @factory_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """工厂列表"""
         args = factory_query_parser.parse_args()
         current_user = get_current_user()
 
@@ -181,6 +182,7 @@ class FactoryList(Resource):
     @factory_ns.response(403, '只有管理员可以创建', forbidden_response)
     @factory_ns.response(409, '工厂编码已存在', error_response)
     def post(self):
+        """创建工厂"""
         current_user = get_current_user()
 
         if not current_user:
@@ -211,6 +213,7 @@ class FactoryDetail(Resource):
     @factory_ns.response(200, '成功', factory_item_response)
     @factory_ns.response(404, '工厂不存在', error_response)
     def get(self, factory_id):
+        """工厂详情"""
         current_user = get_current_user()
 
         factory = FactoryService.get_factory_by_id(factory_id)
@@ -229,6 +232,7 @@ class FactoryDetail(Resource):
     @factory_ns.response(200, '更新成功', factory_item_response)
     @factory_ns.response(404, '工厂不存在', error_response)
     def put(self, factory_id):
+        """更新工厂信息"""
         current_user = get_current_user()
 
         factory = FactoryService.get_factory_by_id(factory_id)
@@ -254,6 +258,7 @@ class FactoryDetail(Resource):
     @factory_ns.response(403, '只有管理员可以删除', forbidden_response)
     @factory_ns.response(409, '存在关联用户无法删除', error_response)
     def delete(self, factory_id):
+        """删除工厂"""
         current_user = get_current_user()
 
         if current_user.is_admin != 1:
@@ -277,6 +282,7 @@ class FactoryUsers(Resource):
     @factory_ns.response(200, '成功', user_list_response)
     @factory_ns.response(404, '工厂不存在', error_response)
     def get(self, factory_id):
+        """获取工厂用户列表"""
         args = factory_user_query_parser.parse_args()
         current_user = get_current_user()
 
@@ -321,6 +327,7 @@ class FactoryUsers(Resource):
     @factory_ns.response(404, '用户不存在', error_response)
     @factory_ns.response(409, '用户已关联', error_response)
     def post(self, factory_id):
+        """添加用户到工厂"""
         current_user = get_current_user()
 
         if current_user.is_admin != 1:
@@ -370,7 +377,7 @@ class FactoryUserDetail(Resource):
     @factory_ns.response(403, '只有管理员可以移除', forbidden_response)
     @factory_ns.response(404, '关联不存在', error_response)
     def delete(self, factory_id, user_id):
-        """移除工厂用户关联关系"""
+        """从工厂移除用户"""
         current_user = get_current_user()
 
         if current_user.is_admin != 1:

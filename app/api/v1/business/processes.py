@@ -94,7 +94,7 @@ class ProcessList(Resource):
     @process_ns.response(200, '成功', process_list_response)
     @process_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """获取工序列表"""
+        """工序列表"""
         args = process_query_parser.parse_args()
         current_user = get_current_user()
 
@@ -150,7 +150,7 @@ class ProcessDetail(Resource):
     @process_ns.response(200, '成功', process_item_response)
     @process_ns.response(404, '不存在', error_response)
     def get(self, process_id):
-        """获取工序详情"""
+        """工序详情"""
         current_user = get_current_user()
 
         if not current_user:
