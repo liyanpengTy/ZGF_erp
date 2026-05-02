@@ -3,9 +3,9 @@ from app.extensions import db, bcrypt
 from app.models.auth.user import User
 from app.models.system.user_factory import UserFactory
 from app.models.system.user_factory_role import UserFactoryRole
-from app.models.system.role import Role, role_menu
-from app.services.base.base_service import BaseService
+from app.models.system.role import role_menu
 from app.models.system.menu import Menu
+from app.services.base.base_service import BaseService
 
 
 class UserService(BaseService):
@@ -22,18 +22,27 @@ class UserService(BaseService):
         return User.query.filter_by(username=username, is_deleted=0).first()
 
     @staticmethod
+    def get_current_user_id_from_identity(identity):
+        """从 get_jwt_identity 返回值中解析用户ID"""
+        if isinstance(identity, dict):
+            return identity.get('user_id')
+        return int(identity)
+
+    @staticmethod
     def get_user_list(current_user, filters):
-        """
-        获取用户列表
-        filters: page, page_size, username, status, factory_id
-        """
+        """获取用户列表"""
+        page = filters.get('page', 1)
+        page_size = filters.get('page_size', 10)
+        username = filters.get('username', '')
+        status = filters.get('status')
+        factory_id = filters.get('factory_id')
+
         query = User.query.filter_by(is_deleted=0)
 
         # 权限过滤
         if current_user.is_admin == 1:
-            # 公司内部人员：可以查看所有用户
-            factory_id = filters.get('factory_id')
             if factory_id:
+                # 查询该工厂下的用户
                 user_ids = db.session.query(UserFactory.user_id).filter_by(
                     factory_id=factory_id, status=1, is_deleted=0
                 ).all()
@@ -43,18 +52,11 @@ class UserService(BaseService):
             # 普通用户：只能查看自己
             query = query.filter(User.id == current_user.id)
 
-        # 条件过滤
-        username = filters.get('username')
         if username:
             query = query.filter(User.username.like(f'%{username}%'))
-
-        status = filters.get('status')
         if status is not None:
             query = query.filter_by(status=status)
 
-        # 分页
-        page = filters.get('page', 1)
-        page_size = filters.get('page_size', 10)
         pagination = query.order_by(User.id.desc()).paginate(
             page=page, per_page=page_size, error_out=False
         )
@@ -68,9 +70,8 @@ class UserService(BaseService):
         }
 
     @staticmethod
-    def create_user(data, current_user_id):
+    def create_user(data, current_user_id=None):
         """创建用户"""
-        # 检查用户名是否已存在
         existing = UserService.get_user_by_username(data['username'])
         if existing:
             return None, '用户名已存在'
@@ -84,18 +85,18 @@ class UserService(BaseService):
             status=1
         )
         user.save()
-
         return user, None
 
     @staticmethod
     def update_user(user, data):
-        """更新用户信息"""
+        """更新用户"""
         if 'nickname' in data:
             user.nickname = data['nickname']
         if 'phone' in data:
             user.phone = data['phone']
         if 'status' in data:
             user.status = data['status']
+
         user.save()
         return user
 
@@ -122,18 +123,20 @@ class UserService(BaseService):
         role_ids = [r[0] for r in role_ids]
 
         if role_ids:
+            from app.models.system.role import Role
             return Role.query.filter(Role.id.in_(role_ids), Role.is_deleted == 0).all()
         return []
 
     @staticmethod
     def assign_roles(user_id, role_ids, factory_id, current_user):
         """分配角色"""
+        from app.models.system.role import Role
+
         # 验证角色
         for role_id in role_ids:
             role = Role.query.filter_by(id=role_id, is_deleted=0).first()
             if not role:
                 return False, f'角色ID {role_id} 不存在'
-            # 平台角色权限校验
             if role.factory_id > 0 and role.factory_id != factory_id:
                 return False, f'角色 {role.name} 不属于该工厂'
 
@@ -166,13 +169,6 @@ class UserService(BaseService):
         return True, None
 
     @staticmethod
-    def get_current_user_id_from_identity(identity):
-        """从 get_jwt_identity 返回值中解析用户ID"""
-        if isinstance(identity, dict):
-            return identity.get('user_id')
-        return int(identity)
-
-    @staticmethod
     def get_user_permissions(user_id):
         """获取用户的权限标识列表"""
         user = User.query.filter_by(id=user_id, is_deleted=0).first()
@@ -189,7 +185,7 @@ class UserService(BaseService):
             ).all()
             return [m.permission for m in menus]
 
-        # 获取用户所在的工厂（从 Token 或关联表）
+        # 获取用户所在的工厂（从 Token）
         from flask_jwt_extended import get_jwt
         claims = get_jwt()
         factory_id = claims.get('factory_id')

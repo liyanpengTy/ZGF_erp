@@ -1,15 +1,14 @@
 """个人中心接口"""
 from flask_restx import Namespace, Resource, fields
 from flask import request
-from flask_jwt_extended import get_jwt_identity
 from app.utils.response import ApiResponse
-from app.schemas.auth.user import UserSchema
-from app.schemas.profile.profile import ProfileUpdateSchema, PasswordChangeSchema
-from app.utils.logger import log_operation
+from app.schemas.auth.user import UserSchema, UserUpdateSchema
+from app.schemas.profile.profile import PasswordChangeSchema
 from marshmallow import ValidationError
 from app.api.v1.shared_models import get_shared_models
 from app.utils.permissions import login_required
-from app.services import ProfileService, AuthService
+from app.services import AuthService, ProfileService
+from app.models.system.reward_record import RewardRecord
 
 profile_ns = Namespace('profile', description='个人中心')
 
@@ -40,6 +39,8 @@ user_info_model = profile_ns.model('UserInfo', {
     'avatar': fields.String(),
     'is_admin': fields.Integer(),
     'status': fields.Integer(),
+    'invite_code': fields.String(description='邀请码'),        # 新增
+    'invited_count': fields.Integer(description='邀请人数'),   # 新增
     'create_time': fields.String(),
     'last_login_time': fields.String()
 })
@@ -65,6 +66,27 @@ avatar_response_data = profile_ns.model('AvatarResponseData', {
     'url': fields.String()
 })
 
+# 邀请信息响应模型
+invite_info_model = profile_ns.model('InviteInfo', {
+    'invite_code': fields.String(description='邀请码'),
+    'invited_count': fields.Integer(description='邀请人数'),
+    'invited_users': fields.List(fields.Nested(profile_ns.model('InvitedUser', {
+        'id': fields.Integer(),
+        'username': fields.String(),
+        'nickname': fields.String(),
+        'create_time': fields.String()
+    })), description='邀请的用户列表')
+})
+
+invite_reward_model = profile_ns.model('InviteReward', {
+    'need_count': fields.Integer(description='所需邀请人数'),
+    'current_count': fields.Integer(description='当前邀请人数'),
+    'progress': fields.Integer(description='进度百分比'),
+    'pending_rewards': fields.Integer(description='待发放奖励数量'),
+    'reward_received': fields.Boolean(description='是否已领取奖励'),
+    'reward_type': fields.String(description='奖励类型')
+})
+
 user_info_response = profile_ns.clone('UserInfoResponse', base_response, {
     'data': fields.Nested(user_info_model)
 })
@@ -77,18 +99,26 @@ avatar_response = profile_ns.clone('AvatarResponse', base_response, {
     'data': fields.Nested(avatar_response_data)
 })
 
+invite_info_response = profile_ns.clone('InviteInfoResponse', base_response, {
+    'data': fields.Nested(invite_info_model)
+})
+
+invite_reward_response = profile_ns.clone('InviteRewardResponse', base_response, {
+    'data': fields.Nested(invite_reward_model)
+})
+
 # ========== Schema 初始化 ==========
 user_schema = UserSchema()
-profile_update_schema = ProfileUpdateSchema()
+profile_update_schema = UserUpdateSchema()
 password_change_schema = PasswordChangeSchema()
 
 
 # ========== 辅助函数 ==========
 def get_current_user():
-    """获取当前登录用户"""
     return AuthService.get_current_user()
 
 
+# ========== 接口 ==========
 @profile_ns.route('/info')
 class ProfileInfo(Resource):
     @login_required
@@ -97,14 +127,12 @@ class ProfileInfo(Resource):
     def get(self):
         """获取个人信息"""
         user = get_current_user()
-
         if not user:
             return ApiResponse.error('用户不存在')
 
         return ApiResponse.success(user_schema.dump(user))
 
     @login_required
-    @log_operation('修改个人信息')
     @profile_ns.expect(profile_update_model)
     @profile_ns.response(200, '更新成功', user_info_response)
     @profile_ns.response(400, '参数错误', error_response)
@@ -112,7 +140,6 @@ class ProfileInfo(Resource):
     def put(self):
         """更新个人信息"""
         user = get_current_user()
-
         if not user:
             return ApiResponse.error('用户不存在')
 
@@ -129,7 +156,6 @@ class ProfileInfo(Resource):
 @profile_ns.route('/password')
 class ChangePassword(Resource):
     @login_required
-    @log_operation('修改密码')
     @profile_ns.expect(password_change_model)
     @profile_ns.response(200, '修改成功', base_response)
     @profile_ns.response(400, '参数错误', error_response)
@@ -137,7 +163,6 @@ class ChangePassword(Resource):
     def put(self):
         """修改密码"""
         user = get_current_user()
-
         if not user:
             return ApiResponse.error('用户不存在')
 
@@ -162,14 +187,12 @@ class ChangePassword(Resource):
 @profile_ns.route('/avatar')
 class UploadAvatar(Resource):
     @login_required
-    @log_operation('上传头像')
     @profile_ns.response(200, '上传成功', avatar_response)
     @profile_ns.response(400, '上传失败', error_response)
     @profile_ns.response(401, '未登录', unauthorized_response)
     def post(self):
         """上传头像"""
         user = get_current_user()
-
         if not user:
             return ApiResponse.error('用户不存在')
 
@@ -192,15 +215,78 @@ class ProfileStats(Resource):
     @profile_ns.response(200, '成功', profile_stats_response)
     @profile_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """个人统计"""
+        """获取个人统计"""
         user = get_current_user()
-
         if not user:
             return ApiResponse.error('用户不存在')
 
         stats = ProfileService.get_user_stats(user.id)
 
-        if not stats:
+        return ApiResponse.success(stats)
+
+
+# ========== 邀请信息接口 ==========
+@profile_ns.route('/invite-info')
+class InviteInfo(Resource):
+    @login_required
+    @profile_ns.response(200, '成功', invite_info_response)
+    @profile_ns.response(401, '未登录', unauthorized_response)
+    def get(self):
+        """获取用户邀请信息"""
+        from app.models.auth.user import User
+
+        user = get_current_user()
+        if not user:
             return ApiResponse.error('用户不存在')
 
-        return ApiResponse.success(stats)
+        # 获取邀请的用户列表
+        invited_users = User.query.filter_by(
+            invited_by=user.id,
+            is_deleted=0
+        ).order_by(User.id.desc()).all()
+
+        return ApiResponse.success({
+            'invite_code': user.invite_code,
+            'invited_count': user.invited_count,
+            'invited_users': [
+                {
+                    'id': u.id,
+                    'username': u.username,
+                    'nickname': u.nickname,
+                    'create_time': u.create_time.isoformat() if u.create_time else None
+                }
+                for u in invited_users
+            ]
+        })
+
+
+@profile_ns.route('/invite-reward')
+class InviteReward(Resource):
+    @login_required
+    @profile_ns.response(200, '成功', invite_reward_response)
+    @profile_ns.response(401, '未登录', unauthorized_response)
+    def get(self):
+        """获取邀请奖励进度"""
+        user = get_current_user()
+        if not user:
+            return ApiResponse.error('用户不存在')
+
+        # 获取待发放奖励数量
+        pending_count = RewardRecord.query.filter_by(
+            user_id=user.id,
+            status='pending',
+            is_deleted=0
+        ).count()
+
+        need_count = 5
+        current_count = user.invited_count
+        progress = min(100, int(current_count / need_count * 100))
+
+        return ApiResponse.success({
+            'need_count': need_count,
+            'current_count': current_count,
+            'progress': progress,
+            'pending_rewards': pending_count,
+            'reward_received': False,
+            'reward_type': None
+        })

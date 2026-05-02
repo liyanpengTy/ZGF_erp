@@ -7,7 +7,8 @@ from app.services.system import (
     MenuService,
     FactoryService,
     LogService,
-    MonitorService
+    MonitorService,
+    RewardService
 )
 from app.services.profile import ProfileService
 from app.services.base_data import CategoryService, ColorService, SizeService
@@ -35,6 +36,7 @@ __all__ = [
     'FactoryService',
     'LogService',
     'MonitorService',
+    'RewardService',
 
     # 个人中心服务
     'ProfileService',

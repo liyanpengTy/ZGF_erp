@@ -17,9 +17,18 @@ class User(BaseModel):
     is_admin = db.Column(db.SmallInteger, default=0, comment='是否公司内部人员：1-是，0-否')
     status = db.Column(db.SmallInteger, default=1, comment='账号状态：1-正常，0-禁用')
     last_login_time = db.Column(db.DateTime, comment='最后登录时间')
+    invite_code = db.Column(db.String(20), unique=True, comment='用户邀请码（唯一）')
+    invited_by = db.Column(db.Integer, db.ForeignKey('sys_user.id'), comment='邀请人用户ID')
+    invited_count = db.Column(db.Integer, default=0, comment='成功邀请人数')
+    created_by = db.Column(db.Integer, db.ForeignKey('sys_user.id'), comment='创建人用户ID')
+    # ========== VIP相关字段（个人不需要，但保留备用）==========
+    # vip_expire_date = db.Column(db.Date, comment='VIP到期日期')  # 个人不需要，注释掉
     is_deleted = db.Column(db.SmallInteger, default=0, comment='逻辑删除：0-未删除，1-已删除')
     create_time = db.Column(db.DateTime, default=datetime.now, comment='创建时间')
     update_time = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
+
+    inviter = db.relationship('User', remote_side=[id], foreign_keys=[invited_by], backref='invited_users')
+    creator = db.relationship('User', remote_side=[id], foreign_keys=[created_by], backref='created_users')
 
     def to_dict(self):
         data = super().to_dict()

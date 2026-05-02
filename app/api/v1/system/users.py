@@ -6,7 +6,7 @@ from app.utils.response import ApiResponse
 from app.schemas.auth.user import UserSchema, UserCreateSchema, UserUpdateSchema, UserResetPasswordSchema
 from marshmallow import ValidationError
 from app.api.v1.shared_models import get_shared_models
-from app.utils.permissions import login_required, permission_required
+from app.utils.permissions import login_required
 from app.services import UserService
 
 user_ns = Namespace('users', description='用户管理')
@@ -32,6 +32,7 @@ user_create_model = user_ns.model('UserCreate', {
     'nickname': fields.String(description='昵称', example='测试用户'),
     'phone': fields.String(description='手机号', example='13800138000'),
     'is_admin': fields.Integer(description='是否内部人员', example=0, choices=[0, 1]),
+    'factory_id': fields.Integer(description='工厂ID')
 })
 
 user_update_model = user_ns.model('UserUpdate', {
@@ -58,6 +59,8 @@ user_item_model = user_ns.model('UserItem', {
     'avatar': fields.String(),
     'is_admin': fields.Integer(),
     'status': fields.Integer(),
+    'invite_code': fields.String(),
+    'invited_count': fields.Integer(),
     'create_time': fields.String(),
     'last_login_time': fields.String()
 })
@@ -94,6 +97,44 @@ def get_current_user():
     return UserService.get_user_by_id(current_user_id)
 
 
+def check_user_permission(current_user, target_user):
+    """
+    检查当前用户是否有权限操作目标用户
+    返回: (has_permission, error_message)
+    """
+    # 平台管理员：所有权限
+    if current_user.is_admin == 1:
+        return True, None
+
+    # 获取当前用户的工厂（owner 类型）
+    from app.models.system.user_factory import UserFactory
+    user_factory = UserFactory.query.filter_by(
+        user_id=current_user.id,
+        relation_type='owner',
+        status=1,
+        is_deleted=0
+    ).first()
+
+    if not user_factory:
+        return False, '无权限操作'
+
+    factory_id = user_factory.factory_id
+
+    # 检查目标用户是否属于同一工厂
+    target_factory = UserFactory.query.filter_by(
+        user_id=target_user.id,
+        factory_id=factory_id,
+        status=1,
+        is_deleted=0
+    ).first()
+
+    # 允许操作自己的用户，或者同一工厂的用户
+    if not target_factory and target_user.id != current_user.id:
+        return False, '只能操作自己工厂的用户'
+
+    return True, None
+
+
 # ========== 接口 ==========
 @user_ns.route('')
 class UserList(Resource):
@@ -123,26 +164,94 @@ class UserList(Resource):
     @user_ns.expect(user_create_model)
     @user_ns.response(201, '创建成功', user_item_response)
     @user_ns.response(400, '参数错误', error_response)
+    @user_ns.response(403, '无权限', forbidden_response)
     @user_ns.response(409, '用户名已存在', error_response)
     def post(self):
-        """创建用户"""
+        """创建用户（平台管理员或工厂管理员）"""
+        from app.models.auth.user import User
+        from app.models.system.factory import Factory
+        from app.models.system.user_factory import UserFactory
+        from app.extensions import bcrypt
+        import hashlib
+        from datetime import datetime
+
         current_user = get_current_user()
 
         if not current_user:
             return ApiResponse.error('用户不存在')
-
-        # 只有公司内部人员可以创建用户
-        if current_user.is_admin != 1:
-            return ApiResponse.error('无权限创建用户', 403)
 
         try:
             data = user_create_schema.load(request.get_json())
         except ValidationError as e:
             return ApiResponse.error(str(e.messages), 400)
 
-        user, error = UserService.create_user(data, current_user.id)
-        if error:
-            return ApiResponse.error(error, 409)
+        # 权限判断和工厂ID处理
+        factory_id = data.get('factory_id')
+        is_admin = data.get('is_admin', 0)
+
+        if current_user.is_admin == 1:
+            # 平台管理员：可以创建任何用户
+            # 平台用户（is_admin=1）不关联工厂
+            # 普通用户（is_admin=0）也不关联工厂（除非有特殊需求）
+            pass
+        else:
+            # 工厂管理员：只能创建普通用户，且必须关联自己工厂
+            user_factory = UserFactory.query.filter_by(
+                user_id=current_user.id,
+                relation_type='owner',
+                status=1,
+                is_deleted=0
+            ).first()
+
+            if not user_factory:
+                return ApiResponse.error('无权限创建用户', 403)
+
+            factory_id = user_factory.factory_id
+            is_admin = 0  # 工厂管理员不能创建平台用户
+
+        # 检查用户名
+        existing_user = UserService.get_user_by_username(data['username'])
+        if existing_user:
+            return ApiResponse.error('用户名已存在', 409)
+
+        # 验证工厂存在（如果有工厂ID）
+        if factory_id:
+            factory = Factory.query.filter_by(id=factory_id, is_deleted=0).first()
+            if not factory:
+                return ApiResponse.error('工厂不存在', 400)
+
+        # ========== 生成邀请码（所有用户都生成） ==========
+        invite_code = hashlib.md5(f"{data['username']}{datetime.now()}".encode()).hexdigest()[:8].upper()
+        while User.query.filter_by(invite_code=invite_code).first():
+            invite_code = hashlib.md5(f"{data['username']}{datetime.now()}".encode()).hexdigest()[:8].upper()
+
+        # 创建用户
+        user = User(
+            username=data['username'],
+            password=bcrypt.generate_password_hash(data['password']).decode('utf-8'),
+            nickname=data.get('nickname', ''),
+            phone=data.get('phone', ''),
+            is_admin=is_admin,
+            status=1,
+            invite_code=invite_code,
+            invited_by=None,
+            invited_count=0,
+            created_by=current_user.id
+        )
+        user.save()
+
+        # ========== 工厂关联（仅在工厂管理员创建时，或有指定工厂时） ==========
+        # 只有工厂管理员创建的用户才自动关联工厂
+        if current_user.is_admin != 1 and factory_id:
+            user_factory = UserFactory(
+                user_id=user.id,
+                factory_id=factory_id,
+                relation_type='employee',
+                status=1,
+                entry_date=datetime.now().date(),
+                remark=f'由 {current_user.username} 创建'
+            )
+            user_factory.save()
 
         return ApiResponse.success(user_schema.dump(user), '创建成功', 201)
 
@@ -156,15 +265,19 @@ class UserDetail(Resource):
         """获取用户详情"""
         current_user = get_current_user()
 
-        user = UserService.get_user_by_id(user_id)
-        if not user:
+        if not current_user:
             return ApiResponse.error('用户不存在')
 
-        # 权限验证
-        if current_user.is_admin != 1 and current_user.id != user.id:
-            return ApiResponse.error('无权限查看', 403)
+        target_user = UserService.get_user_by_id(user_id)
+        if not target_user:
+            return ApiResponse.error('用户不存在')
 
-        return ApiResponse.success(user_schema.dump(user))
+        # 统一权限验证
+        has_permission, error = check_user_permission(current_user, target_user)
+        if not has_permission:
+            return ApiResponse.error(error, 403)
+
+        return ApiResponse.success(user_schema.dump(target_user))
 
     @login_required
     @user_ns.expect(user_update_model)
@@ -174,22 +287,26 @@ class UserDetail(Resource):
         """更新用户信息"""
         current_user = get_current_user()
 
-        user = UserService.get_user_by_id(user_id)
-        if not user:
+        if not current_user:
             return ApiResponse.error('用户不存在')
 
-        # 权限验证
-        if current_user.is_admin != 1 and current_user.id != user.id:
-            return ApiResponse.error('无权限修改', 403)
+        target_user = UserService.get_user_by_id(user_id)
+        if not target_user:
+            return ApiResponse.error('用户不存在')
+
+        # 统一权限验证
+        has_permission, error = check_user_permission(current_user, target_user)
+        if not has_permission:
+            return ApiResponse.error(error, 403)
 
         try:
             data = user_update_schema.load(request.get_json())
         except ValidationError as e:
             return ApiResponse.error(str(e.messages), 400)
 
-        user = UserService.update_user(user, data)
+        target_user = UserService.update_user(target_user, data)
 
-        return ApiResponse.success(user_schema.dump(user), '更新成功')
+        return ApiResponse.success(user_schema.dump(target_user), '更新成功')
 
     @login_required
     @user_ns.response(200, '删除成功', base_response)
@@ -199,18 +316,23 @@ class UserDetail(Resource):
         """删除用户"""
         current_user = get_current_user()
 
-        user = UserService.get_user_by_id(user_id)
-        if not user:
+        if not current_user:
             return ApiResponse.error('用户不存在')
 
-        # 只有公司内部人员可以删除用户
-        if current_user.is_admin != 1:
-            return ApiResponse.error('无权限删除', 403)
+        target_user = UserService.get_user_by_id(user_id)
+        if not target_user:
+            return ApiResponse.error('用户不存在')
 
-        if user.id == current_user.id:
+        # 统一权限验证
+        has_permission, error = check_user_permission(current_user, target_user)
+        if not has_permission:
+            return ApiResponse.error(error, 403)
+
+        # 不能删除自己
+        if target_user.id == current_user.id:
             return ApiResponse.error('不能删除当前登录用户', 403)
 
-        UserService.delete_user(user)
+        UserService.delete_user(target_user)
         return ApiResponse.success(message='删除成功')
 
 
@@ -224,20 +346,24 @@ class UserResetPassword(Resource):
         """重置密码"""
         current_user = get_current_user()
 
-        user = UserService.get_user_by_id(user_id)
-        if not user:
+        if not current_user:
             return ApiResponse.error('用户不存在')
 
-        # 只有公司内部人员可以重置密码
-        if current_user.is_admin != 1:
-            return ApiResponse.error('无权限重置密码', 403)
+        target_user = UserService.get_user_by_id(user_id)
+        if not target_user:
+            return ApiResponse.error('用户不存在')
+
+        # 统一权限验证
+        has_permission, error = check_user_permission(current_user, target_user)
+        if not has_permission:
+            return ApiResponse.error(error, 403)
 
         try:
             data = user_reset_password_schema.load(request.get_json())
         except ValidationError as e:
             return ApiResponse.error(str(e.messages), 400)
 
-        UserService.reset_password(user, data['password'])
+        UserService.reset_password(target_user, data['password'])
 
         return ApiResponse.success(message='密码重置成功')
 
@@ -275,19 +401,35 @@ class UserRoles(Resource):
         """分配角色"""
         current_user = get_current_user()
 
-        # 只有公司内部人员可以分配角色
-        if current_user.is_admin != 1:
-            return ApiResponse.error('只有管理员可以分配角色', 403)
+        if not current_user:
+            return ApiResponse.error('用户不存在')
 
-        user = UserService.get_user_by_id(user_id)
-        if not user:
+        target_user = UserService.get_user_by_id(user_id)
+        if not target_user:
             return ApiResponse.error('用户不存在', 404)
+
+        # 统一权限验证
+        has_permission, error = check_user_permission(current_user, target_user)
+        if not has_permission:
+            return ApiResponse.error(error, 403)
 
         data = request.get_json()
         role_ids = data.get('role_ids', [])
         factory_id = data.get('factory_id')
 
-        if not factory_id and user.is_admin != 1:
+        # 如果是工厂管理员，从验证中获取 factory_id
+        if not factory_id and current_user.is_admin != 1:
+            from app.models.system.user_factory import UserFactory
+            user_factory = UserFactory.query.filter_by(
+                user_id=current_user.id,
+                relation_type='owner',
+                status=1,
+                is_deleted=0
+            ).first()
+            if user_factory:
+                factory_id = user_factory.factory_id
+
+        if not factory_id and target_user.is_admin != 1:
             return ApiResponse.error('请指定工厂ID', 400)
 
         success, error = UserService.assign_roles(user_id, role_ids, factory_id, current_user)
@@ -309,7 +451,6 @@ class UserPermissions(Resource):
         if not current_user:
             return ApiResponse.error('用户不存在')
 
-        # 获取用户权限（需要在 UserService 中实现 get_user_permissions 方法）
         permissions = UserService.get_user_permissions(current_user.id)
 
         return ApiResponse.success(permissions)

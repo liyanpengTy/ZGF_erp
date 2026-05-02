@@ -10,8 +10,11 @@ class UserSchema(Schema):
     avatar = fields.Str()
     is_admin = fields.Int(default=0)
     status = fields.Int(default=1)
-    create_time = fields.DateTime()
-    last_login_time = fields.DateTime()
+    invite_code = fields.Str()
+    invited_count = fields.Int()
+    created_by = fields.Int()
+    create_time = fields.DateTime(format='%Y-%m-%d %H:%M:%S')
+    last_login_time = fields.DateTime(format='%Y-%m-%d %H:%M:%S')
 
 
 class UserLoginSchema(Schema):
@@ -22,8 +25,10 @@ class UserLoginSchema(Schema):
     avatar = fields.Str()
     is_admin = fields.Int()
     status = fields.Int()
-    create_time = fields.DateTime()
-    last_login_time = fields.DateTime()
+    invite_code = fields.Str()
+    invited_count = fields.Int()
+    create_time = fields.DateTime(format='%Y-%m-%d %H:%M:%S')
+    last_login_time = fields.DateTime(format='%Y-%m-%d %H:%M:%S')
 
 
 class UserCreateSchema(Schema):
@@ -32,6 +37,8 @@ class UserCreateSchema(Schema):
     nickname = fields.Str(validate=validate.Length(max=50))
     phone = fields.Str(validate=validate.Length(max=20))
     is_admin = fields.Int(default=0)
+    invite_code = fields.Str(description='邀请码（可选）')
+    factory_id = fields.Int()
 
 
 class UserUpdateSchema(Schema):

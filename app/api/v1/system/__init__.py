@@ -5,6 +5,7 @@ from app.api.v1.system.menus import menu_ns
 from app.api.v1.system.factories import factory_ns
 from app.api.v1.system.logs import log_ns
 from app.api.v1.system.monitor import monitor_ns
+from app.api.v1.system.rewards import reward_ns
 
 __all__ = [
     'user_ns',
@@ -12,5 +13,6 @@ __all__ = [
     'menu_ns',
     'factory_ns',
     'log_ns',
-    'monitor_ns'
+    'monitor_ns',
+    'reward_ns'
 ]

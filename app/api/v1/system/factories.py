@@ -58,6 +58,29 @@ add_user_model = factory_ns.model('AddUser', {
                                    choices=['owner', 'employee', 'customer', 'collaborator'])
 })
 
+qrcode_response_data = factory_ns.model('QRCodeResponseData', {
+    'qrcode': fields.String(),
+    'qrcode_key': fields.String()
+})
+
+qrcode_response = factory_ns.clone('QRCodeResponse', base_response, {
+    'data': fields.Nested(qrcode_response_data)
+})
+
+bind_factory_model = factory_ns.model('BindFactory', {
+    'key': fields.String(required=True, description='二维码标识')
+})
+
+bind_response_data = factory_ns.model('BindResponseData', {
+    'factory_id': fields.Integer(),
+    'factory_name': fields.String(),
+    'factory_code': fields.String()
+})
+
+bind_response = factory_ns.clone('BindResponse', base_response, {
+    'data': fields.Nested(bind_response_data)
+})
+
 # ========== 响应模型 ==========
 factory_item_model = factory_ns.model('FactoryItem', {
     'id': fields.Integer(),
@@ -67,6 +90,7 @@ factory_item_model = factory_ns.model('FactoryItem', {
     'contact_phone': fields.String(),
     'address': fields.String(),
     'status': fields.Integer(),
+    'qrcode': fields.String(),
     'remark': fields.String(),
     'create_time': fields.String(),
     'update_time': fields.String()
@@ -448,3 +472,51 @@ class FactoryOwnerResetPassword(Resource):
         owner.save()
 
         return ApiResponse.success(message='密码已重置为 123456')
+
+
+@factory_ns.route('/<int:factory_id>/qrcode')
+class FactoryQRCode(Resource):
+    @login_required
+    @factory_ns.response(200, '成功', qrcode_response)
+    @factory_ns.response(403, '无权限', forbidden_response)
+    @factory_ns.response(404, '工厂不存在', error_response)
+    def post(self, factory_id):
+        """生成工厂二维码"""
+        current_user = get_current_user()
+
+        if current_user.is_admin != 1:
+            return ApiResponse.error('只有管理员可以生成二维码', 403)
+
+        factory = FactoryService.get_factory_by_id(factory_id)
+        if not factory:
+            return ApiResponse.error('工厂不存在')
+
+        result = FactoryService.generate_qrcode(factory)
+
+        return ApiResponse.success(result, '二维码生成成功')
+
+
+@factory_ns.route('/bind')
+class BindFactory(Resource):
+    @factory_ns.expect(bind_factory_model)
+    @factory_ns.response(200, '绑定成功', bind_response)
+    @factory_ns.response(400, '参数错误', error_response)
+    @factory_ns.response(401, '未登录', unauthorized_response)
+    @factory_ns.response(404, '二维码无效', error_response)
+    def post(self):
+        """用户扫码绑定工厂"""
+        data = request.get_json()
+        qrcode_key = data.get('key')
+
+        if not qrcode_key:
+            return ApiResponse.error('无效的二维码', 400)
+
+        current_user = get_current_user()
+        if not current_user:
+            return ApiResponse.error('请先登录', 401)
+
+        result, error = FactoryService.bind_user_to_factory(current_user.id, qrcode_key)
+        if error:
+            return ApiResponse.error(error, 404)
+
+        return ApiResponse.success(result, '绑定成功')

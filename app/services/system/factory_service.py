@@ -1,6 +1,6 @@
 """工厂管理服务"""
 from datetime import datetime
-from app.extensions import db, bcrypt
+from app.extensions import bcrypt
 from app.models.system.factory import Factory
 from app.models.auth.user import User
 from app.models.system.user_factory import UserFactory
@@ -51,7 +51,7 @@ class FactoryService(BaseService):
         }
 
     @staticmethod
-    def create_factory(data, current_user_id=None):
+    def create_factory(data):
         """
         创建工厂及其主体账号
         relation_type: owner - 工厂主体账号
@@ -360,3 +360,62 @@ class FactoryService(BaseService):
         owner.password = bcrypt.generate_password_hash('123456').decode('utf-8')
         owner.save()
         return True, None
+
+    @staticmethod
+    def generate_qrcode(factory):
+        """生成工厂二维码"""
+        import uuid
+
+        qrcode_key = uuid.uuid4().hex[:32]
+        qrcode_url = f"/api/v1/factories/bind?key={qrcode_key}"
+
+        factory.qrcode = qrcode_url
+        factory.qrcode_key = qrcode_key
+        factory.save()
+
+        return {
+            'qrcode': qrcode_url,
+            'qrcode_key': qrcode_key
+        }
+
+    @staticmethod
+    def get_factory_by_qrcode_key(qrcode_key):
+        """根据二维码标识获取工厂"""
+        from app.models.system.factory import Factory
+        return Factory.query.filter_by(qrcode_key=qrcode_key, is_deleted=0).first()
+
+    @staticmethod
+    def bind_user_to_factory(user_id, qrcode_key):
+        """用户扫码绑定工厂"""
+        from app.models.system.user_factory import UserFactory
+        from datetime import datetime
+
+        factory = FactoryService.get_factory_by_qrcode_key(qrcode_key)
+        if not factory:
+            return None, '二维码无效或已过期'
+
+        if factory.status != 1:
+            return None, '工厂已禁用，无法绑定'
+
+        existing = UserFactory.query.filter_by(
+            user_id=user_id, factory_id=factory.id, is_deleted=0
+        ).first()
+
+        if existing:
+            return None, '您已绑定该工厂'
+
+        user_factory = UserFactory(
+            user_id=user_id,
+            factory_id=factory.id,
+            relation_type='employee',
+            status=1,
+            entry_date=datetime.now().date(),
+            remark='通过二维码扫码绑定'
+        )
+        user_factory.save()
+
+        return {
+            'factory_id': factory.id,
+            'factory_name': factory.name,
+            'factory_code': factory.code
+        }, None

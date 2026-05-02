@@ -26,6 +26,24 @@ switch_factory_model = auth_ns.model('SwitchFactoryRequest', {
     'factory_id': fields.Integer(required=True, description='工厂ID')
 })
 
+register_request_model = auth_ns.model('RegisterRequest', {
+    'username': fields.String(required=True, description='用户名', example='newuser'),
+    'password': fields.String(required=True, description='密码', example='123456'),
+    'nickname': fields.String(description='昵称', example='新用户'),
+    'phone': fields.String(description='手机号', example='13800138000'),
+    'invite_code': fields.String(description='邀请码', example='ABC12345')
+})
+
+register_response_data = auth_ns.model('RegisterResponseData', {
+    'id': fields.Integer(description='用户ID'),
+    'username': fields.String(description='用户名'),
+    'invite_code': fields.String(description='邀请码')
+})
+
+register_response = auth_ns.clone('RegisterResponse', base_response, {
+    'data': fields.Nested(register_response_data)
+})
+
 # ========== 响应模型 ==========
 user_info_model = auth_ns.model('UserInfo', {
     'id': fields.Integer(description='用户ID'),
@@ -35,6 +53,8 @@ user_info_model = auth_ns.model('UserInfo', {
     'avatar': fields.String(description='头像'),
     'is_admin': fields.Integer(description='是否管理员'),
     'status': fields.Integer(description='状态'),
+    'invite_code': fields.String(description='邀请码'),
+    'invited_count': fields.Integer(description='邀请人数'),
     'create_time': fields.String(description='创建时间'),
     'last_login_time': fields.String(description='最后登录时间')
 })
@@ -239,3 +259,68 @@ class Logout(Resource):
     def post(self):
         """PC端登出"""
         return ApiResponse.success(message='登出成功')
+
+
+@auth_ns.route('/register')
+class Register(Resource):
+    @auth_ns.expect(register_request_model)
+    @auth_ns.response(201, '注册成功', register_response)
+    @auth_ns.response(400, '参数错误', error_response)
+    @auth_ns.response(409, '用户名已存在', error_response)
+    def post(self):
+        from app.extensions import bcrypt
+        from app.models.auth.user import User
+        from app.services.system.reward_service import RewardService
+        import hashlib
+        from datetime import datetime
+
+        data = request.get_json()
+        username = data.get('username')
+        password = data.get('password')
+        nickname = data.get('nickname', '')
+        phone = data.get('phone', '')
+        invite_code = data.get('invite_code')
+
+        # 检查用户名是否已存在
+        existing = User.query.filter_by(username=username, is_deleted=0).first()
+        if existing:
+            return ApiResponse.error('用户名已存在', 409)
+
+        # 处理邀请码
+        inviter = None
+        if invite_code:
+            inviter = User.query.filter_by(invite_code=invite_code, is_deleted=0).first()
+            if inviter:
+                # 增加邀请人计数
+                inviter.invited_count += 1
+                inviter.save()
+
+        # 生成用户自己的邀请码
+        user_invite_code = hashlib.md5(f"{username}{datetime.now()}".encode()).hexdigest()[:8].upper()
+        while User.query.filter_by(invite_code=user_invite_code).first():
+            user_invite_code = hashlib.md5(f"{username}{datetime.now()}".encode()).hexdigest()[:8].upper()
+
+        # 创建用户
+        user = User(
+            username=username,
+            password=bcrypt.generate_password_hash(password).decode('utf-8'),
+            nickname=nickname,
+            phone=phone,
+            is_admin=0,
+            status=1,
+            invite_code=user_invite_code,
+            invited_by=inviter.id if inviter else None,
+            invited_count=0
+        )
+        user.save()
+
+        # ========== 触发奖励检查 ==========
+        if inviter:
+            # 检查邀请人是否触发新的奖励
+            RewardService.check_and_create_rewards(inviter.id)
+
+        return ApiResponse.success({
+            'id': user.id,
+            'username': user.username,
+            'invite_code': user.invite_code
+        }, '注册成功', 201)

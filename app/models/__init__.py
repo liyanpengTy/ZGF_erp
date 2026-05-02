@@ -6,6 +6,8 @@ from app.models.system.role import Role, role_menu
 from app.models.system.menu import Menu
 from app.models.system.factory import Factory
 from app.models.system.log import OperationLog, LoginLog
+from app.models.system.reward_config import RewardConfig
+from app.models.system.reward_record import RewardRecord
 from app.models.base_data.size import Size
 from app.models.base_data.category import Category
 from app.models.base_data.color import Color
@@ -27,6 +29,8 @@ __all__ = [
     'Factory',
     'OperationLog',
     'LoginLog',
+    'RewardConfig',
+    'RewardRecord',
     'Size',
     'Category',
     'Color',

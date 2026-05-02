@@ -2,7 +2,7 @@ from flask import Blueprint
 from flask_restx import Api
 # 导入所有命名空间
 from app.api.v1.auth.auth import auth_ns
-from app.api.v1.system import user_ns, role_ns, menu_ns, factory_ns, log_ns, monitor_ns
+from app.api.v1.system import user_ns, role_ns, menu_ns, factory_ns, log_ns, monitor_ns, reward_ns
 from app.api.v1.profile.profile import profile_ns
 from app.api.v1.base_data import category_ns, color_ns, size_ns
 from app.api.v1.business import style_ns, style_price_ns, style_process_ns, style_elastic_ns, process_ns, order_ns
@@ -21,6 +21,7 @@ api.add_namespace(menu_ns, path='/system/menus')
 api.add_namespace(factory_ns, path='/system/factories')
 api.add_namespace(log_ns, path='/system/logs')
 api.add_namespace(monitor_ns, path='/system/monitor')
+api.add_namespace(reward_ns, path='/system/rewards')
 api.add_namespace(profile_ns, path='/profile')
 api.add_namespace(size_ns, path='/base/sizes')
 api.add_namespace(category_ns, path='/base/categories')

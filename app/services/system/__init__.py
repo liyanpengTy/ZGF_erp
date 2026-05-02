@@ -4,6 +4,7 @@ from app.services.system.menu_service import MenuService
 from app.services.system.factory_service import FactoryService
 from app.services.system.log_service import LogService
 from app.services.system.monitor_service import MonitorService
+from app.services.system.reward_service import RewardService
 
 __all__ = [
     'UserService',
@@ -11,5 +12,6 @@ __all__ = [
     'MenuService',
     'FactoryService',
     'LogService',
-    'MonitorService'
+    'MonitorService',
+    'RewardService'
 ]
