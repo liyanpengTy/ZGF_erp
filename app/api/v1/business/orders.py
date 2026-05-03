@@ -10,7 +10,7 @@ from app.api.v1.shared_models import get_shared_models
 from app.utils.permissions import login_required
 from app.services import AuthService, OrderService
 
-order_ns = Namespace('订单管理-orders', description='订单管理')
+order_ns = Namespace('orders', description='订单管理')
 
 shared = get_shared_models(order_ns)
 base_response = shared['base_response']
@@ -28,18 +28,31 @@ order_query_parser.add_argument('status', type=str, location='args', help='订�
 order_query_parser.add_argument('start_date', type=str, location='args', help='开始日期')
 order_query_parser.add_argument('end_date', type=str, location='args', help='结束日期')
 
-# ========== 响应模型 ==========
+# ========== SKU响应模型 ==========
+order_detail_sku_model = order_ns.model('OrderDetailSku', {
+    'id': fields.Integer(),
+    'color_id': fields.Integer(),
+    'color_name': fields.String(),
+    'size_id': fields.Integer(),
+    'size_name': fields.String(),
+    'quantity': fields.Integer(),
+    'splice_config': fields.List(fields.Raw()),
+    'remark': fields.String()
+})
+
+# ========== 订单明细响应模型（新） ==========
 order_detail_item_model = order_ns.model('OrderDetailItem', {
     'id': fields.Integer(),
     'style_id': fields.Integer(),
     'style_no': fields.String(),
     'style_name': fields.String(),
-    'quantity': fields.Integer(),
-    'unit_price': fields.Float(),
-    'amount': fields.Float(),
-    'remark': fields.String()
+    'snapshot_splice_data': fields.List(fields.Raw()),
+    'snapshot_custom_attributes': fields.Raw(),
+    'remark': fields.String(),
+    'skus': fields.List(fields.Nested(order_detail_sku_model))
 })
 
+# ========== 订单响应模型 ==========
 order_item_model = order_ns.model('OrderItem', {
     'id': fields.Integer(),
     'order_no': fields.String(),
@@ -68,6 +81,21 @@ order_list_response = order_ns.clone('OrderListResponse', base_response, {
 
 order_item_response = order_ns.clone('OrderItemResponse', base_response, {
     'data': fields.Nested(order_item_model)
+})
+
+# ========== 创建订单的SKU请求模型 ==========
+order_detail_sku_create_model = order_ns.model('OrderDetailSkuCreate', {
+    'color_id': fields.Integer(description='颜色ID'),
+    'size_id': fields.Integer(description='尺码ID'),
+    'quantity': fields.Integer(required=True, description='数量'),
+    'splice_config': fields.List(fields.Raw(), description='拼接配置'),
+    'remark': fields.String(description='备注')
+})
+
+order_detail_create_model = order_ns.model('OrderDetailCreate', {
+    'style_id': fields.Integer(required=True, description='款号ID'),
+    'remark': fields.String(description='备注'),
+    'skus': fields.List(fields.Nested(order_detail_sku_create_model), required=True, description='SKU列表')
 })
 
 # ========== Schema 初始化 ==========
@@ -113,17 +141,12 @@ class OrderList(Resource):
         'order_date': fields.String(required=True, description='订单日期', example='2024-01-01'),
         'delivery_date': fields.String(description='交货日期', example='2024-01-31'),
         'remark': fields.String(description='备注'),
-        'details': fields.List(fields.Nested(order_ns.model('OrderDetailCreate', {
-            'style_id': fields.Integer(required=True, description='款号ID'),
-            'quantity': fields.Integer(required=True, description='数量'),
-            'unit_price': fields.Float(description='单价', default=0),
-            'remark': fields.String(description='备注')
-        })), required=True, description='订单明细')
+        'details': fields.List(fields.Nested(order_detail_create_model), required=True, description='订单明细')
     }))
     @order_ns.response(201, '创建成功', order_item_response)
     @order_ns.response(400, '参数错误', error_response)
     def post(self):
-        """创建订单"""
+        """创建订单（支持多颜色尺码SKU）"""
         current_user = get_current_user()
 
         if not current_user:

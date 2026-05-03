@@ -22,7 +22,7 @@ class Order(BaseModel):
     customer_name = db.Column(db.String(100), comment='客户名称')
     order_date = db.Column(db.Date, nullable=False, comment='订单日期')
     delivery_date = db.Column(db.Date, comment='交货日期')
-    status = db.Column(db.String(20), default='pending', comment='订单状态：pending-待确认，confirmed-已确认，processing-生产中，completed-已完成，cancelled-已取消')
+    status = db.Column(db.String(20), default='pending', comment='订单状态')
     total_amount = db.Column(db.Numeric(12, 2), default=0, comment='订单总金额')
     remark = db.Column(db.String(500), comment='备注')
     is_deleted = db.Column(db.SmallInteger, default=0, comment='逻辑删除')
@@ -65,40 +65,82 @@ class Order(BaseModel):
 
 
 class OrderDetail(BaseModel):
-    """订单明细表"""
+    """订单明细主表（款号级）"""
     __tablename__ = 'ord_order_detail'
     __table_args__ = (
         db.Index('idx_order_id', 'order_id'),
         db.Index('idx_style_id', 'style_id'),
-        {'comment': '订单明细表'}
+        {'comment': '订单明细主表，存储款号级信息'}
     )
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     order_id = db.Column(db.Integer, db.ForeignKey('ord_order.id'), nullable=False, comment='订单ID')
     style_id = db.Column(db.Integer, db.ForeignKey('fab_style.id'), nullable=False, comment='款号ID')
-    style_no = db.Column(db.String(50), comment='款号')
-    style_name = db.Column(db.String(100), comment='款号名称')
-    quantity = db.Column(db.Integer, nullable=False, comment='数量')
-    unit_price = db.Column(db.Numeric(10, 2), default=0, comment='单价')
-    amount = db.Column(db.Numeric(12, 2), default=0, comment='小计金额')
+
+    # 快照（从款号表复制，防止款号修改后订单变化）
+    snapshot_splice_data = db.Column(db.JSON, comment='下单时款号的拼接结构')
+    snapshot_custom_attributes = db.Column(db.JSON, comment='下单时款号的自定义属性')
+
     remark = db.Column(db.String(255), comment='备注')
     is_deleted = db.Column(db.SmallInteger, default=0, comment='逻辑删除')
     create_time = db.Column(db.DateTime, default=datetime.now, comment='创建时间')
     update_time = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
 
     # 关联关系
+    order = db.relationship('Order', backref='details')
     style = db.relationship('Style', backref='order_details')
+    skus = db.relationship('OrderDetailSku', backref='detail', cascade='all, delete-orphan')
 
     def to_dict(self):
         return {
             'id': self.id,
             'order_id': self.order_id,
             'style_id': self.style_id,
-            'style_no': self.style_no,
-            'style_name': self.style_name,
+            'style_no': self.style.style_no if self.style else None,
+            'style_name': self.style.name if self.style else None,
+            'snapshot_splice_data': self.snapshot_splice_data,
+            'snapshot_custom_attributes': self.snapshot_custom_attributes,
+            'remark': self.remark,
+            'skus': [sku.to_dict() for sku in self.skus]
+        }
+
+
+class OrderDetailSku(BaseModel):
+    """订单明细SKU表（颜色尺码级）"""
+    __tablename__ = 'ord_order_detail_sku'
+    __table_args__ = (
+        db.Index('idx_detail_id', 'detail_id'),
+        db.Index('idx_color_id', 'color_id'),
+        db.Index('idx_size_id', 'size_id'),
+        {'comment': '订单明细SKU表，存储每个颜色尺码的数量和拼接配置'}
+    )
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    detail_id = db.Column(db.Integer, db.ForeignKey('ord_order_detail.id'), nullable=False, comment='订单明细ID')
+    color_id = db.Column(db.Integer, db.ForeignKey('fab_color.id'), comment='颜色ID')
+    size_id = db.Column(db.Integer, db.ForeignKey('sys_size.id'), comment='尺码ID')
+    quantity = db.Column(db.Integer, nullable=False, comment='数量')
+    splice_config = db.Column(db.JSON, comment='拼接配置')
+
+    remark = db.Column(db.String(255), comment='备注')
+    is_deleted = db.Column(db.SmallInteger, default=0, comment='逻辑删除')
+    create_time = db.Column(db.DateTime, default=datetime.now, comment='创建时间')
+    update_time = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
+
+    # 关联关系
+    detail = db.relationship('OrderDetail', backref='detail_skus')
+    color = db.relationship('Color', backref='order_detail_skus')
+    size = db.relationship('Size', backref='order_detail_skus')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'detail_id': self.detail_id,
+            'color_id': self.color_id,
+            'color_name': self.color.name if self.color else None,
+            'size_id': self.size_id,
+            'size_name': self.size.name if self.size else None,
             'quantity': self.quantity,
-            'unit_price': float(self.unit_price) if self.unit_price else 0,
-            'amount': float(self.amount) if self.amount else 0,
+            'splice_config': self.splice_config,
             'remark': self.remark
         }
-    

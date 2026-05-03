@@ -1,7 +1,7 @@
 """订单管理服务"""
 from datetime import datetime
 from app.extensions import db
-from app.models.business.order import Order, OrderDetail
+from app.models.business.order import Order, OrderDetail, OrderDetailSku
 from app.models.business.style import Style
 from app.services.base.base_service import BaseService
 
@@ -77,9 +77,8 @@ class OrderService(BaseService):
         """创建订单"""
         order_no = OrderService.generate_order_no(current_user.factory_id)
 
+        # 计算总金额（需要从价格表获取单价）
         total_amount = 0
-        for detail in data['details']:
-            total_amount += detail['quantity'] * detail.get('unit_price', 0)
 
         order = Order(
             order_no=order_no,
@@ -89,27 +88,48 @@ class OrderService(BaseService):
             order_date=datetime.strptime(data['order_date'], '%Y-%m-%d').date(),
             delivery_date=datetime.strptime(data['delivery_date'], '%Y-%m-%d').date() if data.get('delivery_date') else None,
             status='pending',
-            total_amount=total_amount,
+            total_amount=0,
             remark=data.get('remark', ''),
             create_by=current_user.id
         )
         order.save()
 
-        for item in data['details']:
-            style = Style.query.filter_by(id=item['style_id'], is_deleted=0).first()
-            amount = item['quantity'] * item.get('unit_price', 0)
+        # 创建订单明细
+        for detail_data in data['details']:
+            style = Style.query.filter_by(id=detail_data['style_id'], is_deleted=0).first()
+            if not style:
+                continue
 
+            # 创建明细主表
             detail = OrderDetail(
                 order_id=order.id,
-                style_id=item['style_id'],
-                style_no=style.style_no if style else '',
-                style_name=style.name if style else '',
-                quantity=item['quantity'],
-                unit_price=item.get('unit_price', 0),
-                amount=amount,
-                remark=item.get('remark', '')
+                style_id=style.id,
+                snapshot_splice_data=style.splice_data if style.is_splice == 1 else None,
+                snapshot_custom_attributes=style.custom_attributes,
+                remark=detail_data.get('remark', '')
             )
             detail.save()
+
+            # 创建SKU明细
+            for sku_data in detail_data.get('skus', []):
+                # 计算小计金额（需要从价格表获取单价）
+                # unit_price = OrderService.get_style_price(style.id, sku_data.get('color_id'), order.order_date)
+                # amount = sku_data['quantity'] * unit_price
+                # total_amount += amount
+
+                sku = OrderDetailSku(
+                    detail_id=detail.id,
+                    color_id=sku_data.get('color_id'),
+                    size_id=sku_data.get('size_id'),
+                    quantity=sku_data['quantity'],
+                    splice_config=sku_data.get('splice_config', []) if style.is_splice == 1 else None,
+                    remark=sku_data.get('remark', '')
+                )
+                sku.save()
+
+        # 更新订单总金额
+        # order.total_amount = total_amount
+        # order.save()
 
         return order
 

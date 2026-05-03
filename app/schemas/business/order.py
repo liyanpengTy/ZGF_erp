@@ -2,6 +2,28 @@
 from marshmallow import Schema, fields, validate
 
 
+class OrderDetailSkuSchema(Schema):
+    """订单明细SKU序列化器"""
+    id = fields.Int()
+    detail_id = fields.Int()
+    color_id = fields.Int()
+    color_name = fields.Str()
+    size_id = fields.Int()
+    size_name = fields.Str()
+    quantity = fields.Int()
+    splice_config = fields.List(fields.Dict())
+    remark = fields.Str()
+
+
+class OrderDetailSkuCreateSchema(Schema):
+    """创建订单明细SKU参数"""
+    color_id = fields.Int()
+    size_id = fields.Int()
+    quantity = fields.Int(required=True, validate=validate.Range(min=1))
+    splice_config = fields.List(fields.Dict())
+    remark = fields.Str()
+
+
 class OrderDetailSchema(Schema):
     """订单明细序列化器"""
     id = fields.Int()
@@ -9,18 +31,17 @@ class OrderDetailSchema(Schema):
     style_id = fields.Int()
     style_no = fields.Str()
     style_name = fields.Str()
-    quantity = fields.Int()
-    unit_price = fields.Float()
-    amount = fields.Float()
+    snapshot_splice_data = fields.List(fields.Dict())
+    snapshot_custom_attributes = fields.Dict()
     remark = fields.Str()
+    skus = fields.List(fields.Nested(OrderDetailSkuSchema))
 
 
 class OrderDetailCreateSchema(Schema):
     """创建订单明细参数"""
     style_id = fields.Int(required=True)
-    quantity = fields.Int(required=True, validate=validate.Range(min=1))
-    unit_price = fields.Float(default=0)
     remark = fields.Str()
+    skus = fields.List(fields.Nested(OrderDetailSkuCreateSchema), required=True)
 
 
 class OrderSchema(Schema):
@@ -62,4 +83,3 @@ class OrderUpdateSchema(Schema):
 class OrderStatusUpdateSchema(Schema):
     """更新订单状态参数"""
     status = fields.Str(required=True, validate=validate.OneOf(['pending', 'confirmed', 'processing', 'completed', 'cancelled']))
-    

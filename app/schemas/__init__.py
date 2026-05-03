@@ -13,7 +13,11 @@ from app.schemas.business.style_process import StyleProcessSchema, StyleProcessC
 from app.schemas.business.style_elastic import StyleElasticSchema, StyleElasticCreateSchema, StyleElasticUpdateSchema
 from app.schemas.profile.profile import ProfileUpdateSchema, PasswordChangeSchema
 from app.schemas.business.process import ProcessSchema, ProcessCreateSchema, ProcessUpdateSchema, StyleProcessMappingCreateSchema, StyleProcessMappingBatchSchema, StyleProcessMappingSchema
-from app.schemas.business.order import OrderSchema, OrderDetailCreateSchema, OrderUpdateSchema, OrderStatusUpdateSchema, OrderCreateSchema, OrderDetailSchema
+from app.schemas.business.order import (
+    OrderSchema, OrderCreateSchema, OrderUpdateSchema, OrderStatusUpdateSchema,
+    OrderDetailSchema, OrderDetailCreateSchema,
+    OrderDetailSkuSchema, OrderDetailSkuCreateSchema
+)
 
 __all__ = [
     'UserSchema', 'UserLoginSchema', 'UserCreateSchema', 'UserUpdateSchema', 'UserResetPasswordSchema',
@@ -32,6 +36,7 @@ __all__ = [
     'ProfileUpdateSchema', 'PasswordChangeSchema',
     'ProcessSchema', 'ProcessCreateSchema', 'ProcessUpdateSchema', 'StyleProcessMappingCreateSchema',
     'StyleProcessMappingBatchSchema', 'StyleProcessMappingSchema',
-    'OrderSchema', 'OrderDetailCreateSchema', 'OrderUpdateSchema', 'OrderStatusUpdateSchema',
-    'OrderCreateSchema', 'OrderDetailSchema'
+    'OrderSchema', 'OrderCreateSchema', 'OrderUpdateSchema', 'OrderStatusUpdateSchema',
+    'OrderDetailSchema', 'OrderDetailCreateSchema',
+    'OrderDetailSkuSchema', 'OrderDetailSkuCreateSchema'
 ]
