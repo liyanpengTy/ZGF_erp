@@ -9,6 +9,9 @@ __pycache__/
 # 配置文件（忽略 run.py）
 run.py
 
+# 数据库迁移文件
+migrations
+
 # Distribution / packaging
 .Python
 build/
