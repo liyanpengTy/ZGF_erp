@@ -8,7 +8,7 @@ from app.api.v1.shared_models import get_shared_models
 from app.utils.permissions import login_required
 from app.services import AuthService, StylePriceService
 
-style_price_ns = Namespace('style-prices', description='款号价格管理')
+style_price_ns = Namespace('款号价格管理-style-prices', description='款号价格管理')
 
 shared = get_shared_models(style_price_ns)
 base_response = shared['base_response']

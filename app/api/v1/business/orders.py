@@ -10,7 +10,7 @@ from app.api.v1.shared_models import get_shared_models
 from app.utils.permissions import login_required
 from app.services import AuthService, OrderService
 
-order_ns = Namespace('orders', description='订单管理')
+order_ns = Namespace('订单管理-orders', description='订单管理')
 
 shared = get_shared_models(order_ns)
 base_response = shared['base_response']
@@ -173,7 +173,7 @@ class OrderDetail(Resource):
     }))
     @order_ns.response(200, '更新成功', order_item_response)
     @order_ns.response(404, '不存在', error_response)
-    def put(self, order_id):
+    def patch(self, order_id):
         """更新订单"""
         current_user = get_current_user()
 
@@ -229,7 +229,7 @@ class OrderStatus(Resource):
     }))
     @order_ns.response(200, '更新成功', order_item_response)
     @order_ns.response(404, '不存在', error_response)
-    def put(self, order_id):
+    def post(self, order_id):
         """更新订单状态"""
         current_user = get_current_user()
 

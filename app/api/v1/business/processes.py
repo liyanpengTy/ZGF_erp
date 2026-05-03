@@ -11,7 +11,7 @@ from app.api.v1.shared_models import get_shared_models
 from app.utils.permissions import login_required
 from app.services import AuthService, ProcessService
 
-process_ns = Namespace('processes', description='工序管理')
+process_ns = Namespace('工序管理-processes', description='工序管理')
 
 shared = get_shared_models(process_ns)
 base_response = shared['base_response']
@@ -171,7 +171,7 @@ class ProcessDetail(Resource):
     }))
     @process_ns.response(200, '更新成功', process_item_response)
     @process_ns.response(404, '不存在', error_response)
-    def put(self, process_id):
+    def patch(self, process_id):
         """更新工序"""
         current_user = get_current_user()
 
@@ -270,7 +270,7 @@ class StyleProcesses(Resource):
     }))
     @process_ns.response(200, '保存成功', style_process_list_response)
     @process_ns.response(404, '款号不存在', error_response)
-    def put(self, style_id):
+    def post(self, style_id):
         """批量保存款号工序（全量替换）"""
         current_user = get_current_user()
 

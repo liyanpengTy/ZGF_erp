@@ -6,7 +6,7 @@ from app.api.v1.shared_models import get_shared_models
 from app.utils.permissions import login_required, permission_required
 from app.services import AuthService, RewardService
 
-reward_ns = Namespace('rewards', description='奖励管理')
+reward_ns = Namespace('奖励管理-rewards', description='奖励管理')
 
 shared = get_shared_models(reward_ns)
 base_response = shared['base_response']

@@ -9,7 +9,7 @@ from app.api.v1.shared_models import get_shared_models
 from app.utils.permissions import login_required
 from app.services import UserService
 
-user_ns = Namespace('users', description='用户管理')
+user_ns = Namespace('用户管理-users', description='用户管理')
 
 shared = get_shared_models(user_ns)
 base_response = shared['base_response']
@@ -283,7 +283,7 @@ class UserDetail(Resource):
     @user_ns.expect(user_update_model)
     @user_ns.response(200, '更新成功', user_item_response)
     @user_ns.response(404, '用户不存在', error_response)
-    def put(self, user_id):
+    def patch(self, user_id):
         """更新用户信息"""
         current_user = get_current_user()
 
@@ -397,7 +397,7 @@ class UserRoles(Resource):
     @user_ns.response(200, '分配成功', base_response)
     @user_ns.response(403, '无权限', forbidden_response)
     @user_ns.response(404, '用户不存在', error_response)
-    def put(self, user_id):
+    def post(self, user_id):
         """分配角色"""
         current_user = get_current_user()
 

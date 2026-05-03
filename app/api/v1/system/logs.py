@@ -6,7 +6,7 @@ from app.utils.permissions import login_required
 from app.services import AuthService, LogService
 from app.schemas.system.log import OperationLogSchema, LoginLogSchema
 
-log_ns = Namespace('logs', description='日志管理')
+log_ns = Namespace('日志管理-logs', description='日志管理')
 
 shared = get_shared_models(log_ns)
 base_response = shared['base_response']

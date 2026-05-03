@@ -9,7 +9,7 @@ from app.api.v1.shared_models import get_shared_models
 from app.utils.permissions import login_required
 from app.services import AuthService, MenuService
 
-menu_ns = Namespace('menus', description='菜单管理')
+menu_ns = Namespace('菜单管理-menus', description='菜单管理')
 
 shared = get_shared_models(menu_ns)
 base_response = shared['base_response']
@@ -158,7 +158,7 @@ class MenuDetail(Resource):
     @menu_ns.response(200, '更新成功', menu_item_response)
     @menu_ns.response(404, '菜单不存在', error_response)
     @menu_ns.response(403, '只有管理员可以更新', forbidden_response)
-    def put(self, menu_id):
+    def patch(self, menu_id):
         """更新菜单"""
         current_user = get_current_user()
 

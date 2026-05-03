@@ -8,7 +8,7 @@ from app.api.v1.shared_models import get_shared_models
 from app.utils.permissions import login_required
 from app.services import AuthService, ColorService
 
-color_ns = Namespace('colors', description='颜色管理')
+color_ns = Namespace('颜色管理-colors', description='颜色管理')
 
 shared = get_shared_models(color_ns)
 base_response = shared['base_response']
@@ -150,7 +150,7 @@ class ColorDetail(Resource):
     }))
     @color_ns.response(200, '更新成功', color_item_response)
     @color_ns.response(404, '不存在', error_response)
-    def put(self, color_id):
+    def patch(self, color_id):
         """更新颜色"""
         current_user = get_current_user()
 

@@ -10,7 +10,7 @@ from app.api.v1.shared_models import get_shared_models
 from app.utils.permissions import login_required
 from app.services import AuthService, StyleElasticService
 
-style_elastic_ns = Namespace('style-elastics', description='款号橡筋管理')
+style_elastic_ns = Namespace('款号橡筋管理-style-elastics', description='款号橡筋管理')
 
 shared = get_shared_models(style_elastic_ns)
 base_response = shared['base_response']
@@ -270,7 +270,7 @@ class StyleElasticDetail(Resource):
     }))
     @style_elastic_ns.response(200, '更新成功', style_elastic_item_response)
     @style_elastic_ns.response(404, '不存在', error_response)
-    def put(self, elastic_id):
+    def patch(self, elastic_id):
         """为款号更新橡筋信息"""
         current_user = get_current_user()
 

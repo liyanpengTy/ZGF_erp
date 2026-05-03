@@ -10,7 +10,7 @@ from app.utils.permissions import login_required
 from app.services import AuthService, ProfileService
 from app.models.system.reward_record import RewardRecord
 
-profile_ns = Namespace('profile', description='个人中心')
+profile_ns = Namespace('个人中心-profile', description='个人中心')
 
 shared = get_shared_models(profile_ns)
 base_response = shared['base_response']
@@ -137,7 +137,7 @@ class ProfileInfo(Resource):
     @profile_ns.response(200, '更新成功', user_info_response)
     @profile_ns.response(400, '参数错误', error_response)
     @profile_ns.response(401, '未登录', unauthorized_response)
-    def put(self):
+    def patch(self):
         """更新个人信息"""
         user = get_current_user()
         if not user:
@@ -160,7 +160,7 @@ class ChangePassword(Resource):
     @profile_ns.response(200, '修改成功', base_response)
     @profile_ns.response(400, '参数错误', error_response)
     @profile_ns.response(401, '未登录', unauthorized_response)
-    def put(self):
+    def post(self):
         """修改密码"""
         user = get_current_user()
         if not user:

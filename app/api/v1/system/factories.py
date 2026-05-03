@@ -10,7 +10,7 @@ from app.utils.permissions import login_required
 from app.services import AuthService, FactoryService
 from app.models.auth.user import User
 
-factory_ns = Namespace('factories', description='工厂管理')
+factory_ns = Namespace('工厂管理-factories', description='工厂管理')
 
 shared = get_shared_models(factory_ns)
 base_response = shared['base_response']
@@ -255,7 +255,7 @@ class FactoryDetail(Resource):
     @factory_ns.expect(factory_update_model)
     @factory_ns.response(200, '更新成功', factory_item_response)
     @factory_ns.response(404, '工厂不存在', error_response)
-    def put(self, factory_id):
+    def patch(self, factory_id):
         """更新工厂信息"""
         current_user = get_current_user()
 

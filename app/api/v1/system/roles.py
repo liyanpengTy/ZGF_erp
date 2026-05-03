@@ -8,7 +8,7 @@ from app.api.v1.shared_models import get_shared_models
 from app.utils.permissions import login_required
 from app.services import AuthService, RoleService
 
-role_ns = Namespace('roles', description='角色管理')
+role_ns = Namespace('角色管理-roles', description='角色管理')
 
 shared = get_shared_models(role_ns)
 base_response = shared['base_response']
@@ -181,7 +181,7 @@ class RoleDetail(Resource):
     @role_ns.response(200, '更新成功', role_item_response)
     @role_ns.response(404, '角色不存在', error_response)
     @role_ns.response(403, '无权限', forbidden_response)
-    def put(self, role_id):
+    def patch(self, role_id):
         """更新角色"""
         current_user = get_current_user()
 
@@ -251,7 +251,7 @@ class RoleMenus(Resource):
     @role_ns.response(200, '分配成功', base_response)
     @role_ns.response(404, '角色或菜单不存在', error_response)
     @role_ns.response(403, '无权限', forbidden_response)
-    def put(self, role_id):
+    def post(self, role_id):
         """分配菜单权限"""
         current_user = get_current_user()
 

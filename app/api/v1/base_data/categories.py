@@ -8,7 +8,7 @@ from app.api.v1.shared_models import get_shared_models
 from app.utils.permissions import login_required
 from app.services import AuthService, CategoryService
 
-category_ns = Namespace('categories', description='分类管理')
+category_ns = Namespace('分类管理-categories', description='分类管理')
 
 shared = get_shared_models(category_ns)
 base_response = shared['base_response']
@@ -130,7 +130,7 @@ class CategoryTree(Resource):
     @category_ns.response(200, '成功', category_tree_response)
     @category_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """分类树"""
+        """分类树/tree"""
         current_user = get_current_user()
 
         if not current_user:
@@ -147,7 +147,7 @@ class CategoryDetail(Resource):
     @category_ns.response(200, '成功', category_item_response)
     @category_ns.response(404, '不存在', error_response)
     def get(self, category_id):
-        """分类详情"""
+        """分类详情/category_id"""
         current_user = get_current_user()
 
         category = CategoryService.get_category_by_id(category_id)
@@ -169,8 +169,8 @@ class CategoryDetail(Resource):
     }))
     @category_ns.response(200, '更新成功', category_item_response)
     @category_ns.response(404, '不存在', error_response)
-    def put(self, category_id):
-        """更新分类"""
+    def patch(self, category_id):
+        """更新分类/category_id"""
         current_user = get_current_user()
 
         category = CategoryService.get_category_by_id(category_id)
@@ -195,7 +195,7 @@ class CategoryDetail(Resource):
     @category_ns.response(200, '删除成功', base_response)
     @category_ns.response(404, '不存在', error_response)
     def delete(self, category_id):
-        """删除分类"""
+        """删除分类/category_id"""
         current_user = get_current_user()
 
         category = CategoryService.get_category_by_id(category_id)

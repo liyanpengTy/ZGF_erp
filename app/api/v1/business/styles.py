@@ -8,7 +8,7 @@ from app.api.v1.shared_models import get_shared_models
 from app.utils.permissions import login_required
 from app.services import AuthService, StyleService
 
-style_ns = Namespace('styles', description='款号管理')
+style_ns = Namespace('款号管理-styles', description='款号管理')
 
 shared = get_shared_models(style_ns)
 base_response = shared['base_response']
@@ -193,7 +193,7 @@ class StyleDetail(Resource):
     }))
     @style_ns.response(200, '更新成功', style_item_response)
     @style_ns.response(404, '不存在', error_response)
-    def put(self, style_id):
+    def patch(self, style_id):
         """更新款号"""
         current_user = get_current_user()
 

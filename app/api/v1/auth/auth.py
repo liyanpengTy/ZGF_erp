@@ -7,7 +7,7 @@ from app.utils.permissions import login_required, refresh_required
 from app.utils.response import ApiResponse
 from app.api.v1.shared_models import get_shared_models
 
-auth_ns = Namespace('auth', description='认证管理')
+auth_ns = Namespace('认证管理-auth', description='认证管理')
 
 # ========== 共享模型 ==========
 shared = get_shared_models(auth_ns)
@@ -99,7 +99,7 @@ class Login(Resource):
     @auth_ns.response(400, '用户名或密码错误', error_response)
     @auth_ns.response(401, '账号已被禁用', unauthorized_response)
     def post(self):
-        """PC登录"""
+        """PC登录/login"""
         data = request.get_json()
         username = data.get('username')
         password = data.get('password')
@@ -141,7 +141,7 @@ class RefreshToken(Resource):
     @auth_ns.response(200, '刷新成功', refresh_response)
     @auth_ns.response(401, 'refresh_token无效或已过期', unauthorized_response)
     def post(self):
-        """刷新token"""
+        """刷新token/refresh"""
         old_claims = get_jwt()
         user_id = old_claims.get('user_id')
 
@@ -173,7 +173,7 @@ class UserInfo(Resource):
     @auth_ns.response(200, '获取成功', user_info_response)
     @auth_ns.response(401, '未登录或token无效', unauthorized_response)
     def get(self):
-        """获取当前用户信息"""
+        """获取当前用户信息/userinfo"""
         user = AuthService.get_current_user()
         if not user:
             return ApiResponse.error('用户不存在')
@@ -185,7 +185,7 @@ class UserInfo(Resource):
 
 @auth_ns.route('/switch-factory')
 class SwitchFactory(Resource):
-    """用户关联了多个工厂时，切换到当前工厂"""
+    """用户关联了多个工厂时，切换到当前工厂switch-factory"""
 
     @login_required
     @auth_ns.expect(switch_factory_model)
@@ -193,7 +193,7 @@ class SwitchFactory(Resource):
     @auth_ns.response(400, '参数错误', error_response)
     @auth_ns.response(403, '无权限', forbidden_response)
     def post(self):
-        """切换工厂"""
+        """切换工厂/switch-factory"""
         user = AuthService.get_current_user()
         if not user:
             return ApiResponse.error('用户不存在')
@@ -243,7 +243,7 @@ class MyFactories(Resource):
     @auth_ns.response(200, '获取成功', base_response)
     @auth_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """获取我的工厂列表"""
+        """获取我的工厂列表/my-factories"""
         user = AuthService.get_current_user()
         if not user:
             return ApiResponse.error('用户不存在')
@@ -257,7 +257,7 @@ class Logout(Resource):
     @login_required
     @auth_ns.response(200, '登出成功', base_response)
     def post(self):
-        """PC端登出"""
+        """PC端登出/logout"""
         return ApiResponse.success(message='登出成功')
 
 
@@ -268,6 +268,7 @@ class Register(Resource):
     @auth_ns.response(400, '参数错误', error_response)
     @auth_ns.response(409, '用户名已存在', error_response)
     def post(self):
+        """用户自助注册/register"""
         from app.extensions import bcrypt
         from app.models.auth.user import User
         from app.services.system.reward_service import RewardService

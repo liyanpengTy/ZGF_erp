@@ -8,7 +8,7 @@ from app.api.v1.shared_models import get_shared_models
 from app.utils.permissions import login_required
 from app.services import AuthService, SizeService
 
-size_ns = Namespace('sizes', description='尺码管理')
+size_ns = Namespace('尺码管理-sizes', description='尺码管理')
 
 shared = get_shared_models(size_ns)
 base_response = shared['base_response']
@@ -143,7 +143,7 @@ class SizeDetail(Resource):
     }))
     @size_ns.response(200, '更新成功', size_item_response)
     @size_ns.response(404, '不存在', error_response)
-    def put(self, size_id):
+    def patch(self, size_id):
         """更新尺码"""
         current_user = get_current_user()
 

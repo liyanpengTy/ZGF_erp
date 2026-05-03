@@ -5,7 +5,7 @@ from app.api.v1.shared_models import get_shared_models
 from app.utils.permissions import login_required
 from app.services import AuthService, MonitorService
 
-monitor_ns = Namespace('monitor', description='服务监控')
+monitor_ns = Namespace('服务监控-monitor', description='服务监控')
 
 shared = get_shared_models(monitor_ns)
 base_response = shared['base_response']
