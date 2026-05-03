@@ -31,5 +31,5 @@ api.add_namespace(style_price_ns, path='/business/style-prices')
 api.add_namespace(style_process_ns, path='/business/style-processes')
 api.add_namespace(style_elastic_ns, path='/business/style-elastics')
 api.add_namespace(process_ns, path='/business/processes')
-api.add_namespace(order_ns, path='/business/order_ns')
+api.add_namespace(order_ns, path='/business/orders')
 
