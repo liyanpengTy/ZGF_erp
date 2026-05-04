@@ -11,6 +11,8 @@ class OrderDetailSkuSchema(Schema):
     size_id = fields.Int()
     size_name = fields.Str()
     quantity = fields.Int()
+    unit_price = fields.Float()
+    amount = fields.Float()
     splice_config = fields.List(fields.Dict())
     remark = fields.Str()
 

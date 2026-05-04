@@ -3,6 +3,7 @@ from datetime import datetime
 from app.extensions import db
 from app.models.business.order import Order, OrderDetail, OrderDetailSku
 from app.models.business.style import Style
+from app.models.business.style_price import StylePrice
 from app.services.base.base_service import BaseService
 
 
@@ -25,6 +26,27 @@ class OrderService(BaseService):
             seq = 1
 
         return f'ORD{factory_id}{today}{seq:04d}'
+
+    @staticmethod
+    def get_current_style_price(style_id, price_type='customer', order_date=None):
+        """
+        获取款号的当前价格
+        price_type: customer-客户价, internal-内部价, outsourced-外发价
+        order_date: 订单日期，用于取当时生效的价格
+        """
+        query = StylePrice.query.filter(
+            StylePrice.style_id == style_id,
+            StylePrice.price_type == price_type,
+            StylePrice.is_deleted == 0
+        )
+
+        if order_date:
+            query = query.filter(StylePrice.effective_date <= order_date)
+            price = query.order_by(StylePrice.effective_date.desc()).first()
+        else:
+            price = query.order_by(StylePrice.effective_date.desc()).first()
+
+        return price.price if price else 0
 
     @staticmethod
     def get_order_by_id(order_id):
@@ -77,9 +99,6 @@ class OrderService(BaseService):
         """创建订单"""
         order_no = OrderService.generate_order_no(current_user.factory_id)
 
-        # 计算总金额（需要从价格表获取单价）
-        total_amount = 0
-
         order = Order(
             order_no=order_no,
             factory_id=current_user.factory_id,
@@ -94,13 +113,20 @@ class OrderService(BaseService):
         )
         order.save()
 
-        # 创建订单明细
+        total_amount = 0
+
         for detail_data in data['details']:
             style = Style.query.filter_by(id=detail_data['style_id'], is_deleted=0).first()
             if not style:
                 continue
 
-            # 创建明细主表
+            # 获取客户价
+            unit_price = OrderService.get_current_style_price(
+                style_id=style.id,
+                price_type='customer',
+                order_date=order.order_date
+            )
+
             detail = OrderDetail(
                 order_id=order.id,
                 style_id=style.id,
@@ -110,12 +136,9 @@ class OrderService(BaseService):
             )
             detail.save()
 
-            # 创建SKU明细
             for sku_data in detail_data.get('skus', []):
-                # 计算小计金额（需要从价格表获取单价）
-                # unit_price = OrderService.get_style_price(style.id, sku_data.get('color_id'), order.order_date)
-                # amount = sku_data['quantity'] * unit_price
-                # total_amount += amount
+                amount = sku_data['quantity'] * unit_price
+                total_amount += amount
 
                 sku = OrderDetailSku(
                     detail_id=detail.id,
@@ -123,13 +146,15 @@ class OrderService(BaseService):
                     size_id=sku_data.get('size_id'),
                     quantity=sku_data['quantity'],
                     splice_config=sku_data.get('splice_config', []) if style.is_splice == 1 else None,
+                    unit_price=unit_price,
+                    amount=amount,
                     remark=sku_data.get('remark', '')
                 )
                 sku.save()
 
         # 更新订单总金额
-        # order.total_amount = total_amount
-        # order.save()
+        order.total_amount = total_amount
+        order.save()
 
         return order
 

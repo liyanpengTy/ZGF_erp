@@ -36,6 +36,8 @@ order_detail_sku_model = order_ns.model('OrderDetailSku', {
     'size_id': fields.Integer(),
     'size_name': fields.String(),
     'quantity': fields.Integer(),
+    'unit_price': fields.Float(),
+    'amount': fields.Float(),
     'splice_config': fields.List(fields.Raw()),
     'remark': fields.String()
 })

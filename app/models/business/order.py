@@ -76,16 +76,13 @@ class OrderDetail(BaseModel):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     order_id = db.Column(db.Integer, db.ForeignKey('ord_order.id'), nullable=False, comment='订单ID')
     style_id = db.Column(db.Integer, db.ForeignKey('fab_style.id'), nullable=False, comment='款号ID')
-
     # 快照（从款号表复制，防止款号修改后订单变化）
     snapshot_splice_data = db.Column(db.JSON, comment='下单时款号的拼接结构')
     snapshot_custom_attributes = db.Column(db.JSON, comment='下单时款号的自定义属性')
-
     remark = db.Column(db.String(255), comment='备注')
     is_deleted = db.Column(db.SmallInteger, default=0, comment='逻辑删除')
     create_time = db.Column(db.DateTime, default=datetime.now, comment='创建时间')
     update_time = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
-
     # 关联关系
     order = db.relationship('Order', backref='details')
     style = db.relationship('Style', backref='order_details')
@@ -120,13 +117,14 @@ class OrderDetailSku(BaseModel):
     color_id = db.Column(db.Integer, db.ForeignKey('fab_color.id'), comment='颜色ID')
     size_id = db.Column(db.Integer, db.ForeignKey('sys_size.id'), comment='尺码ID')
     quantity = db.Column(db.Integer, nullable=False, comment='数量')
+    # 价格快照（下单时的单价和金额）
+    unit_price = db.Column(db.Numeric(10, 2), default=0, comment='下单时单价')
+    amount = db.Column(db.Numeric(12, 2), default=0, comment='小计金额')
     splice_config = db.Column(db.JSON, comment='拼接配置')
-
     remark = db.Column(db.String(255), comment='备注')
     is_deleted = db.Column(db.SmallInteger, default=0, comment='逻辑删除')
     create_time = db.Column(db.DateTime, default=datetime.now, comment='创建时间')
     update_time = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
-
     # 关联关系
     detail = db.relationship('OrderDetail', backref='detail_skus')
     color = db.relationship('Color', backref='order_detail_skus')
@@ -141,6 +139,8 @@ class OrderDetailSku(BaseModel):
             'size_id': self.size_id,
             'size_name': self.size.name if self.size else None,
             'quantity': self.quantity,
+            'unit_price': float(self.unit_price) if self.unit_price else 0,
+            'amount': float(self.amount) if self.amount else 0,
             'splice_config': self.splice_config,
             'remark': self.remark
         }
