@@ -10,7 +10,7 @@ from app.api.v1.shared_models import get_shared_models
 from app.utils.permissions import login_required, permission_required
 from app.services import AuthService, EmployeeWageService
 
-employee_wage_ns = Namespace('employee-wages', description='员工计酬管理')
+employee_wage_ns = Namespace('员工计酬管理-employee-wages', description='员工计酬管理')
 
 shared = get_shared_models(employee_wage_ns)
 base_response = shared['base_response']

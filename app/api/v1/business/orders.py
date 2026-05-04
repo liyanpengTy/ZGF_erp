@@ -10,7 +10,7 @@ from app.api.v1.shared_models import get_shared_models
 from app.utils.permissions import login_required
 from app.services import AuthService, OrderService
 
-order_ns = Namespace('orders', description='订单管理')
+order_ns = Namespace('订单管理-orders', description='订单管理')
 
 shared = get_shared_models(order_ns)
 base_response = shared['base_response']
