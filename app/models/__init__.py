@@ -17,6 +17,7 @@ from app.models.business.style_process import StyleProcess
 from app.models.business.style_elastic import StyleElastic
 from app.models.business.process import Process, StyleProcessMapping
 from app.models.business.order import Order, OrderDetail, OrderDetailSku
+from app.models.system.employee_wage import EmployeeWage
 
 __all__ = [
     'BaseModel',
@@ -42,5 +43,6 @@ __all__ = [
     'StyleProcessMapping',
     'Order',
     'OrderDetail',
-    'OrderDetailSku'
+    'OrderDetailSku',
+    'EmployeeWage'
 ]

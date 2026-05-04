@@ -18,6 +18,7 @@ from app.schemas.business.order import (
     OrderDetailSchema, OrderDetailCreateSchema,
     OrderDetailSkuSchema, OrderDetailSkuCreateSchema
 )
+from app.schemas.system.employee_wage import EmployeeWageSchema, EmployeeWageCreateSchema, EmployeeWageUpdateSchema
 
 __all__ = [
     'UserSchema', 'UserLoginSchema', 'UserCreateSchema', 'UserUpdateSchema', 'UserResetPasswordSchema',
@@ -38,5 +39,6 @@ __all__ = [
     'StyleProcessMappingBatchSchema', 'StyleProcessMappingSchema',
     'OrderSchema', 'OrderCreateSchema', 'OrderUpdateSchema', 'OrderStatusUpdateSchema',
     'OrderDetailSchema', 'OrderDetailCreateSchema',
-    'OrderDetailSkuSchema', 'OrderDetailSkuCreateSchema'
+    'OrderDetailSkuSchema', 'OrderDetailSkuCreateSchema',
+    'EmployeeWageSchema', 'EmployeeWageCreateSchema', 'EmployeeWageUpdateSchema'
 ]

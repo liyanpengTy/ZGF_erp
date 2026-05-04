@@ -5,6 +5,7 @@ from app.services.system.factory_service import FactoryService
 from app.services.system.log_service import LogService
 from app.services.system.monitor_service import MonitorService
 from app.services.system.reward_service import RewardService
+from app.services.system.employee_wage_service import EmployeeWageService
 
 __all__ = [
     'UserService',
@@ -13,5 +14,6 @@ __all__ = [
     'FactoryService',
     'LogService',
     'MonitorService',
-    'RewardService'
+    'RewardService',
+    'EmployeeWageService'
 ]

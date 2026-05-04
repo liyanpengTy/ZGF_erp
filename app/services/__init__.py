@@ -8,7 +8,8 @@ from app.services.system import (
     FactoryService,
     LogService,
     MonitorService,
-    RewardService
+    RewardService,
+    EmployeeWageService
 )
 from app.services.profile import ProfileService
 from app.services.base_data import CategoryService, ColorService, SizeService
@@ -37,6 +38,7 @@ __all__ = [
     'LogService',
     'MonitorService',
     'RewardService',
+    'EmployeeWageService',
 
     # 个人中心服务
     'ProfileService',
