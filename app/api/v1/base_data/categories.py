@@ -9,7 +9,7 @@ from app.api.v1.shared_models import get_shared_models
 from app.utils.permissions import login_required
 from app.services import AuthService, CategoryService
 
-category_ns = Namespace('分类管理-categories', description='分类管理')
+category_ns = Namespace('categories', description='分类管理')
 
 shared = get_shared_models(category_ns)
 base_response = shared['base_response']
@@ -32,9 +32,11 @@ category_item_model = category_ns.model('CategoryItem', {
     'name': fields.String(),
     'parent_id': fields.Integer(),
     'code': fields.String(),
+    'category_type': fields.String(),
     'factory_id': fields.Integer(),
     'sort_order': fields.Integer(),
     'status': fields.Integer(),
+    'remark': fields.String(),
     'create_time': fields.String(),
     'update_time': fields.String(),
     'children': fields.List(fields.Raw)
@@ -131,8 +133,10 @@ class CategoryList(Resource):
     @category_ns.expect(category_ns.model('CategoryCreate', {
         'name': fields.String(required=True, description='分类名称'),
         'code': fields.String(required=True, description='分类编码'),
-        'parent_id': fields.Integer(description='父分类ID'),
-        'sort_order': fields.Integer(description='排序')
+        'parent_id': fields.Integer(description='父分类ID', default=0),
+        'category_type': fields.String(description='分类类型', default='style', choices=['style', 'material', 'order']),
+        'sort_order': fields.Integer(description='排序', default=0),
+        'remark': fields.String(description='备注')
     }))
     @category_ns.response(201, '创建成功', category_item_response)
     @category_ns.response(400, '参数错误', error_response)
@@ -162,13 +166,14 @@ class CategoryTree(Resource):
     @category_ns.response(200, '成功', category_tree_response)
     @category_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """分类树/tree"""
+        """分类树"""
         current_user = get_current_user()
 
         if not current_user:
             return ApiResponse.error('用户不存在')
 
-        tree = CategoryService.get_category_tree(current_user)
+        category_type = request.args.get('category_type')
+        tree = CategoryService.get_category_tree(current_user, category_type)
 
         return ApiResponse.success(tree)
 
@@ -179,7 +184,7 @@ class CategoryDetail(Resource):
     @category_ns.response(200, '成功', category_item_response)
     @category_ns.response(404, '不存在', error_response)
     def get(self, category_id):
-        """分类详情/category_id"""
+        """分类详情"""
         current_user = get_current_user()
 
         category = CategoryService.get_category_by_id(category_id)
@@ -196,13 +201,15 @@ class CategoryDetail(Resource):
     @category_ns.expect(category_ns.model('CategoryUpdate', {
         'name': fields.String(description='分类名称'),
         'parent_id': fields.Integer(description='父分类ID'),
+        'category_type': fields.String(description='分类类型', choices=['style', 'material', 'order']),
         'sort_order': fields.Integer(description='排序'),
-        'status': fields.Integer(description='状态', choices=[0, 1])
+        'status': fields.Integer(description='状态', choices=[0, 1]),
+        'remark': fields.String(description='备注')
     }))
     @category_ns.response(200, '更新成功', category_item_response)
     @category_ns.response(404, '不存在', error_response)
     def patch(self, category_id):
-        """更新分类/category_id"""
+        """更新分类"""
         current_user = get_current_user()
 
         category = CategoryService.get_category_by_id(category_id)
@@ -227,7 +234,7 @@ class CategoryDetail(Resource):
     @category_ns.response(200, '删除成功', base_response)
     @category_ns.response(404, '不存在', error_response)
     def delete(self, category_id):
-        """删除分类/category_id"""
+        """删除分类"""
         current_user = get_current_user()
 
         category = CategoryService.get_category_by_id(category_id)

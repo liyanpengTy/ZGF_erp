@@ -62,35 +62,42 @@ class CategoryService(BaseService):
         }
 
     @staticmethod
-    def get_category_tree(current_user):
+    def get_category_tree(current_user, category_type=None):
         """获取分类树"""
-        categories = Category.query.filter_by(is_deleted=0).filter(
-            (Category.factory_id == 0) | (Category.factory_id == current_user.factory_id)
-        ).order_by(Category.sort_order).all()
+        from app.schemas.base_data.category import CategorySchema
 
-        return CategoryService.build_tree(categories)
+        query = Category.query.filter_by(is_deleted=0).filter(
+            (Category.factory_id == 0) | (Category.factory_id == current_user.factory_id)
+        )
+
+        if category_type:
+            query = query.filter_by(category_type=category_type)
+
+        categories = query.order_by(Category.sort_order).all()
+        tree = CategoryService.build_tree(categories)
+
+        return CategorySchema(many=True).dump(tree)
 
     @staticmethod
-    def build_tree(categories, parent_id=0, schema=None):
-        """构建分类树"""
+    def build_tree(categories, parent_id=0):
+        """构建分类树（返回原始对象）"""
         tree = []
         for cat in categories:
             if cat.parent_id == parent_id:
-                children = CategoryService.build_tree(categories, cat.id, schema)
-                if schema:
-                    cat_dict = schema.dump(cat)
-                else:
-                    cat_dict = {
-                        'id': cat.id,
-                        'name': cat.name,
-                        'parent_id': cat.parent_id,
-                        'code': cat.code,
-                        'factory_id': cat.factory_id,
-                        'sort_order': cat.sort_order,
-                        'status': cat.status,
-                        'create_time': cat.create_time.isoformat() if cat.create_time else None,
-                        'update_time': cat.update_time.isoformat() if cat.update_time else None
-                    }
+                children = CategoryService.build_tree(categories, cat.id)
+                cat_dict = {
+                    'id': cat.id,
+                    'name': cat.name,
+                    'parent_id': cat.parent_id,
+                    'code': cat.code,
+                    'category_type': cat.category_type,
+                    'factory_id': cat.factory_id,
+                    'sort_order': cat.sort_order,
+                    'status': cat.status,
+                    'remark': cat.remark,
+                    'create_time': cat.create_time.isoformat() if cat.create_time else None,
+                    'update_time': cat.update_time.isoformat() if cat.update_time else None
+                }
                 if children:
                     cat_dict['children'] = children
                 tree.append(cat_dict)
