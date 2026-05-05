@@ -18,6 +18,16 @@ class Category(BaseModel):
     category_type = db.Column(db.String(20), default='style', comment='分类类型：style-款号，material-物料，order-订单')
     sort_order = db.Column(db.Integer, default=0, comment='排序，数字越小越靠前')
     status = db.Column(db.SmallInteger, default=1, comment='状态：1-启用，0-禁用')
+    remark = db.Column(db.String(255), comment='备注')
     is_deleted = db.Column(db.SmallInteger, default=0, comment='逻辑删除：0-未删除，1-已删除')
     create_time = db.Column(db.DateTime, default=datetime.now, comment='创建时间')
     update_time = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
+
+    # 关联关系
+    parent = db.relationship('Category', remote_side=[id], backref='children')
+    factory = db.relationship('Factory', backref='categories')
+
+    def to_dict(self):
+        data = super().to_dict()
+        data.pop('is_deleted', None)
+        return data

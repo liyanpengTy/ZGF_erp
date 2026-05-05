@@ -2,6 +2,7 @@
 from flask_restx import Namespace, Resource, fields
 from flask import request
 from app.utils.response import ApiResponse
+from app.models.base_data.category import Category
 from app.schemas.base_data.category import CategorySchema, CategoryCreateSchema, CategoryUpdateSchema
 from marshmallow import ValidationError
 from app.api.v1.shared_models import get_shared_models
@@ -23,6 +24,7 @@ category_query_parser.add_argument('name', type=str, location='args', help='分�
 category_query_parser.add_argument('parent_id', type=int, location='args', help='父分类ID')
 category_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
 category_query_parser.add_argument('factory_only', type=int, location='args', help='是否只查工厂自定义', choices=[0, 1])
+category_query_parser.add_argument('category_type', type=str, location='args', help='分类类型', choices=['style', 'material', 'order'])
 
 # ========== 响应模型 ==========
 category_item_model = category_ns.model('CategoryItem', {
@@ -85,14 +87,44 @@ class CategoryList(Resource):
         if not current_user:
             return ApiResponse.error('用户不存在')
 
-        result = CategoryService.get_category_list(current_user, args)
+        page = args['page']
+        page_size = args['page_size']
+        name = args.get('name', '')
+        parent_id = args.get('parent_id')
+        status = args.get('status')
+        factory_only = args.get('factory_only', 0)
+        category_type = args.get('category_type')
+
+        query = Category.query.filter_by(is_deleted=0)
+
+        # 权限过滤
+        if factory_only:
+            query = query.filter(Category.factory_id == current_user.factory_id)
+        else:
+            query = query.filter(
+                (Category.factory_id == 0) | (Category.factory_id == current_user.factory_id)
+            )
+
+        # 条件过滤
+        if name:
+            query = query.filter(Category.name.like(f'%{name}%'))
+        if parent_id is not None:
+            query = query.filter_by(parent_id=parent_id)
+        if status is not None:
+            query = query.filter_by(status=status)
+        if category_type:
+            query = query.filter_by(category_type=category_type)
+
+        pagination = query.order_by(Category.sort_order).paginate(
+            page=page, per_page=page_size, error_out=False
+        )
 
         return ApiResponse.success({
-            'items': categories_schema.dump(result['items']),
-            'total': result['total'],
-            'page': result['page'],
-            'page_size': result['page_size'],
-            'pages': result['pages']
+            'items': categories_schema.dump(pagination.items),
+            'total': pagination.total,
+            'page': page,
+            'page_size': page_size,
+            'pages': pagination.pages
         })
 
     @login_required
