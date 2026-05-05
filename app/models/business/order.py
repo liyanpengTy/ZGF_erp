@@ -83,8 +83,8 @@ class OrderDetail(BaseModel):
     is_deleted = db.Column(db.SmallInteger, default=0, comment='逻辑删除')
     create_time = db.Column(db.DateTime, default=datetime.now, comment='创建时间')
     update_time = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
+
     # 关联关系
-    order = db.relationship('Order', backref='details')
     style = db.relationship('Style', backref='order_details')
     skus = db.relationship('OrderDetailSku', backref='detail', cascade='all, delete-orphan')
 
@@ -125,8 +125,8 @@ class OrderDetailSku(BaseModel):
     is_deleted = db.Column(db.SmallInteger, default=0, comment='逻辑删除')
     create_time = db.Column(db.DateTime, default=datetime.now, comment='创建时间')
     update_time = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
+
     # 关联关系
-    detail = db.relationship('OrderDetail', backref='detail_skus')
     color = db.relationship('Color', backref='order_detail_skus')
     size = db.relationship('Size', backref='order_detail_skus')
 

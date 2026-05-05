@@ -21,7 +21,6 @@ class User(BaseModel):
     invited_by = db.Column(db.Integer, db.ForeignKey('sys_user.id'), comment='邀请人用户ID')
     invited_count = db.Column(db.Integer, default=0, comment='成功邀请人数')
     created_by = db.Column(db.Integer, db.ForeignKey('sys_user.id'), comment='创建人用户ID')
-    # ========== VIP相关字段（个人不需要，但保留备用）==========
     # vip_expire_date = db.Column(db.Date, comment='VIP到期日期')  # 个人不需要，注释掉
     is_deleted = db.Column(db.SmallInteger, default=0, comment='逻辑删除：0-未删除，1-已删除')
     create_time = db.Column(db.DateTime, default=datetime.now, comment='创建时间')
