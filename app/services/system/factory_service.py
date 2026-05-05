@@ -5,6 +5,7 @@ from app.models.system.factory import Factory
 from app.models.auth.user import User
 from app.models.system.user_factory import UserFactory
 from app.services.base.base_service import BaseService
+from sqlalchemy.orm import joinedload
 
 
 class FactoryService(BaseService):
@@ -189,55 +190,47 @@ class FactoryService(BaseService):
 
     @staticmethod
     def get_factory_users(factory_id, filters):
-        """
-        获取工厂关联的用户列表
-        filters: page, page_size, username, status, relation_type
-        """
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
         username = filters.get('username', '')
         status = filters.get('status')
         relation_type = filters.get('relation_type')
 
-        query = UserFactory.query.filter_by(factory_id=factory_id, is_deleted=0)
+        query = UserFactory.query.filter_by(
+            factory_id=factory_id, is_deleted=0
+        ).options(joinedload(UserFactory.user))
 
         if relation_type:
             query = query.filter_by(relation_type=relation_type)
 
-        user_factory_list = query.all()
-        user_ids = [uf.user_id for uf in user_factory_list]
-
-        if not user_ids:
-            return {
-                'items': [],
-                'total': 0,
-                'page': page,
-                'page_size': page_size,
-                'pages': 0,
-                'user_factory_map': {}
-            }
-
-        user_query = User.query.filter(User.id.in_(user_ids), User.is_deleted == 0)
-
-        if username:
-            user_query = user_query.filter(User.username.like(f'%{username}%'))
-        if status is not None:
-            user_query = user_query.filter_by(status=status)
-
-        pagination = user_query.order_by(User.id.desc()).paginate(
+        pagination = query.order_by(UserFactory.id.desc()).paginate(
             page=page, per_page=page_size, error_out=False
         )
 
-        # 构建用户-工厂关联映射
-        user_factory_map = {uf.user_id: uf for uf in user_factory_list}
+        items = []
+        for uf in pagination.items:
+            user = uf.user
+            if username and username not in user.username:
+                continue
+            if status is not None and user.status != status:
+                continue
+            items.append({
+                'id': user.id,
+                'username': user.username,
+                'nickname': user.nickname,
+                'phone': user.phone,
+                'status': user.status,
+                'relation_type': uf.relation_type,
+                'entry_date': uf.entry_date.isoformat() if uf.entry_date else None,
+                'leave_date': uf.leave_date.isoformat() if uf.leave_date else None
+            })
 
         return {
-            'items': pagination.items,
+            'items': items,
             'total': pagination.total,
             'page': page,
             'page_size': page_size,
-            'pages': pagination.pages,
-            'user_factory_map': user_factory_map
+            'pages': pagination.pages
         }
 
     @staticmethod

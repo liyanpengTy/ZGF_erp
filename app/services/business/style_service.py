@@ -1,4 +1,5 @@
 """款号管理服务"""
+from sqlalchemy.orm import joinedload
 from app.models.business.style import Style
 from app.models.base_data.category import Category
 from app.models.business.style_price import StylePrice
@@ -39,10 +40,7 @@ class StyleService(BaseService):
         for item in splice_data:
             if not isinstance(item, dict):
                 return False
-            # 必须包含 sequence 和 description
-            if 'sequence' not in item:
-                return False
-            if 'description' not in item:
+            if 'sequence' not in item or 'description' not in item:
                 return False
             if not isinstance(item['sequence'], int):
                 return False
@@ -50,10 +48,7 @@ class StyleService(BaseService):
 
     @staticmethod
     def get_style_list(current_user, filters):
-        """
-        获取款号列表
-        filters: page, page_size, style_no, name, category_id, gender, season, status
-        """
+        """获取款号列表（优化 N+1 查询）"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
         style_no = filters.get('style_no', '')
@@ -63,7 +58,11 @@ class StyleService(BaseService):
         season = filters.get('season', '')
         status = filters.get('status')
 
-        query = Style.query.filter_by(factory_id=current_user.factory_id, is_deleted=0)
+        # 使用 joinedload 预加载分类信息
+        query = Style.query.filter_by(
+            factory_id=current_user.factory_id,
+            is_deleted=0
+        ).options(joinedload(Style.category))
 
         if style_no:
             query = query.filter(Style.style_no.like(f'%{style_no}%'))
@@ -93,21 +92,18 @@ class StyleService(BaseService):
     @staticmethod
     def create_style(current_user, data, schema=None):
         """创建款号"""
-        # 检查款号是否已存在
         existing = StyleService.get_style_by_no(current_user.factory_id, data['style_no'])
         if existing:
             return None, '款号已存在'
 
-        # 验证分类
         if data.get('category_id'):
             category = Category.query.filter_by(id=data['category_id'], is_deleted=0).first()
             if not category:
                 return None, '分类不存在'
 
-        # 验证拼接数据
         if data.get('is_splice') == 1 and data.get('splice_data'):
             if not StyleService.validate_splice_data(data['splice_data']):
-                return None, '拼接数据格式错误'
+                return None, '拼接数据格式错误，需要包含 sequence 和 description 字段'
 
         style = Style(
             factory_id=current_user.factory_id,
@@ -134,14 +130,12 @@ class StyleService(BaseService):
     @staticmethod
     def update_style(style, data, current_user):
         """更新款号"""
-        # 检查款号是否重复
         if 'style_no' in data and data['style_no'] != style.style_no:
             existing = StyleService.get_style_by_no(current_user.factory_id, data['style_no'])
             if existing:
                 return None, '款号已存在'
             style.style_no = data['style_no']
 
-        # 验证分类
         if 'category_id' in data:
             if data['category_id']:
                 category = Category.query.filter_by(id=data['category_id'], is_deleted=0).first()
@@ -149,17 +143,15 @@ class StyleService(BaseService):
                     return None, '分类不存在'
             style.category_id = data['category_id']
 
-        # 验证拼接数据
         if 'is_splice' in data:
             style.is_splice = data['is_splice']
 
         if 'splice_data' in data:
             if style.is_splice == 1 and data['splice_data']:
                 if not StyleService.validate_splice_data(data['splice_data']):
-                    return None, '拼接数据格式错误，需要包含 sequence 和 color 字段'
+                    return None, '拼接数据格式错误'
             style.splice_data = data['splice_data']
 
-        # 更新其他字段
         if 'customer_style_no' in data:
             style.customer_style_no = data['customer_style_no']
         if 'name' in data:
@@ -189,13 +181,12 @@ class StyleService(BaseService):
     @staticmethod
     def delete_style(style):
         """删除款号（软删除）"""
-        # 检查是否有子表数据
         price_count = StylePrice.query.filter_by(style_id=style.id, is_deleted=0).count()
         process_count = StyleProcess.query.filter_by(style_id=style.id, is_deleted=0).count()
         elastic_count = StyleElastic.query.filter_by(style_id=style.id, is_deleted=0).count()
 
         if price_count > 0 or process_count > 0 or elastic_count > 0:
-            return False, '请先删除款号关联的价格、工艺、橡筋'
+            return False, '请先删除款号关联的价格、工艺、橡筋数据'
 
         style.is_deleted = 1
         style.save()
@@ -214,9 +205,3 @@ class StyleService(BaseService):
             return False, '无权限操作'
 
         return True, None
-
-    @staticmethod
-    def enrich_with_category_name(style_data, style_obj):
-        """为款号数据添加分类名称"""
-        style_data['category_name'] = StyleService.get_category_name(style_obj.category_id)
-        return style_data

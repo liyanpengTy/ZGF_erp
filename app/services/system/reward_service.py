@@ -1,6 +1,6 @@
 """奖励服务"""
 from datetime import datetime, timedelta
-from app.extensions import db
+from sqlalchemy.orm import joinedload
 from app.models.auth.user import User
 from app.models.system.factory import Factory
 from app.models.system.reward_config import RewardConfig
@@ -157,13 +157,21 @@ class RewardService(BaseService):
 
     @staticmethod
     def get_pending_rewards(filters):
-        """获取待发放的奖励列表"""
+        """获取待发放的奖励列表（优化 N+1 查询）"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
         username = filters.get('username', '')
         reward_object = filters.get('reward_object')
 
-        query = RewardRecord.query.filter_by(status='pending', is_deleted=0)
+        # 使用 joinedload 预加载关联的用户信息
+        query = RewardRecord.query.filter_by(
+            status='pending',
+            is_deleted=0
+        ).options(
+            joinedload(RewardRecord.user),
+            joinedload(RewardRecord.distributor),
+            joinedload(RewardRecord.reward_config)
+        )
 
         if username:
             query = query.join(User).filter(User.username.like(f'%{username}%'))

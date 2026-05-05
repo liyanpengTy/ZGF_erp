@@ -1,6 +1,6 @@
 """订单管理服务"""
 from datetime import datetime
-from app.extensions import db
+from sqlalchemy.orm import joinedload
 from app.models.business.order import Order, OrderDetail, OrderDetailSku
 from app.models.business.style import Style
 from app.models.business.style_price import StylePrice
@@ -29,11 +29,7 @@ class OrderService(BaseService):
 
     @staticmethod
     def get_current_style_price(style_id, price_type='customer', order_date=None):
-        """
-        获取款号的当前价格
-        price_type: customer-客户价, internal-内部价, outsourced-外发价
-        order_date: 订单日期，用于取当时生效的价格
-        """
+        """获取款号的当前价格"""
         query = StylePrice.query.filter(
             StylePrice.style_id == style_id,
             StylePrice.price_type == price_type,
@@ -42,16 +38,27 @@ class OrderService(BaseService):
 
         if order_date:
             query = query.filter(StylePrice.effective_date <= order_date)
-            price = query.order_by(StylePrice.effective_date.desc()).first()
-        else:
-            price = query.order_by(StylePrice.effective_date.desc()).first()
+
+        price = query.order_by(
+            StylePrice.effective_date.desc(),
+            StylePrice.create_time.desc()
+        ).first()
 
         return price.price if price else 0
 
     @staticmethod
     def get_order_by_id(order_id):
-        """根据ID获取订单"""
-        return Order.query.filter_by(id=order_id, is_deleted=0).first()
+        """根据ID获取订单（优化 N+1 查询）"""
+        return Order.query.options(
+            joinedload(Order.details)
+            .selectinload(OrderDetail.skus)
+            .selectinload(OrderDetailSku.color),
+            joinedload(Order.details)
+            .selectinload(OrderDetail.skus)
+            .selectinload(OrderDetailSku.size),
+            joinedload(Order.details)
+            .joinedload(OrderDetail.style)
+        ).filter_by(id=order_id, is_deleted=0).first()
 
     @staticmethod
     def get_order_by_no(order_no):
@@ -60,7 +67,7 @@ class OrderService(BaseService):
 
     @staticmethod
     def get_order_list(current_user, filters):
-        """获取订单列表"""
+        """获取订单列表（优化 N+1 查询）"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
         order_no = filters.get('order_no', '')
@@ -69,7 +76,19 @@ class OrderService(BaseService):
         start_date = filters.get('start_date')
         end_date = filters.get('end_date')
 
-        query = Order.query.filter_by(factory_id=current_user.factory_id, is_deleted=0)
+        query = Order.query.filter_by(
+            factory_id=current_user.factory_id,
+            is_deleted=0
+        ).options(
+            joinedload(Order.details)
+            .selectinload(OrderDetail.skus)
+            .selectinload(OrderDetailSku.color),
+            joinedload(Order.details)
+            .selectinload(OrderDetail.skus)
+            .selectinload(OrderDetailSku.size),
+            joinedload(Order.details)
+            .joinedload(OrderDetail.style)
+        )
 
         if order_no:
             query = query.filter(Order.order_no.like(f'%{order_no}%'))
@@ -120,7 +139,6 @@ class OrderService(BaseService):
             if not style:
                 continue
 
-            # 获取客户价
             unit_price = OrderService.get_current_style_price(
                 style_id=style.id,
                 price_type='customer',
@@ -152,7 +170,6 @@ class OrderService(BaseService):
                 )
                 sku.save()
 
-        # 更新订单总金额
         order.total_amount = total_amount
         order.save()
 
