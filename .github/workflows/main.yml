@@ -1,7 +1,5 @@
 name: Deploy ZGF ERP
 
-# 触发条件：当代码推送到 main 分支时自动执行
-# 如果你希望合并 PR 时也触发，可以自行添加 pull_request 事件
 on:
   push:
     branches: [ master ]
@@ -11,11 +9,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. 检出代码（虽然部署到远程服务器不一定需要，但建议保留以便后续扩展如运行测试）
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. 通过 SSH 连接服务器并执行部署命令
       - name: Deploy to Server
         uses: appleboy/ssh-action@master
         with:
@@ -23,18 +19,23 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           password: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
-          # 在服务器上依次执行以下命令
           script: |
             echo "开始进入项目目录..."
             cd /root/ZGF_erp
             
+            echo "正在从 GitHub 拉取最新代码..."
+            # 1. 配置 Git 凭据，使用 GITHUB_TOKEN 进行免密拉取
+            # git config --global credential.helper store
+            # echo "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" > ~/.git-credentials
+            
+            # 2. 拉取 main 分支的最新代码
+            git pull origin master
+            
             echo "进入虚拟环境并安装依赖..."
-            # 激活虚拟环境并安装 requirements.txt 中的依赖
             source /root/ZGF_erp/venv/bin/activate
             pip install -r requirements.txt
             
             echo "重启系统服务..."
-            # 使用 sudo 重启 systemd 服务
             sudo systemctl restart zgf_erp.service
             
             echo "部署完成！"
