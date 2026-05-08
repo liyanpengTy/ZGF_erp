@@ -98,8 +98,6 @@ class ProcessService(BaseService):
         process.save()
         return True, None
 
-    # ========== 款号工序关联 CRUD ==========
-
     @staticmethod
     def get_style_processes(style_id):
         """获取款号的工序列表"""
@@ -158,30 +156,37 @@ class ProcessService(BaseService):
     @staticmethod
     def batch_save_style_processes(style_id, mappings_data):
         """批量保存款号工序（全量替换）"""
-        # 删除原有工序
-        StyleProcessMapping.query.filter_by(style_id=style_id, is_deleted=0).update(
-            {'is_deleted': 1}
-        )
-
-        # 批量创建新工序
-        created = []
-        for idx, item in enumerate(mappings_data):
-            # 验证工序是否存在
-            process = ProcessService.get_process_by_id(item['process_id'])
-            if not process:
-                continue
-
-            mapping = StyleProcessMapping(
-                style_id=style_id,
-                process_id=item['process_id'],
-                sequence=item.get('sequence', idx + 1),
-                remark=item.get('remark', '')
+        try:
+            # 删除原有工序
+            StyleProcessMapping.query.filter_by(style_id=style_id, is_deleted=0).update(
+                {'is_deleted': 1}
             )
-            mapping.save()
-            created.append(mapping)
 
-        db.session.commit()
-        return created
+            # 批量创建新工序
+            new_mappings = []
+            for idx, item in enumerate(mappings_data):
+                # 验证工序是否存在
+                process = ProcessService.get_process_by_id(item['process_id'])
+                if not process:
+                    continue
+
+                mapping = StyleProcessMapping(
+                    style_id=style_id,
+                    process_id=item['process_id'],
+                    sequence=item.get('sequence', idx + 1),
+                    remark=item.get('remark', '')
+                )
+                new_mappings.append(mapping)
+
+            if new_mappings:
+                db.session.add_all(new_mappings)
+
+            BaseService.commit()
+            return len(new_mappings)
+
+        except Exception as e:
+            db.session.rollback()
+            raise e
 
     @staticmethod
     def check_style_permission(current_user, style_id):

@@ -33,6 +33,28 @@ class BaseService:
         return obj
 
     @staticmethod
+    def add(obj):
+        """添加对象（不提交，用于批量操作）"""
+        db.session.add(obj)
+        return obj
+
+    @staticmethod
+    def add_all(objs):
+        """批量添加对象（不提交）"""
+        db.session.add_all(objs)
+        return objs
+
+    @staticmethod
+    def commit():
+        """提交事务"""
+        db.session.commit()
+
+    @staticmethod
+    def rollback():
+        """回滚事务"""
+        db.session.rollback()
+
+    @staticmethod
     def update(obj, **kwargs):
         """更新对象"""
         for key, value in kwargs.items():
