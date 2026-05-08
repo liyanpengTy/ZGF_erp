@@ -6,23 +6,19 @@ class OrderDetailSkuSchema(Schema):
     """订单明细SKU序列化器"""
     id = fields.Int()
     detail_id = fields.Int()
-    color_id = fields.Int()
-    color_name = fields.Str()
-    size_id = fields.Int()
-    size_name = fields.Str()
-    quantity = fields.Int()
-    unit_price = fields.Float()
-    amount = fields.Float()
-    splice_config = fields.List(fields.Dict())
+    splice_config = fields.Dict(required=True)
     remark = fields.Str()
 
 
 class OrderDetailSkuCreateSchema(Schema):
     """创建订单明细SKU参数"""
-    color_id = fields.Int()
-    size_id = fields.Int()
-    quantity = fields.Int(required=True, validate=validate.Range(min=1))
-    splice_config = fields.List(fields.Dict())
+    splice_config = fields.Dict(required=True)
+    remark = fields.Str()
+
+
+class OrderDetailSkuUpdateSchema(Schema):
+    """更新订单明细SKU参数"""
+    splice_config = fields.Dict()
     remark = fields.Str()
 
 

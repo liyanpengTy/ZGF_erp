@@ -31,14 +31,8 @@ order_query_parser.add_argument('end_date', type=str, location='args', help='结
 # ========== SKU响应模型 ==========
 order_detail_sku_model = order_ns.model('OrderDetailSku', {
     'id': fields.Integer(),
-    'color_id': fields.Integer(),
-    'color_name': fields.String(),
-    'size_id': fields.Integer(),
-    'size_name': fields.String(),
-    'quantity': fields.Integer(),
-    'unit_price': fields.Float(),
-    'amount': fields.Float(),
-    'splice_config': fields.List(fields.Raw()),
+    'detail_id': fields.Integer(),
+    'splice_config': fields.Raw(required=True, description='SKU配置'),
     'remark': fields.String()
 })
 
@@ -87,11 +81,8 @@ order_item_response = order_ns.clone('OrderItemResponse', base_response, {
 
 # ========== 创建订单的SKU请求模型 ==========
 order_detail_sku_create_model = order_ns.model('OrderDetailSkuCreate', {
-    'color_id': fields.Integer(description='颜色ID'),
-    'size_id': fields.Integer(description='尺码ID'),
-    'quantity': fields.Integer(required=True, description='数量'),
-    'splice_config': fields.List(fields.Raw(), description='拼接配置'),
-    'remark': fields.String(description='备注')
+    'splice_config': fields.Raw(required=True, description='SKU配置'),
+    'remark': fields.String()
 })
 
 order_detail_create_model = order_ns.model('OrderDetailCreate', {

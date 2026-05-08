@@ -1,9 +1,9 @@
 """订单管理服务"""
 from datetime import datetime
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
+from app.extensions import db
 from app.models.business.order import Order, OrderDetail, OrderDetailSku
 from app.models.business.style import Style
-from app.models.business.style_price import StylePrice
 from app.services.base.base_service import BaseService
 
 
@@ -12,7 +12,7 @@ class OrderService(BaseService):
 
     @staticmethod
     def generate_order_no(factory_id):
-        """生成订单号：ORD + 工厂ID + 年月日 + 流水号"""
+        """生成订单号"""
         today = datetime.now().strftime('%Y%m%d')
         last_order = Order.query.filter(
             Order.order_no.like(f'ORD{factory_id}{today}%'),
@@ -28,34 +28,11 @@ class OrderService(BaseService):
         return f'ORD{factory_id}{today}{seq:04d}'
 
     @staticmethod
-    def get_current_style_price(style_id, price_type='customer', order_date=None):
-        """获取款号的当前价格"""
-        query = StylePrice.query.filter(
-            StylePrice.style_id == style_id,
-            StylePrice.price_type == price_type,
-            StylePrice.is_deleted == 0
-        )
-
-        if order_date:
-            query = query.filter(StylePrice.effective_date <= order_date)
-
-        price = query.order_by(
-            StylePrice.effective_date.desc(),
-            StylePrice.create_time.desc()
-        ).first()
-
-        return price.price if price else 0
-
-    @staticmethod
     def get_order_by_id(order_id):
-        """根据ID获取订单（优化 N+1 查询）"""
+        """根据ID获取订单"""
         return Order.query.options(
             joinedload(Order.details)
-            .selectinload(OrderDetail.skus)
-            .selectinload(OrderDetailSku.color),
-            joinedload(Order.details)
-            .selectinload(OrderDetail.skus)
-            .selectinload(OrderDetailSku.size),
+            .selectinload(OrderDetail.skus),
             joinedload(Order.details)
             .joinedload(OrderDetail.style)
         ).filter_by(id=order_id, is_deleted=0).first()
@@ -67,7 +44,7 @@ class OrderService(BaseService):
 
     @staticmethod
     def get_order_list(current_user, filters):
-        """获取订单列表（优化 N+1 查询）"""
+        """获取订单列表"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
         order_no = filters.get('order_no', '')
@@ -81,11 +58,7 @@ class OrderService(BaseService):
             is_deleted=0
         ).options(
             joinedload(Order.details)
-            .selectinload(OrderDetail.skus)
-            .selectinload(OrderDetailSku.color),
-            joinedload(Order.details)
-            .selectinload(OrderDetail.skus)
-            .selectinload(OrderDetailSku.size),
+            .selectinload(OrderDetail.skus),
             joinedload(Order.details)
             .joinedload(OrderDetail.style)
         )
@@ -126,24 +99,16 @@ class OrderService(BaseService):
             order_date=datetime.strptime(data['order_date'], '%Y-%m-%d').date(),
             delivery_date=datetime.strptime(data['delivery_date'], '%Y-%m-%d').date() if data.get('delivery_date') else None,
             status='pending',
-            total_amount=0,
+            total_amount=0,  # 暂不计算，裁床后更新
             remark=data.get('remark', ''),
             create_by=current_user.id
         )
         order.save()
 
-        total_amount = 0
-
         for detail_data in data['details']:
             style = Style.query.filter_by(id=detail_data['style_id'], is_deleted=0).first()
             if not style:
                 continue
-
-            unit_price = OrderService.get_current_style_price(
-                style_id=style.id,
-                price_type='customer',
-                order_date=order.order_date
-            )
 
             detail = OrderDetail(
                 order_id=order.id,
@@ -155,23 +120,12 @@ class OrderService(BaseService):
             detail.save()
 
             for sku_data in detail_data.get('skus', []):
-                amount = sku_data['quantity'] * unit_price
-                total_amount += amount
-
                 sku = OrderDetailSku(
                     detail_id=detail.id,
-                    color_id=sku_data.get('color_id'),
-                    size_id=sku_data.get('size_id'),
-                    quantity=sku_data['quantity'],
-                    splice_config=sku_data.get('splice_config', []) if style.is_splice == 1 else None,
-                    unit_price=unit_price,
-                    amount=amount,
+                    splice_config=sku_data['splice_config'],
                     remark=sku_data.get('remark', '')
                 )
                 sku.save()
-
-        order.total_amount = total_amount
-        order.save()
 
         return order
 

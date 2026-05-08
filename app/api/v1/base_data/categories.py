@@ -9,7 +9,7 @@ from app.api.v1.shared_models import get_shared_models
 from app.utils.permissions import login_required
 from app.services import AuthService, CategoryService
 
-category_ns = Namespace('categories', description='分类管理')
+category_ns = Namespace('分类管理-categories', description='分类管理')
 
 shared = get_shared_models(category_ns)
 base_response = shared['base_response']
