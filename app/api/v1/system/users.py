@@ -61,6 +61,7 @@ user_item_model = user_ns.model('UserItem', {
     'status': fields.Integer(),
     'invite_code': fields.String(),
     'invited_count': fields.Integer(),
+    'is_paid': fields.Integer(),
     'create_time': fields.String(),
     'last_login_time': fields.String()
 })

@@ -6,6 +6,11 @@ from app.services import AuthService, LoginResponseBuilder
 from app.utils.permissions import login_required, refresh_required
 from app.utils.response import ApiResponse
 from app.api.v1.shared_models import get_shared_models
+from app.extensions import bcrypt
+from app.models.auth.user import User
+from app.services.system.reward_service import RewardService
+import hashlib
+from datetime import datetime
 
 auth_ns = Namespace('认证管理-auth', description='认证管理')
 
@@ -55,6 +60,7 @@ user_info_model = auth_ns.model('UserInfo', {
     'status': fields.Integer(description='状态'),
     'invite_code': fields.String(description='邀请码'),
     'invited_count': fields.Integer(description='邀请人数'),
+    'is_paid': fields.Integer(description='是否已付费'),
     'create_time': fields.String(description='创建时间'),
     'last_login_time': fields.String(description='最后登录时间')
 })
@@ -269,11 +275,6 @@ class Register(Resource):
     @auth_ns.response(409, '用户名已存在', error_response)
     def post(self):
         """用户自助注册/register"""
-        from app.extensions import bcrypt
-        from app.models.auth.user import User
-        from app.services.system.reward_service import RewardService
-        import hashlib
-        from datetime import datetime
 
         data = request.get_json()
         username = data.get('username')
@@ -287,14 +288,11 @@ class Register(Resource):
         if existing:
             return ApiResponse.error('用户名已存在', 409)
 
-        # 处理邀请码
+        # 处理邀请码（只记录邀请关系，不触发奖励）
         inviter = None
         if invite_code:
             inviter = User.query.filter_by(invite_code=invite_code, is_deleted=0).first()
-            if inviter:
-                # 增加邀请人计数
-                inviter.invited_count += 1
-                inviter.save()
+            # 注意：这里不增加 invited_count，只记录 invited_by
 
         # 生成用户自己的邀请码
         user_invite_code = hashlib.md5(f"{username}{datetime.now()}".encode()).hexdigest()[:8].upper()
@@ -311,14 +309,12 @@ class Register(Resource):
             status=1,
             invite_code=user_invite_code,
             invited_by=inviter.id if inviter else None,
-            invited_count=0
+            invited_count=0,
+            is_paid=0  # 新增字段：是否已付费
         )
         user.save()
 
-        # ========== 触发奖励检查 ==========
-        if inviter:
-            # 检查邀请人是否触发新的奖励
-            RewardService.check_and_create_rewards(inviter.id)
+        # 注意：注册时不触发奖励检查
 
         return ApiResponse.success({
             'id': user.id,

@@ -39,8 +39,9 @@ user_info_model = profile_ns.model('UserInfo', {
     'avatar': fields.String(),
     'is_admin': fields.Integer(),
     'status': fields.Integer(),
-    'invite_code': fields.String(description='邀请码'),        # 新增
-    'invited_count': fields.Integer(description='邀请人数'),   # 新增
+    'invite_code': fields.String(description='邀请码'),
+    'invited_count': fields.Integer(description='邀请人数'),
+    'is_paid': fields.Integer(description='是否已付费'),
     'create_time': fields.String(),
     'last_login_time': fields.String()
 })

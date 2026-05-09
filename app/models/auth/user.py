@@ -17,6 +17,7 @@ class User(BaseModel):
     is_admin = db.Column(db.SmallInteger, default=0, comment='是否公司内部人员：1-是，0-否')
     status = db.Column(db.SmallInteger, default=1, comment='账号状态：1-正常，0-禁用')
     last_login_time = db.Column(db.DateTime, comment='最后登录时间')
+    is_paid = db.Column(db.SmallInteger, default=0, comment='是否已付费：0-否，1-是')
     invite_code = db.Column(db.String(20), unique=True, comment='用户邀请码（唯一）')
     invited_by = db.Column(db.Integer, db.ForeignKey('sys_user.id'), comment='邀请人用户ID')
     invited_count = db.Column(db.Integer, default=0, comment='成功邀请人数')

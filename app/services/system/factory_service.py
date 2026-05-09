@@ -52,11 +52,8 @@ class FactoryService(BaseService):
         }
 
     @staticmethod
-    def create_factory(data):
-        """
-        创建工厂及其主体账号
-        relation_type: owner - 工厂主体账号
-        """
+    def create_factory(data, current_user_id=None):
+        """创建工厂及其主体账号"""
         # 检查编码是否存在
         existing = FactoryService.get_factory_by_code(data['code'])
         if existing:
@@ -75,18 +72,15 @@ class FactoryService(BaseService):
         factory.save()
 
         # 处理工厂主体账号
-        # 检查是否已存在同用户名的用户
         existing_user = User.query.filter_by(username=data['code'], is_deleted=0).first()
 
         if existing_user:
-            # 用户已存在，更新信息并关联
             existing_user.nickname = data['name']
             existing_user.is_admin = 0
             existing_user.status = 1
             existing_user.save()
             factory_admin = existing_user
         else:
-            # 创建新的工厂主体用户
             factory_admin = User(
                 username=data['code'],
                 password=bcrypt.generate_password_hash('123456').decode('utf-8'),
@@ -114,6 +108,22 @@ class FactoryService(BaseService):
             remark='工厂主体账号'
         )
         user_factory.save()
+
+        # ========== 触发奖励 ==========
+        # 更新工厂管理员的付费状态
+        factory_admin.is_paid = 1
+        factory_admin.save()
+
+        # 如果有邀请人，触发奖励
+        if factory_admin.invited_by:
+            from app.services.system.reward_service import RewardService
+            inviter = User.query.get(factory_admin.invited_by)
+            if inviter:
+                # 增加邀请人计数
+                inviter.invited_count += 1
+                inviter.save()
+                # 检查并创建奖励记录
+                RewardService.check_and_create_rewards(inviter.id)
 
         return factory, factory_admin, None
 
