@@ -1,8 +1,8 @@
 from flask_restx import fields
 
 
-def get_shared_models(ns):
-    """为指定命名空间创建共享响应模型"""
+def get_common_models(ns):
+    """获取公共响应模型（v1和v2共用）"""
 
     base_response = ns.model('BaseResponse', {
         'code': fields.Integer(example=200),
@@ -32,9 +32,23 @@ def get_shared_models(ns):
         'success': fields.Boolean(example=False)
     })
 
+    # 分页数据模型
+    page_data = ns.model('PageData', {
+        'items': fields.List(fields.Raw),
+        'total': fields.Integer(),
+        'page': fields.Integer(),
+        'page_size': fields.Integer(),
+        'pages': fields.Integer()
+    })
+
+    page_response = ns.clone('PageResponse', base_response, {
+        'data': fields.Nested(page_data)
+    })
+
     return {
         'base_response': base_response,
         'error_response': error_response,
         'unauthorized_response': unauthorized_response,
-        'forbidden_response': forbidden_response
+        'forbidden_response': forbidden_response,
+        'page_response': page_response
     }

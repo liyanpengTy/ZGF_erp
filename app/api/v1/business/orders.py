@@ -6,27 +6,26 @@ from app.schemas.business.order import (
     OrderSchema, OrderCreateSchema, OrderUpdateSchema, OrderStatusUpdateSchema
 )
 from marshmallow import ValidationError
-from app.api.v1.shared_models import get_shared_models
+from app.api.common.parsers import page_with_date_parser
+from app.api.common.models import get_common_models
 from app.utils.permissions import login_required
 from app.services import AuthService, OrderService
 
 order_ns = Namespace('订单管理-orders', description='订单管理')
 
-shared = get_shared_models(order_ns)
-base_response = shared['base_response']
-error_response = shared['error_response']
-unauthorized_response = shared['unauthorized_response']
+common = get_common_models(order_ns)
+base_response = common['base_response']
+error_response = common['error_response']
+unauthorized_response = common['unauthorized_response']
+forbidden_response = common['forbidden_response']
+page_response = common['page_response']
 
 # ========== 请求解析器 ==========
-order_query_parser = order_ns.parser()
-order_query_parser.add_argument('page', type=int, default=1, location='args', help='页码')
-order_query_parser.add_argument('page_size', type=int, default=10, location='args', help='每页数量')
+order_query_parser = page_with_date_parser.copy()
 order_query_parser.add_argument('order_no', type=str, location='args', help='订单号')
 order_query_parser.add_argument('customer_name', type=str, location='args', help='客户名称')
 order_query_parser.add_argument('status', type=str, location='args', help='订单状态',
                                 choices=['pending', 'confirmed', 'processing', 'completed', 'cancelled'])
-order_query_parser.add_argument('start_date', type=str, location='args', help='开始日期')
-order_query_parser.add_argument('end_date', type=str, location='args', help='结束日期')
 
 # ========== SKU响应模型 ==========
 order_detail_sku_model = order_ns.model('OrderDetailSku', {

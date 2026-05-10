@@ -5,29 +5,28 @@ from app.utils.response import ApiResponse
 from app.schemas.system.factory import FactorySchema, FactoryCreateSchema, FactoryUpdateSchema
 from marshmallow import ValidationError
 from datetime import datetime
-from app.api.v1.shared_models import get_shared_models
+from app.api.common.parsers import page_parser
+from app.api.common.models import get_common_models
 from app.utils.permissions import login_required
 from app.services import AuthService, FactoryService
 from app.models.auth.user import User
 
 factory_ns = Namespace('工厂管理-factories', description='工厂管理')
 
-shared = get_shared_models(factory_ns)
-base_response = shared['base_response']
-error_response = shared['error_response']
-unauthorized_response = shared['unauthorized_response']
-forbidden_response = shared['forbidden_response']
+common = get_common_models(factory_ns)
+base_response = common['base_response']
+error_response = common['error_response']
+unauthorized_response = common['unauthorized_response']
+forbidden_response = common['forbidden_response']
+page_response = common['page_response']
+
 
 # ========== 请求解析器 ==========
-factory_query_parser = factory_ns.parser()
-factory_query_parser.add_argument('page', type=int, default=1, location='args', help='页码')
-factory_query_parser.add_argument('page_size', type=int, default=10, location='args', help='每页数量')
+factory_query_parser = page_parser.copy()
 factory_query_parser.add_argument('name', type=str, location='args', help='工厂名称（模糊查询）')
 factory_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
 
-factory_user_query_parser = factory_ns.parser()
-factory_user_query_parser.add_argument('page', type=int, default=1, location='args', help='页码')
-factory_user_query_parser.add_argument('page_size', type=int, default=10, location='args', help='每页数量')
+factory_user_query_parser = page_parser.copy()
 factory_user_query_parser.add_argument('username', type=str, location='args', help='用户名（模糊查询）')
 factory_user_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
 factory_user_query_parser.add_argument('relation_type', type=str, location='args', help='关系类型',

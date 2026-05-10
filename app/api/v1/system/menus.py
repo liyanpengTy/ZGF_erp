@@ -5,17 +5,18 @@ from app.models.system.menu import Menu
 from app.utils.response import ApiResponse
 from app.schemas.system.menu import MenuSchema, MenuCreateSchema, MenuUpdateSchema
 from marshmallow import ValidationError
-from app.api.v1.shared_models import get_shared_models
+from app.api.common.models import get_common_models
 from app.utils.permissions import login_required
 from app.services import AuthService, MenuService
 
 menu_ns = Namespace('菜单管理-menus', description='菜单管理')
 
-shared = get_shared_models(menu_ns)
-base_response = shared['base_response']
-error_response = shared['error_response']
-unauthorized_response = shared['unauthorized_response']
-forbidden_response = shared['forbidden_response']
+common = get_common_models(menu_ns)
+base_response = common['base_response']
+error_response = common['error_response']
+unauthorized_response = common['unauthorized_response']
+forbidden_response = common['forbidden_response']
+page_response = common['page_response']
 
 # ========== 请求解析器 ==========
 menu_query_parser = menu_ns.parser()

@@ -1,23 +1,23 @@
 """奖励管理接口"""
 from flask_restx import Namespace, Resource, fields
-from flask import request
 from app.utils.response import ApiResponse
-from app.api.v1.shared_models import get_shared_models
+from app.api.common.parsers import page_parser
+from app.api.common.models import get_common_models
 from app.utils.permissions import login_required, permission_required
 from app.services import AuthService, RewardService
 
 reward_ns = Namespace('奖励管理-rewards', description='奖励管理')
 
-shared = get_shared_models(reward_ns)
-base_response = shared['base_response']
-error_response = shared['error_response']
-unauthorized_response = shared['unauthorized_response']
-forbidden_response = shared['forbidden_response']
+# 获取公共模型
+common = get_common_models(reward_ns)
+base_response = common['base_response']
+error_response = common['error_response']
+unauthorized_response = common['unauthorized_response']
+forbidden_response = common['forbidden_response']
+page_response = common['page_response']
 
 # ========== 请求解析器 ==========
-reward_query_parser = reward_ns.parser()
-reward_query_parser.add_argument('page', type=int, default=1, location='args', help='页码')
-reward_query_parser.add_argument('page_size', type=int, default=10, location='args', help='每页数量')
+reward_query_parser = page_parser.copy()
 reward_query_parser.add_argument('username', type=str, location='args', help='用户名')
 reward_query_parser.add_argument('reward_object', type=str, location='args', help='奖励对象',
                                  choices=['factory', 'personal'])

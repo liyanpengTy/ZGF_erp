@@ -1,39 +1,35 @@
 """日志管理接口"""
 from flask_restx import Namespace, Resource, fields
 from app.utils.response import ApiResponse
-from app.api.v1.shared_models import get_shared_models
+from app.api.common.parsers import page_with_date_parser
+from app.api.common.models import get_common_models
 from app.utils.permissions import login_required
 from app.services import AuthService, LogService
 from app.schemas.system.log import OperationLogSchema, LoginLogSchema
 
 log_ns = Namespace('日志管理-logs', description='日志管理')
 
-shared = get_shared_models(log_ns)
-base_response = shared['base_response']
-error_response = shared['error_response']
-unauthorized_response = shared['unauthorized_response']
-forbidden_response = shared['forbidden_response']
+common = get_common_models(log_ns)
+base_response = common['base_response']
+error_response = common['error_response']
+unauthorized_response = common['unauthorized_response']
+forbidden_response = common['forbidden_response']
+page_response = common['page_response']
 
-# ========== 请求解析器 ==========
-operation_log_query_parser = log_ns.parser()
-operation_log_query_parser.add_argument('page', type=int, default=1, location='args', help='页码')
-operation_log_query_parser.add_argument('page_size', type=int, default=10, location='args', help='每页数量')
+# ========== 操作日志请求解析器 ==========
+operation_log_query_parser = page_with_date_parser.copy()
 operation_log_query_parser.add_argument('username', type=str, location='args', help='用户名（模糊查询）')
 operation_log_query_parser.add_argument('operation', type=str, location='args', help='操作描述（模糊查询）')
 operation_log_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
-operation_log_query_parser.add_argument('start_time', type=str, location='args', help='开始时间（YYYY-MM-DD）')
-operation_log_query_parser.add_argument('end_time', type=str, location='args', help='结束时间（YYYY-MM-DD）')
-operation_log_query_parser.add_argument('factory_id', type=int, location='args', help='工厂ID（管理员使用）')
+operation_log_query_parser.add_argument('factory_id', type=int, location='args', help='工厂ID（管理员使用）', min=1)
 
-login_log_query_parser = log_ns.parser()
-login_log_query_parser.add_argument('page', type=int, default=1, location='args', help='页码')
-login_log_query_parser.add_argument('page_size', type=int, default=10, location='args', help='每页数量')
+# ========== 登录日志请求解析器 ==========
+login_log_query_parser = page_with_date_parser.copy()
 login_log_query_parser.add_argument('username', type=str, location='args', help='用户名（模糊查询）')
 login_log_query_parser.add_argument('login_type', type=str, location='args', help='登录类型', choices=['pc', 'miniapp'])
 login_log_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
-login_log_query_parser.add_argument('start_time', type=str, location='args', help='开始时间（YYYY-MM-DD）')
-login_log_query_parser.add_argument('end_time', type=str, location='args', help='结束时间（YYYY-MM-DD）')
-login_log_query_parser.add_argument('factory_id', type=int, location='args', help='工厂ID（管理员使用）')
+login_log_query_parser.add_argument('factory_id', type=int, location='args', help='工厂ID（管理员使用）', min=1)
+
 
 # ========== 响应模型 ==========
 operation_log_item_model = log_ns.model('OperationLogItem', {

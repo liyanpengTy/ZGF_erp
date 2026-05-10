@@ -6,22 +6,23 @@ from app.schemas.business.style_process import (
     StyleProcessSchema, StyleProcessCreateSchema, StyleProcessUpdateSchema
 )
 from marshmallow import ValidationError
-from app.api.v1.shared_models import get_shared_models
+from app.api.common.parsers import page_parser
+from app.api.common.models import get_common_models
 from app.utils.permissions import login_required
 from app.services import AuthService, StyleProcessService
 
 style_process_ns = Namespace('款号工艺管理-style-processes', description='款号工艺管理')
 
-shared = get_shared_models(style_process_ns)
-base_response = shared['base_response']
-error_response = shared['error_response']
-unauthorized_response = shared['unauthorized_response']
+common = get_common_models(style_process_ns)
+base_response = common['base_response']
+error_response = common['error_response']
+unauthorized_response = common['unauthorized_response']
+forbidden_response = common['forbidden_response']
+page_response = common['page_response']
 
 # ========== 请求解析器 ==========
-style_process_query_parser = style_process_ns.parser()
-style_process_query_parser.add_argument('page', type=int, default=1, location='args', help='页码')
-style_process_query_parser.add_argument('page_size', type=int, default=10, location='args', help='每页数量')
-style_process_query_parser.add_argument('style_id', type=int, required=True, location='args', help='款号ID')
+style_process_query_parser = page_parser.copy()
+style_process_query_parser.add_argument('style_id', type=int, required=True, location='args', help='款号ID', min=1)
 style_process_query_parser.add_argument('process_type', type=str, location='args', help='工艺类型',
                                         choices=['embroidery', 'print', 'other'])
 

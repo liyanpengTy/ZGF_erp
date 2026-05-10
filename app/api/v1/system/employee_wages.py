@@ -6,24 +6,24 @@ from app.schemas.system.employee_wage import (
     EmployeeWageSchema, EmployeeWageCreateSchema, EmployeeWageUpdateSchema
 )
 from marshmallow import ValidationError
-from app.api.v1.shared_models import get_shared_models
+from app.api.common.parsers import page_parser
+from app.api.common.models import get_common_models
 from app.utils.permissions import login_required, permission_required
 from app.services import AuthService, EmployeeWageService
 
 employee_wage_ns = Namespace('员工计酬管理-employee-wages', description='员工计酬管理')
 
-shared = get_shared_models(employee_wage_ns)
-base_response = shared['base_response']
-error_response = shared['error_response']
-unauthorized_response = shared['unauthorized_response']
-forbidden_response = shared['forbidden_response']
+common = get_common_models(employee_wage_ns)
+base_response = common['base_response']
+error_response = common['error_response']
+unauthorized_response = common['unauthorized_response']
+forbidden_response = common['forbidden_response']
+page_response = common['page_response']
 
 # ========== 请求解析器 ==========
-wage_query_parser = employee_wage_ns.parser()
-wage_query_parser.add_argument('page', type=int, default=1, location='args', help='页码')
-wage_query_parser.add_argument('page_size', type=int, default=10, location='args', help='每页数量')
-wage_query_parser.add_argument('user_id', type=int, location='args', help='员工ID')
-wage_query_parser.add_argument('process_id', type=int, location='args', help='工序ID')
+wage_query_parser = page_parser.copy()
+wage_query_parser.add_argument('user_id', type=int, location='args', help='员工ID', min=1)
+wage_query_parser.add_argument('process_id', type=int, location='args', help='工序ID', min=1)
 wage_query_parser.add_argument('wage_type', type=str, location='args', help='计酬方式',
                                choices=['monthly', 'piece', 'base_piece', 'hourly'])
 

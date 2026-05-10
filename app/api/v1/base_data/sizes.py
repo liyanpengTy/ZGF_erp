@@ -4,21 +4,22 @@ from flask import request
 from app.utils.response import ApiResponse
 from app.schemas.base_data.size import SizeSchema, SizeCreateSchema, SizeUpdateSchema
 from marshmallow import ValidationError
-from app.api.v1.shared_models import get_shared_models
+from app.api.common.parsers import page_parser
+from app.api.common.models import get_common_models
 from app.utils.permissions import login_required
 from app.services import AuthService, SizeService
 
 size_ns = Namespace('尺码管理-sizes', description='尺码管理')
 
-shared = get_shared_models(size_ns)
-base_response = shared['base_response']
-error_response = shared['error_response']
-unauthorized_response = shared['unauthorized_response']
+common = get_common_models(size_ns)
+base_response = common['base_response']
+error_response = common['error_response']
+unauthorized_response = common['unauthorized_response']
+forbidden_response = common['forbidden_response']
+page_response = common['page_response']
 
 # ========== 请求解析器 ==========
-size_query_parser = size_ns.parser()
-size_query_parser.add_argument('page', type=int, default=1, location='args', help='页码')
-size_query_parser.add_argument('page_size', type=int, default=10, location='args', help='每页数量')
+size_query_parser = page_parser.copy()
 size_query_parser.add_argument('name', type=str, location='args', help='尺码名称')
 size_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
 size_query_parser.add_argument('factory_only', type=int, location='args', help='是否只查工厂自定义', choices=[0, 1])

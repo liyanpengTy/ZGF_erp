@@ -5,17 +5,19 @@ from app.utils.response import ApiResponse
 from app.schemas.auth.user import UserSchema, UserUpdateSchema
 from app.schemas.profile.profile import PasswordChangeSchema
 from marshmallow import ValidationError
-from app.api.v1.shared_models import get_shared_models
+from app.api.common.models import get_common_models
 from app.utils.permissions import login_required
 from app.services import AuthService, ProfileService
 from app.models.system.reward_record import RewardRecord
 
 profile_ns = Namespace('个人中心-profile', description='个人中心')
 
-shared = get_shared_models(profile_ns)
-base_response = shared['base_response']
-error_response = shared['error_response']
-unauthorized_response = shared['unauthorized_response']
+common = get_common_models(profile_ns)
+base_response = common['base_response']
+error_response = common['error_response']
+unauthorized_response = common['unauthorized_response']
+forbidden_response = common['forbidden_response']
+page_response = common['page_response']
 
 # ========== 请求模型 ==========
 profile_update_model = profile_ns.model('ProfileUpdate', {

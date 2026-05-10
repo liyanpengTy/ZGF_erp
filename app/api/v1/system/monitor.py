@@ -1,13 +1,13 @@
 """服务监控接口"""
 from flask_restx import Namespace, Resource, fields
 from app.utils.response import ApiResponse
-from app.api.v1.shared_models import get_shared_models
+from app.api.common.models import get_common_models
 from app.utils.permissions import login_required
 from app.services import AuthService, MonitorService
 
 monitor_ns = Namespace('服务监控-monitor', description='服务监控')
 
-shared = get_shared_models(monitor_ns)
+shared = get_common_models(monitor_ns)
 base_response = shared['base_response']
 unauthorized_response = shared['unauthorized_response']
 

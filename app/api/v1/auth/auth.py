@@ -5,21 +5,21 @@ from flask_jwt_extended import get_jwt, create_access_token, get_jwt_identity
 from app.services import AuthService, LoginResponseBuilder
 from app.utils.permissions import login_required, refresh_required
 from app.utils.response import ApiResponse
-from app.api.v1.shared_models import get_shared_models
+from app.api.common.models import get_common_models
 from app.extensions import bcrypt
 from app.models.auth.user import User
-from app.services.system.reward_service import RewardService
 import hashlib
 from datetime import datetime
 
 auth_ns = Namespace('认证管理-auth', description='认证管理')
 
 # ========== 共享模型 ==========
-shared = get_shared_models(auth_ns)
-base_response = shared['base_response']
-error_response = shared['error_response']
-unauthorized_response = shared['unauthorized_response']
-forbidden_response = shared['forbidden_response']
+common = get_common_models(auth_ns)
+base_response = common['base_response']
+error_response = common['error_response']
+unauthorized_response = common['unauthorized_response']
+forbidden_response = common['forbidden_response']
+page_response = common['page_response']
 
 # ========== 请求模型 ==========
 login_request_model = auth_ns.model('LoginRequest', {

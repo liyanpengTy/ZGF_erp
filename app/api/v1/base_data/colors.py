@@ -4,21 +4,22 @@ from flask import request
 from app.utils.response import ApiResponse
 from app.schemas.base_data.color import ColorSchema, ColorCreateSchema, ColorUpdateSchema
 from marshmallow import ValidationError
-from app.api.v1.shared_models import get_shared_models
+from app.api.common.parsers import page_parser
+from app.api.common.models import get_common_models
 from app.utils.permissions import login_required
 from app.services import AuthService, ColorService
 
 color_ns = Namespace('颜色管理-colors', description='颜色管理')
 
-shared = get_shared_models(color_ns)
-base_response = shared['base_response']
-error_response = shared['error_response']
-unauthorized_response = shared['unauthorized_response']
+common = get_common_models(color_ns)
+base_response = common['base_response']
+error_response = common['error_response']
+unauthorized_response = common['unauthorized_response']
+forbidden_response = common['forbidden_response']
+page_response = common['page_response']
 
 # ========== 请求解析器 ==========
-color_query_parser = color_ns.parser()
-color_query_parser.add_argument('page', type=int, default=1, location='args', help='页码')
-color_query_parser.add_argument('page_size', type=int, default=10, location='args', help='每页数量')
+color_query_parser = page_parser.copy()
 color_query_parser.add_argument('name', type=str, location='args', help='颜色名称')
 color_query_parser.add_argument('actual_name', type=str, location='args', help='实际颜色名称')
 color_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
