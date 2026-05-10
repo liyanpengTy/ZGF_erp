@@ -22,7 +22,7 @@ page_response = common['page_response']
 style_query_parser = page_parser.copy()
 style_query_parser.add_argument('style_no', type=str, location='args', help='款号')
 style_query_parser.add_argument('name', type=str, location='args', help='款号名称')
-style_query_parser.add_argument('category_id', type=int, location='args', help='分类ID', min=1)
+style_query_parser.add_argument('category_id', type=int, location='args', help='分类ID')
 style_query_parser.add_argument('gender', type=str, location='args', help='性别')
 style_query_parser.add_argument('season', type=str, location='args', help='季节')
 style_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])

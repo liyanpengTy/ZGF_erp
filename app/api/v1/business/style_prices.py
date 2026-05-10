@@ -20,7 +20,7 @@ page_response = common['page_response']
 
 # ========== 请求解析器 ==========
 style_price_query_parser = page_parser.copy()
-style_price_query_parser.add_argument('style_id', type=int, required=True, location='args', help='款号ID', min=1)
+style_price_query_parser.add_argument('style_id', type=int, required=True, location='args', help='款号ID')
 style_price_query_parser.add_argument('price_type', type=str, location='args', help='价格类型',
                                       choices=['customer', 'internal', 'outsourced', 'button', 'other'])
 

@@ -22,7 +22,7 @@ page_response = common['page_response']
 # ========== 请求解析器 ==========
 category_query_parser = page_parser.copy()
 category_query_parser.add_argument('name', type=str, location='args', help='分类名称')
-category_query_parser.add_argument('parent_id', type=int, location='args', help='父分类ID', min=1)
+category_query_parser.add_argument('parent_id', type=int, location='args', help='父分类ID')
 category_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
 category_query_parser.add_argument('factory_only', type=int, location='args', help='是否只查工厂自定义', choices=[0, 1])
 category_query_parser.add_argument('category_type', type=str, location='args', help='分类类型', choices=['style', 'material', 'order'])

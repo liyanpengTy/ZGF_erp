@@ -22,7 +22,7 @@ page_response = common['page_response']
 
 # ========== 请求解析器 ==========
 style_process_query_parser = page_parser.copy()
-style_process_query_parser.add_argument('style_id', type=int, required=True, location='args', help='款号ID', min=1)
+style_process_query_parser.add_argument('style_id', type=int, required=True, location='args', help='款号ID')
 style_process_query_parser.add_argument('process_type', type=str, location='args', help='工艺类型',
                                         choices=['embroidery', 'print', 'other'])
 

@@ -23,7 +23,7 @@ page_response = common['page_response']
 role_query_parser = page_parser.copy()
 role_query_parser.add_argument('name', type=str, location='args', help='角色名称（模糊查询）')
 role_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
-role_query_parser.add_argument('factory_id', type=int, location='args', help='工厂ID（管理员使用）', min=1)
+role_query_parser.add_argument('factory_id', type=int, location='args', help='工厂ID（管理员使用）')
 
 # ========== 请求模型 ==========
 role_create_model = role_ns.model('RoleCreate', {

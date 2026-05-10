@@ -22,8 +22,8 @@ page_response = common['page_response']
 
 # ========== 请求解析器 ==========
 wage_query_parser = page_parser.copy()
-wage_query_parser.add_argument('user_id', type=int, location='args', help='员工ID', min=1)
-wage_query_parser.add_argument('process_id', type=int, location='args', help='工序ID', min=1)
+wage_query_parser.add_argument('user_id', type=int, location='args', help='员工ID')
+wage_query_parser.add_argument('process_id', type=int, location='args', help='工序ID')
 wage_query_parser.add_argument('wage_type', type=str, location='args', help='计酬方式',
                                choices=['monthly', 'piece', 'base_piece', 'hourly'])
 

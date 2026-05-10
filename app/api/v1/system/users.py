@@ -24,7 +24,7 @@ page_response = common['page_response']
 user_query_parser = page_parser.copy()
 user_query_parser.add_argument('username', type=str, location='args', help='用户名（模糊查询）')
 user_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
-user_query_parser.add_argument('factory_id', type=int, location='args', help='工厂ID', min=1)
+user_query_parser.add_argument('factory_id', type=int, location='args', help='工厂ID')
 
 # ========== 请求模型 ==========
 user_create_model = user_ns.model('UserCreate', {

@@ -22,8 +22,8 @@ page_response = common['page_response']
 
 # ========== 请求解析器 ==========
 style_elastic_query_parser = page_parser.copy()
-style_elastic_query_parser.add_argument('style_id', type=int, required=True, location='args', help='款号ID', min=1)
-style_elastic_query_parser.add_argument('size_id', type=int, location='args', help='尺码ID', min=1)
+style_elastic_query_parser.add_argument('style_id', type=int, required=True, location='args', help='款号ID')
+style_elastic_query_parser.add_argument('size_id', type=int, location='args', help='尺码ID')
 style_elastic_query_parser.add_argument('grouped', type=int, location='args', default=0, help='是否按橡筋种类分组', choices=[0, 1])
 
 # ========== 响应模型 ==========

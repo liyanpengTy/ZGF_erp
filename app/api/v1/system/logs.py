@@ -21,14 +21,14 @@ operation_log_query_parser = page_with_date_parser.copy()
 operation_log_query_parser.add_argument('username', type=str, location='args', help='用户名（模糊查询）')
 operation_log_query_parser.add_argument('operation', type=str, location='args', help='操作描述（模糊查询）')
 operation_log_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
-operation_log_query_parser.add_argument('factory_id', type=int, location='args', help='工厂ID（管理员使用）', min=1)
+operation_log_query_parser.add_argument('factory_id', type=int, location='args', help='工厂ID（管理员使用）')
 
 # ========== 登录日志请求解析器 ==========
 login_log_query_parser = page_with_date_parser.copy()
 login_log_query_parser.add_argument('username', type=str, location='args', help='用户名（模糊查询）')
 login_log_query_parser.add_argument('login_type', type=str, location='args', help='登录类型', choices=['pc', 'miniapp'])
 login_log_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
-login_log_query_parser.add_argument('factory_id', type=int, location='args', help='工厂ID（管理员使用）', min=1)
+login_log_query_parser.add_argument('factory_id', type=int, location='args', help='工厂ID（管理员使用）')
 
 
 # ========== 响应模型 ==========
