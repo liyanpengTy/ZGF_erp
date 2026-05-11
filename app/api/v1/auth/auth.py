@@ -310,7 +310,7 @@ class Register(Resource):
             invite_code=user_invite_code,
             invited_by=inviter.id if inviter else None,
             invited_count=0,
-            is_paid=0  # 新增字段：是否已付费
+            is_paid=0
         )
         user.save()
 
