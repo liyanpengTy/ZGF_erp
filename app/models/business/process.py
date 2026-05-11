@@ -39,7 +39,7 @@ class StyleProcessMapping(BaseModel):
     __tablename__ = 'pro_style_process'
     __table_args__ = (
         db.UniqueConstraint('style_id', 'process_id', name='uk_style_process'),
-        db.Index('idx_style_id', 'style_id'),
+        db.Index('idx_pro_style_process_style_id', 'style_id'),
         {'comment': '款号工序关联表'}
     )
 

@@ -8,10 +8,10 @@ class RewardRecord(BaseModel):
     """奖励记录表"""
     __tablename__ = 'sys_reward_record'
     __table_args__ = (
-        db.Index('idx_user_id', 'user_id'),
-        db.Index('idx_factory_id', 'factory_id'),
-        db.Index('idx_reward_object', 'reward_object'),
-        db.Index('idx_status', 'status'),
+        db.Index('idx_sys_reward_record_user_id', 'user_id'),
+        db.Index('idx_sys_reward_record_factory_id', 'factory_id'),
+        db.Index('idx_sys_reward_record_reward_object', 'reward_object'),
+        db.Index('idx_sys_reward_record_status', 'status'),
         {'comment': '奖励记录表'}
     )
 

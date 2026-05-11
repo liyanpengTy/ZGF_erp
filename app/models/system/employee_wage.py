@@ -9,9 +9,9 @@ class EmployeeWage(BaseModel):
     __tablename__ = 'sys_employee_wage'
     __table_args__ = (
         db.UniqueConstraint('user_id', 'process_id', 'effective_date', name='uk_user_process_date'),
-        db.Index('idx_user_id', 'user_id'),
-        db.Index('idx_process_id', 'process_id'),
-        db.Index('idx_effective_date', 'effective_date'),
+        db.Index('idx_sys_employee_wage_user_id', 'user_id'),
+        db.Index('idx_sys_employee_wage_process_id', 'process_id'),
+        db.Index('idx_sys_employee_wage_effective_date', 'effective_date'),
         {'comment': '员工计酬配置表，支持不同工序不同计酬方式'}
     )
 

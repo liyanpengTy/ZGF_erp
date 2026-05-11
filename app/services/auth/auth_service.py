@@ -1,12 +1,14 @@
 """认证服务 - 业务逻辑层"""
 from datetime import datetime
+
 from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt, get_jwt_identity
-from app.extensions import db, bcrypt
+
+from app.extensions import bcrypt, db
 from app.models.auth.user import User
 from app.models.system.factory import Factory
 from app.models.system.user_factory import UserFactory
-from app.utils.logger import log_login
 from app.services.base.base_service import BaseService
+from app.utils.logger import log_login
 
 
 class AuthService(BaseService):
@@ -58,7 +60,7 @@ class AuthService(BaseService):
                 'user_id': user.id,
                 'is_admin': True,
                 'user_type': 'admin',
-                'has_factory': False
+                'has_factory': False,
             }
 
         if factory_id:
@@ -68,14 +70,14 @@ class AuthService(BaseService):
                 'user_type': 'employee',
                 'has_factory': True,
                 'factory_id': factory_id,
-                'relation_type': relation_type
+                'relation_type': relation_type,
             }
 
         return {
             'user_id': user.id,
             'is_admin': False,
             'user_type': 'employee',
-            'has_factory': False
+            'has_factory': False,
         }
 
     @staticmethod
@@ -85,11 +87,11 @@ class AuthService(BaseService):
 
         access_token = create_access_token(
             identity=str(user.id),
-            additional_claims=claims
+            additional_claims=claims,
         )
         refresh_token = create_refresh_token(
             identity=str(user.id),
-            additional_claims=claims
+            additional_claims=claims,
         )
 
         return access_token, refresh_token
@@ -106,7 +108,16 @@ class AuthService(BaseService):
                 user_id = identity.get('user_id') if isinstance(identity, dict) else int(identity)
 
             return User.query.filter_by(id=user_id, is_deleted=0).first()
-        except:
+        except Exception:
+            return None
+
+    @staticmethod
+    def get_current_factory_id():
+        """获取当前 JWT 中的工厂 ID"""
+        try:
+            claims = get_jwt()
+            return claims.get('factory_id')
+        except Exception:
             return None
 
     @staticmethod
@@ -116,5 +127,5 @@ class AuthService(BaseService):
             user_id=user_id,
             factory_id=factory_id,
             status=1,
-            is_deleted=0
+            is_deleted=0,
         ).first()

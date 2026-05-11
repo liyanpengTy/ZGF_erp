@@ -8,10 +8,10 @@ class Order(BaseModel):
     """订单主表"""
     __tablename__ = 'ord_order'
     __table_args__ = (
-        db.Index('idx_order_no', 'order_no'),
-        db.Index('idx_factory_id', 'factory_id'),
-        db.Index('idx_status', 'status'),
-        db.Index('idx_order_date', 'order_date'),
+        db.Index('idx_ord_order_order_no', 'order_no'),
+        db.Index('idx_ord_order_factory_id', 'factory_id'),
+        db.Index('idx_ord_order_status', 'status'),
+        db.Index('idx_ord_order_order_date', 'order_date'),
         {'comment': '订单主表'}
     )
 
@@ -68,8 +68,8 @@ class OrderDetail(BaseModel):
     """订单明细主表（款号级）"""
     __tablename__ = 'ord_order_detail'
     __table_args__ = (
-        db.Index('idx_order_id', 'order_id'),
-        db.Index('idx_style_id', 'style_id'),
+        db.Index('idx_ord_order_detail_order_id', 'order_id'),
+        db.Index('idx_ord_order_detail_style_id', 'style_id'),
         {'comment': '订单明细主表，存储款号级信息'}
     )
 
@@ -108,7 +108,7 @@ class OrderDetailSku(BaseModel):
     """订单明细SKU表"""
     __tablename__ = 'ord_order_detail_sku'
     __table_args__ = (
-        db.Index('idx_detail_id', 'detail_id'),
+        db.Index('idx_ord_order_detail_sku_detail_id', 'detail_id'),
         {'comment': '订单明细SKU表'}
     )
 

@@ -1,13 +1,37 @@
 import os
-from dotenv import load_dotenv
 from datetime import timedelta
+from urllib.parse import quote_plus
+
+from dotenv import load_dotenv
 
 load_dotenv()
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _build_database_uri():
+    database_url = os.getenv('DATABASE_URL')
+    if database_url:
+        return database_url
+
+    db_user = os.getenv('DB_USER')
+    db_password = os.getenv('DB_PASSWORD')
+    db_host = os.getenv('DB_HOST')
+    db_name = os.getenv('DB_NAME')
+
+    if all([db_user, db_password, db_host, db_name]):
+        password = quote_plus(db_password)
+        return f"mysql+pymysql://{db_user}:{password}@{db_host}/{db_name}"
+
+    instance_dir = os.path.join(BASE_DIR, 'instance')
+    os.makedirs(instance_dir, exist_ok=True)
+    sqlite_path = os.path.join(instance_dir, 'dev.sqlite3')
+    return f"sqlite:///{sqlite_path}"
 
 
 class Config:
     SECRET_KEY = os.getenv('SECRET_KEY')
-    SQLALCHEMY_DATABASE_URI = f"mysql+pymysql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}/{os.getenv('DB_NAME')}"
+    SQLALCHEMY_DATABASE_URI = _build_database_uri()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY')
 
