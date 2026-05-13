@@ -1,4 +1,5 @@
-"""款号管理服务"""
+"""款号管理服务。"""
+
 from sqlalchemy.orm import joinedload
 
 from app.models.base_data.category import Category
@@ -10,25 +11,29 @@ from app.services.base.base_service import BaseService
 
 
 class StyleService(BaseService):
-    """款号管理服务"""
+    """款号管理服务。"""
 
     @staticmethod
     def get_style_by_id(style_id):
+        """根据 ID 获取款号。"""
         return Style.query.filter_by(id=style_id, is_deleted=0).first()
 
     @staticmethod
     def get_style_by_no(factory_id, style_no):
+        """根据工厂和款号编码获取款号。"""
         return Style.query.filter_by(factory_id=factory_id, style_no=style_no, is_deleted=0).first()
 
     @staticmethod
     def get_category_name(category_id):
-        if category_id:
-            category = Category.query.filter_by(id=category_id, is_deleted=0).first()
-            return category.name if category else None
-        return None
+        """根据分类 ID 返回分类名称。"""
+        if not category_id:
+            return None
+        category = Category.query.filter_by(id=category_id, is_deleted=0).first()
+        return category.name if category else None
 
     @staticmethod
     def validate_splice_data(splice_data):
+        """校验拼接配置的基础结构。"""
         if not isinstance(splice_data, list):
             return False
         for item in splice_data:
@@ -42,6 +47,7 @@ class StyleService(BaseService):
 
     @staticmethod
     def get_style_list(current_factory_id, filters):
+        """分页查询当前工厂的款号列表。"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
         style_no = filters.get('style_no', '')
@@ -55,7 +61,6 @@ class StyleService(BaseService):
             return {'items': [], 'total': 0, 'page': page, 'page_size': page_size, 'pages': 0}
 
         query = Style.query.filter_by(factory_id=current_factory_id, is_deleted=0).options(joinedload(Style.category))
-
         if style_no:
             query = query.filter(Style.style_no.like(f'%{style_no}%'))
         if name:
@@ -80,6 +85,7 @@ class StyleService(BaseService):
 
     @staticmethod
     def create_style(current_factory_id, data, schema=None):
+        """创建款号。"""
         if not current_factory_id:
             return None, '请先切换到工厂上下文'
 
@@ -119,6 +125,7 @@ class StyleService(BaseService):
 
     @staticmethod
     def update_style(style, data, current_factory_id):
+        """更新款号资料。"""
         if 'style_no' in data and data['style_no'] != style.style_no:
             existing = StyleService.get_style_by_no(current_factory_id, data['style_no'])
             if existing:
@@ -169,12 +176,13 @@ class StyleService(BaseService):
 
     @staticmethod
     def delete_style(style):
+        """删除款号前校验关联价格、工序和松紧数据。"""
         price_count = StylePrice.query.filter_by(style_id=style.id, is_deleted=0).count()
         process_count = StyleProcess.query.filter_by(style_id=style.id, is_deleted=0).count()
         elastic_count = StyleElastic.query.filter_by(style_id=style.id, is_deleted=0).count()
 
         if price_count > 0 or process_count > 0 or elastic_count > 0:
-            return False, '请先删除款号关联的价格、工艺、橡筋数据'
+            return False, '请先删除款号关联的价格、工艺、松紧数据'
 
         style.is_deleted = 1
         style.save()
@@ -182,9 +190,10 @@ class StyleService(BaseService):
 
     @staticmethod
     def check_permission(current_user, current_factory_id, style):
+        """校验款号数据是否属于当前访问范围。"""
         if not current_user:
             return False, '用户不存在'
-        if current_user.is_admin == 1:
+        if current_user.is_internal_user:
             return True, None
         if style.factory_id != current_factory_id:
             return False, '无权限操作'

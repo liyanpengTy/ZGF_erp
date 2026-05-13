@@ -1,12 +1,14 @@
-"""款号管理接口"""
+"""款号管理接口。"""
+
 from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
+from app.api.common.auth import get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
 from app.schemas.business.style import StyleCreateSchema, StyleSchema, StyleUpdateSchema
-from app.services import AuthService, StyleService
+from app.services import StyleService
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
@@ -20,7 +22,7 @@ unauthorized_response = common['unauthorized_response']
 style_query_parser = page_parser.copy()
 style_query_parser.add_argument('style_no', type=str, location='args', help='款号')
 style_query_parser.add_argument('name', type=str, location='args', help='款号名称')
-style_query_parser.add_argument('category_id', type=int, location='args', help='分类ID')
+style_query_parser.add_argument('category_id', type=int, location='args', help='分类 ID')
 style_query_parser.add_argument('gender', type=str, location='args', help='性别')
 style_query_parser.add_argument('season', type=str, location='args', help='季节')
 style_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
@@ -65,14 +67,6 @@ style_create_schema = StyleCreateSchema()
 style_update_schema = StyleUpdateSchema()
 
 
-def get_current_user():
-    return AuthService.get_current_user()
-
-
-def get_current_factory_id():
-    return AuthService.get_current_factory_id()
-
-
 @style_ns.route('')
 class StyleList(Resource):
     @login_required
@@ -80,6 +74,7 @@ class StyleList(Resource):
     @style_ns.response(200, '成功', style_list_response)
     @style_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """分页查询当前工厂下的款号列表。"""
         args = style_query_parser.parse_args()
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
@@ -107,26 +102,28 @@ class StyleList(Resource):
         'style_no': fields.String(required=True, description='款号'),
         'customer_style_no': fields.String(description='客户款号'),
         'name': fields.String(description='款号名称'),
-        'category_id': fields.Integer(description='分类ID'),
+        'category_id': fields.Integer(description='分类 ID'),
         'gender': fields.String(description='性别'),
         'season': fields.String(description='季节'),
         'material': fields.String(description='材质'),
         'description': fields.String(description='描述'),
         'images': fields.List(fields.String(), description='图片列表'),
-        'need_cutting': fields.Integer(description='是否需要裁切', default=0),
-        'cutting_reserve': fields.Float(description='裁切预留', default=0),
+        'need_cutting': fields.Integer(description='是否需要裁床预留', default=0),
+        'cutting_reserve': fields.Float(description='裁床预留值', default=0),
         'custom_attributes': fields.Raw(description='自定义属性'),
         'is_splice': fields.Integer(description='是否拼接款', default=0),
         'splice_data': fields.List(fields.Raw(), description='拼接数据'),
     }))
     @style_ns.response(201, '创建成功', style_item_response)
+    @style_ns.response(400, '参数错误', error_response)
     def post(self):
+        """创建款号并保存分类、图片和扩展属性信息。"""
         current_factory_id = get_current_factory_id()
         if not get_current_user():
             return ApiResponse.error('用户不存在')
 
         try:
-            data = style_create_schema.load(request.get_json())
+            data = style_create_schema.load(request.get_json() or {})
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
 
@@ -144,6 +141,7 @@ class StyleDetail(Resource):
     @login_required
     @style_ns.response(200, '成功', style_item_response)
     def get(self, style_id):
+        """查看单个款号详情。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
@@ -164,21 +162,22 @@ class StyleDetail(Resource):
         'style_no': fields.String(description='款号'),
         'customer_style_no': fields.String(description='客户款号'),
         'name': fields.String(description='款号名称'),
-        'category_id': fields.Integer(description='分类ID'),
+        'category_id': fields.Integer(description='分类 ID'),
         'gender': fields.String(description='性别'),
         'season': fields.String(description='季节'),
         'material': fields.String(description='材质'),
         'description': fields.String(description='描述'),
         'status': fields.Integer(description='状态', choices=[0, 1]),
         'images': fields.List(fields.String(), description='图片列表'),
-        'need_cutting': fields.Integer(description='是否需要裁切'),
-        'cutting_reserve': fields.Float(description='裁切预留'),
+        'need_cutting': fields.Integer(description='是否需要裁床预留'),
+        'cutting_reserve': fields.Float(description='裁床预留值'),
         'custom_attributes': fields.Raw(description='自定义属性'),
         'is_splice': fields.Integer(description='是否拼接款'),
         'splice_data': fields.List(fields.Raw(), description='拼接数据'),
     }))
     @style_ns.response(200, '更新成功', style_item_response)
     def patch(self, style_id):
+        """更新当前工厂自有的款号信息。"""
         current_factory_id = get_current_factory_id()
         style = StyleService.get_style_by_id(style_id)
         if not style:
@@ -187,7 +186,7 @@ class StyleDetail(Resource):
             return ApiResponse.error('只能修改自己工厂的款号', 403)
 
         try:
-            data = style_update_schema.load(request.get_json())
+            data = style_update_schema.load(request.get_json() or {})
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
 
@@ -202,6 +201,7 @@ class StyleDetail(Resource):
     @login_required
     @style_ns.response(200, '删除成功', base_response)
     def delete(self, style_id):
+        """删除当前工厂自有的款号。"""
         current_factory_id = get_current_factory_id()
         style = StyleService.get_style_by_id(style_id)
         if not style:

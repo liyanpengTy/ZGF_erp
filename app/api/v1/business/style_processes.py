@@ -1,12 +1,14 @@
-"""款号工艺管理接口"""
+"""款号工艺管理接口。"""
+
 from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
+from app.api.common.auth import get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
 from app.schemas.business.style_process import StyleProcessCreateSchema, StyleProcessSchema, StyleProcessUpdateSchema
-from app.services import AuthService, StyleProcessService
+from app.services import StyleProcessService
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
@@ -14,11 +16,10 @@ style_process_ns = Namespace('款号工艺管理-style-processes', description='
 
 common = get_common_models(style_process_ns)
 base_response = common['base_response']
-error_response = common['error_response']
 unauthorized_response = common['unauthorized_response']
 
 style_process_query_parser = page_parser.copy()
-style_process_query_parser.add_argument('style_id', type=int, required=True, location='args', help='款号ID')
+style_process_query_parser.add_argument('style_id', type=int, required=True, location='args', help='款号 ID')
 style_process_query_parser.add_argument('process_type', type=str, location='args', help='工艺类型', choices=['embroidery', 'print', 'other'])
 
 style_process_item_model = style_process_ns.model('StyleProcessItem', {
@@ -48,14 +49,6 @@ style_process_create_schema = StyleProcessCreateSchema()
 style_process_update_schema = StyleProcessUpdateSchema()
 
 
-def get_current_user():
-    return AuthService.get_current_user()
-
-
-def get_current_factory_id():
-    return AuthService.get_current_factory_id()
-
-
 @style_process_ns.route('')
 class StyleProcessList(Resource):
     @login_required
@@ -63,6 +56,7 @@ class StyleProcessList(Resource):
     @style_process_ns.response(200, '成功', style_process_list_response)
     @style_process_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """分页查询指定款号下的工艺记录。"""
         args = style_process_query_parser.parse_args()
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
@@ -90,13 +84,14 @@ class StyleProcessList(Resource):
 
     @login_required
     @style_process_ns.expect(style_process_ns.model('StyleProcessCreate', {
-        'style_id': fields.Integer(required=True, description='款号ID'),
+        'style_id': fields.Integer(required=True, description='款号 ID'),
         'process_type': fields.String(required=True, description='工艺类型', choices=['embroidery', 'print', 'other']),
         'process_name': fields.String(description='工艺名称'),
         'remark': fields.String(description='备注'),
     }))
     @style_process_ns.response(201, '创建成功', style_process_item_response)
     def post(self):
+        """为指定款号新增工艺记录。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
@@ -104,7 +99,7 @@ class StyleProcessList(Resource):
             return ApiResponse.error('用户不存在')
 
         try:
-            data = style_process_create_schema.load(request.get_json())
+            data = style_process_create_schema.load(request.get_json() or {})
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
 
@@ -122,6 +117,7 @@ class StyleProcessDetail(Resource):
     @login_required
     @style_process_ns.response(200, '成功', style_process_item_response)
     def get(self, process_id):
+        """查看单条款号工艺记录详情。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
         if not current_user:
@@ -143,6 +139,7 @@ class StyleProcessDetail(Resource):
     }))
     @style_process_ns.response(200, '更新成功', style_process_item_response)
     def patch(self, process_id):
+        """更新单条款号工艺记录。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
         if not current_user:
@@ -155,7 +152,7 @@ class StyleProcessDetail(Resource):
             return ApiResponse.error(error, 403)
 
         try:
-            data = style_process_update_schema.load(request.get_json())
+            data = style_process_update_schema.load(request.get_json() or {})
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
 
@@ -166,6 +163,7 @@ class StyleProcessDetail(Resource):
     @login_required
     @style_process_ns.response(200, '删除成功', base_response)
     def delete(self, process_id):
+        """删除单条款号工艺记录。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
         if not current_user:

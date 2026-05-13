@@ -1,12 +1,14 @@
-"""款号橡筋管理接口"""
+"""款号橡筋管理接口。"""
+
 from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
+from app.api.common.auth import get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
 from app.schemas.business.style_elastic import StyleElasticCreateSchema, StyleElasticSchema, StyleElasticUpdateSchema
-from app.services import AuthService, StyleElasticService
+from app.services import StyleElasticService
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
@@ -14,13 +16,12 @@ style_elastic_ns = Namespace('款号橡筋管理-style-elastics', description='�
 
 common = get_common_models(style_elastic_ns)
 base_response = common['base_response']
-error_response = common['error_response']
 unauthorized_response = common['unauthorized_response']
 
 style_elastic_query_parser = page_parser.copy()
-style_elastic_query_parser.add_argument('style_id', type=int, required=True, location='args', help='款号ID')
-style_elastic_query_parser.add_argument('size_id', type=int, location='args', help='尺码ID')
-style_elastic_query_parser.add_argument('grouped', type=int, location='args', default=0, help='是否按类型分组', choices=[0, 1])
+style_elastic_query_parser.add_argument('style_id', type=int, required=True, location='args', help='款号 ID')
+style_elastic_query_parser.add_argument('size_id', type=int, location='args', help='尺码 ID')
+style_elastic_query_parser.add_argument('grouped', type=int, location='args', default=0, help='是否按类型分组返回', choices=[0, 1])
 
 elastic_detail_model = style_elastic_ns.model('ElasticDetail', {
     'id': fields.Integer(),
@@ -57,7 +58,9 @@ style_elastic_list_data = style_elastic_ns.model('StyleElasticListData', {
     'pages': fields.Integer(),
 })
 
-style_elastic_grouped_data = style_elastic_ns.model('StyleElasticGroupedData', {'items': fields.List(fields.Nested(elastic_group_model))})
+style_elastic_grouped_data = style_elastic_ns.model('StyleElasticGroupedData', {
+    'items': fields.List(fields.Nested(elastic_group_model)),
+})
 
 style_elastic_list_response = style_elastic_ns.clone('StyleElasticListResponse', base_response, {'data': fields.Nested(style_elastic_list_data)})
 style_elastic_grouped_response = style_elastic_ns.clone('StyleElasticGroupedResponse', base_response, {'data': fields.Nested(style_elastic_grouped_data)})
@@ -68,14 +71,6 @@ style_elastic_create_schema = StyleElasticCreateSchema()
 style_elastic_update_schema = StyleElasticUpdateSchema()
 
 
-def get_current_user():
-    return AuthService.get_current_user()
-
-
-def get_current_factory_id():
-    return AuthService.get_current_factory_id()
-
-
 @style_elastic_ns.route('')
 class StyleElasticList(Resource):
     @login_required
@@ -83,6 +78,7 @@ class StyleElasticList(Resource):
     @style_elastic_ns.response(200, '成功', style_elastic_list_response)
     @style_elastic_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """查询指定款号下的橡筋记录，支持分页或按类型分组。"""
         args = style_elastic_query_parser.parse_args()
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
@@ -119,15 +115,16 @@ class StyleElasticList(Resource):
 
     @login_required
     @style_elastic_ns.expect(style_elastic_ns.model('StyleElasticCreate', {
-        'style_id': fields.Integer(required=True, description='款号ID'),
-        'size_id': fields.Integer(description='尺码ID'),
-        'elastic_type': fields.String(required=True, description='橡筋种类'),
+        'style_id': fields.Integer(required=True, description='款号 ID'),
+        'size_id': fields.Integer(description='尺码 ID'),
+        'elastic_type': fields.String(required=True, description='橡筋类型'),
         'elastic_length': fields.Float(required=True, description='橡筋长度(cm)'),
         'quantity': fields.Integer(description='数量', default=1),
         'remark': fields.String(description='备注'),
     }))
     @style_elastic_ns.response(201, '创建成功', style_elastic_item_response)
     def post(self):
+        """新增单条款号橡筋记录。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
@@ -135,7 +132,7 @@ class StyleElasticList(Resource):
             return ApiResponse.error('用户不存在')
 
         try:
-            data = style_elastic_create_schema.load(request.get_json())
+            data = style_elastic_create_schema.load(request.get_json() or {})
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
 
@@ -158,11 +155,11 @@ class StyleElasticList(Resource):
 class StyleElasticBatch(Resource):
     @login_required
     @style_elastic_ns.expect(style_elastic_ns.model('StyleElasticBatchCreate', {
-        'style_id': fields.Integer(required=True, description='款号ID'),
+        'style_id': fields.Integer(required=True, description='款号 ID'),
         'items': fields.List(fields.Nested(style_elastic_ns.model('ElasticGroupItem', {
-            'elastic_type': fields.String(required=True, description='橡筋种类'),
+            'elastic_type': fields.String(required=True, description='橡筋类型'),
             'details': fields.List(fields.Nested(style_elastic_ns.model('ElasticDetailItem', {
-                'size_id': fields.Integer(required=True, description='尺码ID'),
+                'size_id': fields.Integer(required=True, description='尺码 ID'),
                 'length': fields.Float(required=True, description='长度(cm)'),
                 'quantity': fields.Integer(description='数量', default=1),
                 'remark': fields.String(description='备注'),
@@ -171,16 +168,17 @@ class StyleElasticBatch(Resource):
     }))
     @style_elastic_ns.response(200, '保存成功', base_response)
     def post(self):
+        """按分组批量覆盖保存指定款号的橡筋配置。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
         if not current_user:
             return ApiResponse.error('用户不存在')
 
-        data = request.get_json()
+        data = request.get_json() or {}
         style_id = data.get('style_id')
         items = data.get('items', [])
         if not style_id:
-            return ApiResponse.error('请指定款号ID', 400)
+            return ApiResponse.error('请指定款号 ID', 400)
 
         _, error = StyleElasticService.check_style_permission(current_factory_id, style_id)
         if error:
@@ -198,6 +196,7 @@ class StyleElasticDetail(Resource):
     @login_required
     @style_elastic_ns.response(200, '成功', style_elastic_item_response)
     def get(self, elastic_id):
+        """查看单条款号橡筋记录详情。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
         if not current_user:
@@ -214,14 +213,15 @@ class StyleElasticDetail(Resource):
 
     @login_required
     @style_elastic_ns.expect(style_elastic_ns.model('StyleElasticUpdate', {
-        'size_id': fields.Integer(description='尺码ID'),
-        'elastic_type': fields.String(description='橡筋种类'),
+        'size_id': fields.Integer(description='尺码 ID'),
+        'elastic_type': fields.String(description='橡筋类型'),
         'elastic_length': fields.Float(description='橡筋长度(cm)'),
         'quantity': fields.Integer(description='数量'),
         'remark': fields.String(description='备注'),
     }))
     @style_elastic_ns.response(200, '更新成功', style_elastic_item_response)
     def patch(self, elastic_id):
+        """更新单条款号橡筋记录。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
         if not current_user:
@@ -234,7 +234,7 @@ class StyleElasticDetail(Resource):
             return ApiResponse.error(error, 403)
 
         try:
-            data = style_elastic_update_schema.load(request.get_json())
+            data = style_elastic_update_schema.load(request.get_json() or {})
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
 
@@ -251,6 +251,7 @@ class StyleElasticDetail(Resource):
     @login_required
     @style_elastic_ns.response(200, '删除成功', base_response)
     def delete(self, elastic_id):
+        """删除单条款号橡筋记录。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
         if not current_user:

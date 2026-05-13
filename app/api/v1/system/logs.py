@@ -1,10 +1,11 @@
 """日志管理接口"""
 from flask_restx import Namespace, Resource, fields
+from app.api.common.auth import get_current_user
 from app.utils.response import ApiResponse
 from app.api.common.parsers import page_with_date_parser
 from app.api.common.models import get_common_models
 from app.utils.permissions import login_required
-from app.services import AuthService, LogService
+from app.services import LogService
 from app.schemas.system.log import OperationLogSchema, LoginLogSchema
 
 log_ns = Namespace('日志管理-logs', description='日志管理')
@@ -87,12 +88,6 @@ operation_log_schema = OperationLogSchema()
 operation_logs_schema = OperationLogSchema(many=True)
 login_log_schema = LoginLogSchema()
 login_logs_schema = LoginLogSchema(many=True)
-
-
-# ========== 辅助函数 ==========
-def get_current_user():
-    """获取当前登录用户"""
-    return AuthService.get_current_user()
 
 
 @log_ns.route('/operation')

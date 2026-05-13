@@ -1,9 +1,10 @@
-"""认证服务 - 业务逻辑层"""
+"""认证服务。"""
+
 from datetime import datetime
 
 from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt, get_jwt_identity
 
-from app.extensions import bcrypt, db
+from app.extensions import bcrypt
 from app.models.auth.user import User
 from app.models.system.factory import Factory
 from app.models.system.user_factory import UserFactory
@@ -12,11 +13,11 @@ from app.utils.logger import log_login
 
 
 class AuthService(BaseService):
-    """认证服务"""
+    """认证服务。"""
 
     @staticmethod
     def authenticate(username, password, client_type='pc'):
-        """用户认证"""
+        """校验用户名密码，并在成功后刷新最后登录时间。"""
         user = User.query.filter_by(username=username, status=1, is_deleted=0).first()
 
         if not user:
@@ -34,95 +35,97 @@ class AuthService(BaseService):
         user.last_login_time = datetime.now()
         user.save()
         log_login(username, client_type, 1, user_id=user.id)
-
         return user, None
 
     @staticmethod
-    def get_user_factories(user_id):
-        """获取用户关联的工厂列表"""
-        results = db.session.query(
-            Factory.id, Factory.name, Factory.code, UserFactory.relation_type
-        ).join(
-            UserFactory, UserFactory.factory_id == Factory.id
-        ).filter(
-            UserFactory.user_id == user_id,
-            UserFactory.status == 1,
-            Factory.is_deleted == 0,
-            UserFactory.is_deleted == 0
-        ).all()
-        return [{'id': r[0], 'name': r[1], 'code': r[2], 'relation_type': r[3]} for r in results]
+    def is_platform_admin(user):
+        """对外统一判断用户是否为平台管理员。"""
+        return bool(user and user.is_platform_admin)
 
     @staticmethod
-    def build_claims(user, factory_id=None, relation_type=None):
-        """构建 JWT claims"""
-        if user.is_admin == 1:
-            return {
-                'user_id': user.id,
-                'is_admin': True,
-                'user_type': 'admin',
-                'has_factory': False,
-            }
+    def is_internal_user(user):
+        """对外统一判断用户是否属于平台内部人员。"""
+        return bool(user and user.is_internal_user)
 
-        if factory_id:
-            return {
-                'user_id': user.id,
-                'is_admin': False,
-                'user_type': 'employee',
-                'has_factory': True,
-                'factory_id': factory_id,
-                'relation_type': relation_type,
-            }
-
+    @staticmethod
+    def build_factory_context(user_factory):
+        """把用户-工厂关系对象组装成登录态需要的工厂上下文。"""
+        factory = user_factory.factory
         return {
-            'user_id': user.id,
-            'is_admin': False,
-            'user_type': 'employee',
-            'has_factory': False,
+            'id': factory.id,
+            'name': factory.name,
+            'code': factory.code,
+            'relation_type': user_factory.relation_type,
+            'relation_type_label': user_factory.relation_type_label,
+            'collaborator_type': user_factory.collaborator_type,
+            'collaborator_type_label': user_factory.collaborator_type_label,
+            'service_expire_date': factory.service_expire_date.isoformat() if factory.service_expire_date else None,
+            'service_status': factory.service_status
         }
 
     @staticmethod
-    def create_tokens(user, factory_id=None, relation_type=None):
-        """创建 access_token 和 refresh_token"""
-        claims = AuthService.build_claims(user, factory_id, relation_type)
+    def get_user_factories(user_id):
+        """查询用户有效绑定的工厂列表，并转换成统一返回结构。"""
+        records = UserFactory.query.filter_by(
+            user_id=user_id,
+            status=1,
+            is_deleted=0
+        ).join(Factory, UserFactory.factory_id == Factory.id).filter(
+            Factory.is_deleted == 0
+        ).order_by(UserFactory.id.asc()).all()
+        return [AuthService.build_factory_context(record) for record in records]
 
-        access_token = create_access_token(
-            identity=str(user.id),
-            additional_claims=claims,
-        )
-        refresh_token = create_refresh_token(
-            identity=str(user.id),
-            additional_claims=claims,
-        )
+    @staticmethod
+    def build_claims(user, factory_id=None, relation_type=None, collaborator_type=None):
+        """构建 JWT claims，统一携带平台身份和当前工厂上下文。"""
+        claims = {
+            'user_id': user.id,
+            'platform_identity': user.platform_identity,
+            'subject_type': user.get_subject_type([relation_type] if relation_type else []),
+            'has_factory': bool(factory_id),
+        }
 
+        if factory_id:
+            claims.update({
+                'factory_id': factory_id,
+                'relation_type': relation_type,
+                'collaborator_type': collaborator_type,
+            })
+
+        return claims
+
+    @staticmethod
+    def create_tokens(user, factory_id=None, relation_type=None, collaborator_type=None):
+        """根据当前用户和工厂上下文生成 access/refresh token。"""
+        claims = AuthService.build_claims(user, factory_id, relation_type, collaborator_type)
+        access_token = create_access_token(identity=str(user.id), additional_claims=claims)
+        refresh_token = create_refresh_token(identity=str(user.id), additional_claims=claims)
         return access_token, refresh_token
 
     @staticmethod
     def get_current_user():
-        """获取当前登录用户"""
+        """从当前 JWT 中解析用户并返回数据库对象。"""
         try:
             claims = get_jwt()
             user_id = claims.get('user_id')
-
             if not user_id:
                 identity = get_jwt_identity()
                 user_id = identity.get('user_id') if isinstance(identity, dict) else int(identity)
-
             return User.query.filter_by(id=user_id, is_deleted=0).first()
         except Exception:
             return None
 
     @staticmethod
     def get_current_factory_id():
-        """获取当前 JWT 中的工厂 ID"""
+        """从当前 JWT 中直接取出工厂上下文 ID。"""
         try:
-            claims = get_jwt()
-            return claims.get('factory_id')
+            return get_jwt().get('factory_id')
         except Exception:
             return None
 
     @staticmethod
     def verify_factory_permission(user_id, factory_id):
-        """验证用户是否有权限访问该工厂"""
+        """校验用户是否仍然拥有目标工厂的有效绑定关系。"""
         return UserFactory.query.filter_by(
             user_id=user_id,
             factory_id=factory_id,

@@ -1,26 +1,24 @@
-"""菜单管理服务"""
+"""菜单管理服务。"""
+
 from app.extensions import db
 from app.models.system.menu import Menu
-from app.models.system.role import role_menu
+from app.models.system.role import Role, role_menu
+from app.models.system.user_factory_role import UserFactoryRole
 from app.services.base.base_service import BaseService
 
 
 class MenuService(BaseService):
-    """菜单管理服务"""
+    """菜单管理服务。"""
 
     @staticmethod
     def get_menu_by_id(menu_id):
-        """根据ID获取菜单"""
+        """根据 ID 获取菜单。"""
         return Menu.query.filter_by(id=menu_id, is_deleted=0).first()
 
     @staticmethod
     def get_menu_list(filters):
-        """
-        获取菜单列表
-        filters: type, status
-        """
+        """按筛选条件查询菜单列表。"""
         query = Menu.query.filter_by(is_deleted=0)
-
         menu_type = filters.get('type')
         status = filters.get('status')
 
@@ -33,7 +31,7 @@ class MenuService(BaseService):
 
     @staticmethod
     def build_menu_tree(menus, parent_id=0, menu_schema=None):
-        """构建菜单树"""
+        """将平铺菜单转换成树形结构。"""
         tree = []
         for menu in menus:
             if menu.parent_id == parent_id:
@@ -62,8 +60,7 @@ class MenuService(BaseService):
 
     @staticmethod
     def create_menu(data):
-        """创建菜单"""
-        # 验证父菜单
+        """创建菜单。"""
         if data.get('parent_id', 0) != 0:
             parent_menu = MenuService.get_menu_by_id(data['parent_id'])
             if not parent_menu:
@@ -81,12 +78,11 @@ class MenuService(BaseService):
             status=1
         )
         menu.save()
-
         return menu, None
 
     @staticmethod
     def update_menu(menu, data):
-        """更新菜单"""
+        """更新菜单。"""
         if 'parent_id' in data:
             if data['parent_id'] != 0:
                 parent_menu = MenuService.get_menu_by_id(data['parent_id'])
@@ -118,13 +114,11 @@ class MenuService(BaseService):
 
     @staticmethod
     def delete_menu(menu):
-        """删除菜单（软删除）"""
-        # 检查是否有子菜单
+        """删除菜单前校验子菜单和角色绑定。"""
         children_count = Menu.query.filter_by(parent_id=menu.id, is_deleted=0).count()
         if children_count > 0:
             return False, f'请先删除子菜单（共 {children_count} 个）'
 
-        # 检查是否有角色关联此菜单
         role_count = db.session.query(role_menu).filter_by(menu_id=menu.id).count()
         if role_count > 0:
             return False, f'有 {role_count} 个角色关联此菜单，无法删除'
@@ -134,47 +128,52 @@ class MenuService(BaseService):
         return True, None
 
     @staticmethod
+    def get_role_menu_ids(role_ids):
+        """汇总角色关联的菜单 ID。"""
+        if not role_ids:
+            return []
+        menu_rows = db.session.query(role_menu.c.menu_id).filter(role_menu.c.role_id.in_(role_ids)).all()
+        return list({menu_id for menu_id, in menu_rows})
+
+    @staticmethod
     def get_user_menus(user, factory_id=None):
-        """
-        获取用户菜单（用于前端渲染）
-        返回菜单树形结构
-        """
-        # 公司内部人员：返回所有菜单
-        if user.is_admin == 1:
+        """按当前身份和工厂上下文返回前端菜单树。"""
+        if user.is_platform_admin:
             menus = Menu.query.filter_by(status=1, is_deleted=0).order_by(Menu.sort_order).all()
             return MenuService.build_menu_tree(menus)
 
-        # 工厂员工/客户/协作用户：根据角色返回菜单
-        if factory_id:
-            from app.models.system.user_factory_role import UserFactoryRole
-            from app.models.system.role import role_menu
+        role_query = UserFactoryRole.query.join(Role, Role.id == UserFactoryRole.role_id).filter(
+            UserFactoryRole.user_id == user.id,
+            UserFactoryRole.is_deleted == 0,
+            Role.status == 1,
+            Role.is_deleted == 0
+        )
 
-            # 获取用户在当前工厂的角色
-            role_ids = db.session.query(UserFactoryRole.role_id).filter_by(
-                user_id=user.id, factory_id=factory_id, is_deleted=0
-            ).all()
-            role_ids = [r[0] for r in role_ids]
-
-            if role_ids:
-                menu_ids = db.session.query(role_menu.c.menu_id).filter(
-                    role_menu.c.role_id.in_(role_ids)
-                ).all()
-                menu_ids = list(set([m[0] for m in menu_ids]))
-                menus = Menu.query.filter(
-                    Menu.id.in_(menu_ids),
-                    Menu.status == 1,
-                    Menu.is_deleted == 0
-                ).order_by(Menu.sort_order).all()
-            else:
-                menus = []
+        if user.is_platform_staff:
+            role_query = role_query.filter(
+                UserFactoryRole.factory_id == 0,
+                Role.factory_id == 0
+            )
         else:
-            menus = []
+            if not factory_id:
+                return []
+            role_query = role_query.filter(UserFactoryRole.factory_id == factory_id)
 
+        role_ids = [record.role_id for record in role_query.all()]
+        menu_ids = MenuService.get_role_menu_ids(role_ids)
+        if not menu_ids:
+            return []
+
+        menus = Menu.query.filter(
+            Menu.id.in_(menu_ids),
+            Menu.status == 1,
+            Menu.is_deleted == 0
+        ).order_by(Menu.sort_order).all()
         return MenuService.build_menu_tree(menus)
 
     @staticmethod
     def check_admin_permission(current_user):
-        """检查管理员权限"""
-        if not current_user or current_user.is_admin != 1:
+        """校验菜单管理是否允许访问，仅平台管理员可维护。"""
+        if not current_user or not current_user.is_platform_admin:
             return False, '无权限操作菜单'
         return True, None

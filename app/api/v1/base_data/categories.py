@@ -1,12 +1,14 @@
-"""分类管理接口"""
+"""分类管理接口。"""
+
 from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
+from app.api.common.auth import get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
 from app.schemas.base_data.category import CategoryCreateSchema, CategorySchema, CategoryUpdateSchema
-from app.services import AuthService, CategoryService
+from app.services import CategoryService
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
@@ -57,14 +59,6 @@ category_create_schema = CategoryCreateSchema()
 category_update_schema = CategoryUpdateSchema()
 
 
-def get_current_user():
-    return AuthService.get_current_user()
-
-
-def get_current_factory_id():
-    return AuthService.get_current_factory_id()
-
-
 @category_ns.route('')
 class CategoryList(Resource):
     @login_required
@@ -72,6 +66,7 @@ class CategoryList(Resource):
     @category_ns.response(200, '成功', category_list_response)
     @category_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """分页查询分类列表，支持按名称、父分类、状态和分类类型筛选。"""
         args = category_query_parser.parse_args()
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
@@ -99,6 +94,7 @@ class CategoryList(Resource):
     }))
     @category_ns.response(201, '创建成功', category_item_response)
     def post(self):
+        """在当前工厂上下文下创建分类。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
@@ -106,7 +102,7 @@ class CategoryList(Resource):
             return ApiResponse.error('用户不存在')
 
         try:
-            data = category_create_schema.load(request.get_json())
+            data = category_create_schema.load(request.get_json() or {})
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
 
@@ -122,6 +118,7 @@ class CategoryTree(Resource):
     @login_required
     @category_ns.response(200, '成功', category_tree_response)
     def get(self):
+        """按树形结构返回当前可见的分类数据。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
@@ -138,6 +135,7 @@ class CategoryDetail(Resource):
     @login_required
     @category_ns.response(200, '成功', category_item_response)
     def get(self, category_id):
+        """查看单个分类详情。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
@@ -162,6 +160,7 @@ class CategoryDetail(Resource):
     }))
     @category_ns.response(200, '更新成功', category_item_response)
     def patch(self, category_id):
+        """更新当前工厂自有的分类信息。"""
         current_factory_id = get_current_factory_id()
         category = CategoryService.get_category_by_id(category_id)
         if not category:
@@ -170,7 +169,7 @@ class CategoryDetail(Resource):
             return ApiResponse.error('只能修改自己工厂的分类', 403)
 
         try:
-            data = category_update_schema.load(request.get_json())
+            data = category_update_schema.load(request.get_json() or {})
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
 
@@ -183,6 +182,7 @@ class CategoryDetail(Resource):
     @login_required
     @category_ns.response(200, '删除成功', base_response)
     def delete(self, category_id):
+        """删除当前工厂自有的分类。"""
         current_factory_id = get_current_factory_id()
         category = CategoryService.get_category_by_id(category_id)
         if not category:

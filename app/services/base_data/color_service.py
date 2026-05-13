@@ -1,21 +1,25 @@
-"""颜色管理服务"""
+"""颜色管理服务。"""
+
 from app.models.base_data.color import Color
 from app.services.base.base_service import BaseService
 
 
 class ColorService(BaseService):
-    """颜色管理服务"""
+    """颜色管理服务。"""
 
     @staticmethod
     def get_color_by_id(color_id):
+        """根据 ID 获取颜色。"""
         return Color.query.filter_by(id=color_id, is_deleted=0).first()
 
     @staticmethod
     def get_color_by_code(factory_id, code):
+        """根据工厂和编码获取颜色。"""
         return Color.query.filter_by(factory_id=factory_id, code=code, is_deleted=0).first()
 
     @staticmethod
     def get_color_list(current_user, current_factory_id, filters):
+        """分页查询颜色列表。"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
         name = filters.get('name', '')
@@ -24,7 +28,6 @@ class ColorService(BaseService):
         factory_only = filters.get('factory_only', 0)
 
         query = Color.query.filter_by(is_deleted=0)
-
         if factory_only:
             query = query.filter(Color.factory_id == (current_factory_id or -1))
         elif current_factory_id:
@@ -50,6 +53,7 @@ class ColorService(BaseService):
 
     @staticmethod
     def create_color(current_user, current_factory_id, data):
+        """在当前工厂上下文中创建颜色。"""
         if not current_factory_id:
             return None, '请先切换到工厂上下文'
 
@@ -71,6 +75,7 @@ class ColorService(BaseService):
 
     @staticmethod
     def update_color(color, data):
+        """更新颜色资料。"""
         if 'name' in data:
             color.name = data['name']
         if 'actual_name' in data:
@@ -86,15 +91,17 @@ class ColorService(BaseService):
 
     @staticmethod
     def delete_color(color):
+        """软删除颜色。"""
         color.is_deleted = 1
         color.save()
         return True, None
 
     @staticmethod
     def check_permission(current_user, current_factory_id, color):
+        """校验颜色数据是否可被当前用户访问。"""
         if not current_user:
             return False, '用户不存在'
-        if current_user.is_admin == 1:
+        if current_user.is_internal_user:
             return True, None
         if color.factory_id != 0 and color.factory_id != current_factory_id:
             return False, '无权限操作'

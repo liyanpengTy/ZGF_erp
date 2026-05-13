@@ -1,12 +1,14 @@
-"""颜色管理接口"""
+"""颜色管理接口。"""
+
 from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
+from app.api.common.auth import get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
 from app.schemas.base_data.color import ColorCreateSchema, ColorSchema, ColorUpdateSchema
-from app.services import AuthService, ColorService
+from app.services import ColorService
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
@@ -53,14 +55,6 @@ color_create_schema = ColorCreateSchema()
 color_update_schema = ColorUpdateSchema()
 
 
-def get_current_user():
-    return AuthService.get_current_user()
-
-
-def get_current_factory_id():
-    return AuthService.get_current_factory_id()
-
-
 @color_ns.route('')
 class ColorList(Resource):
     @login_required
@@ -68,6 +62,7 @@ class ColorList(Resource):
     @color_ns.response(200, '成功', color_list_response)
     @color_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """分页查询颜色列表，支持按名称、实际名称和状态筛选。"""
         args = color_query_parser.parse_args()
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
@@ -94,6 +89,7 @@ class ColorList(Resource):
     }))
     @color_ns.response(201, '创建成功', color_item_response)
     def post(self):
+        """在当前工厂上下文下创建颜色。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
@@ -101,7 +97,7 @@ class ColorList(Resource):
             return ApiResponse.error('用户不存在')
 
         try:
-            data = color_create_schema.load(request.get_json())
+            data = color_create_schema.load(request.get_json() or {})
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
 
@@ -117,6 +113,7 @@ class ColorDetail(Resource):
     @login_required
     @color_ns.response(200, '成功', color_item_response)
     def get(self, color_id):
+        """查看单个颜色详情。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
@@ -140,6 +137,7 @@ class ColorDetail(Resource):
     }))
     @color_ns.response(200, '更新成功', color_item_response)
     def patch(self, color_id):
+        """更新当前工厂自有的颜色信息。"""
         current_factory_id = get_current_factory_id()
         color = ColorService.get_color_by_id(color_id)
         if not color:
@@ -148,7 +146,7 @@ class ColorDetail(Resource):
             return ApiResponse.error('只能修改自己工厂的颜色', 403)
 
         try:
-            data = color_update_schema.load(request.get_json())
+            data = color_update_schema.load(request.get_json() or {})
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
 
@@ -161,6 +159,7 @@ class ColorDetail(Resource):
     @login_required
     @color_ns.response(200, '删除成功', base_response)
     def delete(self, color_id):
+        """删除当前工厂自有的颜色。"""
         current_factory_id = get_current_factory_id()
         color = ColorService.get_color_by_id(color_id)
         if not color:

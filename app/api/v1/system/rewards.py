@@ -1,10 +1,11 @@
 """奖励管理接口"""
 from flask_restx import Namespace, Resource, fields
+from app.api.common.auth import get_current_user
 from app.utils.response import ApiResponse
 from app.api.common.parsers import page_parser
 from app.api.common.models import get_common_models
 from app.utils.permissions import login_required, permission_required
-from app.services import AuthService, RewardService
+from app.services import RewardService
 
 reward_ns = Namespace('奖励管理-rewards', description='奖励管理')
 
@@ -84,10 +85,6 @@ reward_list_response = reward_ns.clone('RewardListResponse', base_response, {
 reward_stats_response = reward_ns.clone('RewardStatsResponse', base_response, {
     'data': fields.Nested(reward_stats_model)
 })
-
-
-def get_current_user():
-    return AuthService.get_current_user()
 
 
 @reward_ns.route('/configs')

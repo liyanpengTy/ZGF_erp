@@ -1,12 +1,14 @@
-"""工序管理接口"""
+"""工序管理接口。"""
+
 from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
+from app.api.common.auth import get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
 from app.schemas.business.process import ProcessCreateSchema, ProcessSchema, ProcessUpdateSchema, StyleProcessMappingSchema
-from app.services import AuthService, ProcessService
+from app.services import ProcessService
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
@@ -53,7 +55,11 @@ style_process_item_model = process_ns.model('StyleProcessItem', {
     'remark': fields.String(),
 })
 
-style_process_list_response = process_ns.clone('StyleProcessListResponse', base_response, {'data': fields.List(fields.Nested(style_process_item_model))})
+style_process_list_response = process_ns.clone(
+    'StyleProcessListResponse',
+    base_response,
+    {'data': fields.List(fields.Nested(style_process_item_model))}
+)
 
 process_schema = ProcessSchema()
 processes_schema = ProcessSchema(many=True)
@@ -62,12 +68,13 @@ process_update_schema = ProcessUpdateSchema()
 style_process_mapping_schema = StyleProcessMappingSchema()
 
 
-def get_current_user():
-    return AuthService.get_current_user()
-
-
-def get_current_factory_id():
-    return AuthService.get_current_factory_id()
+def check_process_admin_permission(current_user):
+    """校验平台管理员权限，用于工序主数据维护。"""
+    if not current_user:
+        return False, '用户不存在'
+    if not current_user.is_platform_admin:
+        return False, '只有平台管理员可以维护工序'
+    return True, None
 
 
 @process_ns.route('')
@@ -77,6 +84,7 @@ class ProcessList(Resource):
     @process_ns.response(200, '成功', process_list_response)
     @process_ns.response(401, '未登录', unauthorized_response)
     def get(self):
+        """分页查询工序列表。"""
         if not get_current_user():
             return ApiResponse.error('用户不存在')
         args = process_query_parser.parse_args()
@@ -98,20 +106,20 @@ class ProcessList(Resource):
     }))
     @process_ns.response(201, '创建成功', process_item_response)
     def post(self):
+        """创建工序主数据。"""
         current_user = get_current_user()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
-        if current_user.is_admin != 1:
-            return ApiResponse.error('只有管理员可以创建工序', 403)
+        has_permission, error = check_process_admin_permission(current_user)
+        if not has_permission:
+            return ApiResponse.error(error, 403)
 
         try:
-            data = process_create_schema.load(request.get_json())
+            data = process_create_schema.load(request.get_json() or {})
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
 
-        process, error = ProcessService.create_process(data)
-        if error:
-            return ApiResponse.error(error, 409)
+        process, service_error = ProcessService.create_process(data)
+        if service_error:
+            return ApiResponse.error(service_error, 409)
         return ApiResponse.success(process_schema.dump(process), '创建成功', 201)
 
 
@@ -120,6 +128,7 @@ class ProcessDetail(Resource):
     @login_required
     @process_ns.response(200, '成功', process_item_response)
     def get(self, process_id):
+        """查看单个工序详情。"""
         if not get_current_user():
             return ApiResponse.error('用户不存在')
         process = ProcessService.get_process_by_id(process_id)
@@ -136,39 +145,42 @@ class ProcessDetail(Resource):
     }))
     @process_ns.response(200, '更新成功', process_item_response)
     def patch(self, process_id):
+        """更新工序主数据。"""
         current_user = get_current_user()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
-        if current_user.is_admin != 1:
-            return ApiResponse.error('只有管理员可以更新工序', 403)
+        has_permission, error = check_process_admin_permission(current_user)
+        if not has_permission:
+            return ApiResponse.error(error, 403)
+
         process = ProcessService.get_process_by_id(process_id)
         if not process:
             return ApiResponse.error('工序不存在')
 
         try:
-            data = process_update_schema.load(request.get_json())
+            data = process_update_schema.load(request.get_json() or {})
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
 
-        process, error = ProcessService.update_process(process, data)
-        if error:
-            return ApiResponse.error(error, 400)
+        process, service_error = ProcessService.update_process(process, data)
+        if service_error:
+            return ApiResponse.error(service_error, 400)
         return ApiResponse.success(process_schema.dump(process), '更新成功')
 
     @login_required
     @process_ns.response(200, '删除成功', base_response)
     def delete(self, process_id):
+        """删除工序主数据。"""
         current_user = get_current_user()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
-        if current_user.is_admin != 1:
-            return ApiResponse.error('只有管理员可以删除工序', 403)
+        has_permission, error = check_process_admin_permission(current_user)
+        if not has_permission:
+            return ApiResponse.error(error, 403)
+
         process = ProcessService.get_process_by_id(process_id)
         if not process:
             return ApiResponse.error('工序不存在')
-        success, error = ProcessService.delete_process(process)
+
+        success, service_error = ProcessService.delete_process(process)
         if not success:
-            return ApiResponse.error(error, 409)
+            return ApiResponse.error(service_error, 409)
         return ApiResponse.success(message='删除成功')
 
 
@@ -177,6 +189,7 @@ class EnabledProcesses(Resource):
     @login_required
     @process_ns.response(200, '成功', base_response)
     def get(self):
+        """查询全部启用状态的工序。"""
         if not get_current_user():
             return ApiResponse.error('用户不存在')
         processes = ProcessService.get_all_enabled_processes()
@@ -188,13 +201,16 @@ class StyleProcesses(Resource):
     @login_required
     @process_ns.response(200, '成功', style_process_list_response)
     def get(self, style_id):
+        """查询款号已绑定的工序列表。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
         if not current_user:
             return ApiResponse.error('用户不存在')
+
         _, error = ProcessService.check_style_permission(current_factory_id, style_id)
         if error:
             return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
+
         mappings = ProcessService.get_style_processes(style_id)
         return ApiResponse.success(style_process_mapping_schema.dump(mappings, many=True))
 
@@ -208,15 +224,17 @@ class StyleProcesses(Resource):
     }))
     @process_ns.response(200, '保存成功', style_process_list_response)
     def post(self, style_id):
+        """批量保存款号和工序的映射关系。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
         if not current_user:
             return ApiResponse.error('用户不存在')
+
         _, error = ProcessService.check_style_permission(current_factory_id, style_id)
         if error:
             return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
 
-        data = request.get_json()
+        data = request.get_json() or {}
         mappings = ProcessService.batch_save_style_processes(style_id, data.get('mappings', []))
         return ApiResponse.success(style_process_mapping_schema.dump(mappings, many=True), '保存成功')
 
@@ -226,15 +244,19 @@ class StyleProcessDetail(Resource):
     @login_required
     @process_ns.response(200, '删除成功', base_response)
     def delete(self, style_id, mapping_id):
+        """删除单条款号工序映射。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
         if not current_user:
             return ApiResponse.error('用户不存在')
+
         _, error = ProcessService.check_style_permission(current_factory_id, style_id)
         if error:
             return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
+
         mapping = ProcessService.get_style_process_mapping_by_id(mapping_id)
         if not mapping or mapping.style_id != style_id:
             return ApiResponse.error('工序关联不存在')
+
         ProcessService.delete_style_process(mapping)
         return ApiResponse.success(message='删除成功')

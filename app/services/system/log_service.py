@@ -1,28 +1,25 @@
-"""日志管理服务"""
+"""日志管理服务。"""
+
 from sqlalchemy import func
+
 from app.extensions import db
-from app.models.system.log import OperationLog, LoginLog
+from app.models.system.log import LoginLog, OperationLog
 from app.models.system.user_factory import UserFactory
 from app.services.base.base_service import BaseService
 
 
 class LogService(BaseService):
-    """日志管理服务"""
+    """日志管理服务。"""
 
     @staticmethod
     def get_user_factory_ids(user_id):
-        """获取用户关联的工厂ID列表"""
-        user_factories = UserFactory.query.filter_by(
-            user_id=user_id, status=1, is_deleted=0
-        ).all()
-        return [uf.factory_id for uf in user_factories]
+        """获取用户有效关联的工厂 ID 列表。"""
+        user_factories = UserFactory.query.filter_by(user_id=user_id, status=1, is_deleted=0).all()
+        return [user_factory.factory_id for user_factory in user_factories]
 
     @staticmethod
     def get_operation_log_list(current_user, filters):
-        """
-        获取操作日志列表
-        filters: page, page_size, username, operation, status, start_time, end_time, factory_id
-        """
+        """按当前用户数据范围分页查询操作日志。"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
         username = filters.get('username', '')
@@ -32,22 +29,17 @@ class LogService(BaseService):
         end_time = filters.get('end_time', '')
 
         query = OperationLog.query
-
-        # 权限过滤
-        if current_user.is_admin == 1:
-            # 公司内部人员：可以指定工厂ID查看
+        if current_user.is_internal_user:
             factory_id = filters.get('factory_id')
             if factory_id:
                 query = query.filter_by(factory_id=factory_id)
         else:
-            # 普通用户：只能查看自己关联工厂的日志
             factory_ids = LogService.get_user_factory_ids(current_user.id)
             if factory_ids:
                 query = query.filter(OperationLog.factory_id.in_(factory_ids))
             else:
                 query = query.filter(OperationLog.user_id == current_user.id)
 
-        # 条件过滤
         if username:
             query = query.filter(OperationLog.username.like(f'%{username}%'))
         if operation:
@@ -60,9 +52,10 @@ class LogService(BaseService):
             query = query.filter(OperationLog.create_time <= end_time)
 
         pagination = query.order_by(OperationLog.id.desc()).paginate(
-            page=page, per_page=page_size, error_out=False
+            page=page,
+            per_page=page_size,
+            error_out=False
         )
-
         return {
             'items': pagination.items,
             'total': pagination.total,
@@ -73,27 +66,23 @@ class LogService(BaseService):
 
     @staticmethod
     def get_operation_log_by_id(log_id):
-        """根据ID获取操作日志"""
+        """根据 ID 获取操作日志。"""
         return OperationLog.query.get(log_id)
 
     @staticmethod
     def check_operation_log_permission(current_user, log):
-        """检查操作日志查看权限"""
-        if current_user.is_admin == 1:
+        """校验当前用户是否可查看指定操作日志。"""
+        if current_user.is_internal_user:
             return True, None
 
         factory_ids = LogService.get_user_factory_ids(current_user.id)
         if log.factory_id in factory_ids or log.user_id == current_user.id:
             return True, None
-
         return False, '无权限查看'
 
     @staticmethod
     def get_login_log_list(current_user, filters):
-        """
-        获取登录日志列表
-        filters: page, page_size, username, login_type, status, start_time, end_time, factory_id
-        """
+        """按当前用户数据范围分页查询登录日志。"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
         username = filters.get('username', '')
@@ -103,22 +92,20 @@ class LogService(BaseService):
         end_time = filters.get('end_time', '')
 
         query = LoginLog.query
-
-        # 权限过滤
-        if current_user.is_admin == 1:
+        if current_user.is_internal_user:
             factory_id = filters.get('factory_id')
             if factory_id:
-                # 获取该工厂下的用户ID列表
                 user_ids = db.session.query(UserFactory.user_id).filter_by(
-                    factory_id=factory_id, status=1, is_deleted=0
+                    factory_id=factory_id,
+                    status=1,
+                    is_deleted=0
                 ).all()
-                user_ids = [u[0] for u in user_ids]
+                user_ids = [user_id for user_id, in user_ids]
                 if user_ids:
                     query = query.filter(LoginLog.user_id.in_(user_ids))
         else:
             query = query.filter_by(user_id=current_user.id)
 
-        # 条件过滤
         if username:
             query = query.filter(LoginLog.username.like(f'%{username}%'))
         if login_type:
@@ -131,9 +118,10 @@ class LogService(BaseService):
             query = query.filter(LoginLog.create_time <= end_time)
 
         pagination = query.order_by(LoginLog.id.desc()).paginate(
-            page=page, per_page=page_size, error_out=False
+            page=page,
+            per_page=page_size,
+            error_out=False
         )
-
         return {
             'items': pagination.items,
             'total': pagination.total,
@@ -144,29 +132,25 @@ class LogService(BaseService):
 
     @staticmethod
     def get_login_log_by_id(log_id):
-        """根据ID获取登录日志"""
+        """根据 ID 获取登录日志。"""
         return LoginLog.query.get(log_id)
 
     @staticmethod
     def check_login_log_permission(current_user, log):
-        """检查登录日志查看权限"""
-        if current_user.is_admin == 1:
+        """校验当前用户是否可查看指定登录日志。"""
+        if current_user.is_internal_user:
             return True, None
-
         if log.user_id == current_user.id:
             return True, None
-
         return False, '无权限查看'
 
     @staticmethod
     def get_log_stats(current_user):
-        """获取日志统计"""
+        """汇总当前用户可见范围内的日志统计数据。"""
         query_op = OperationLog.query
         query_login = LoginLog.query
 
-        if current_user.is_admin == 1:
-            pass
-        else:
+        if not current_user.is_internal_user:
             factory_ids = LogService.get_user_factory_ids(current_user.id)
             if factory_ids:
                 query_op = query_op.filter(OperationLog.factory_id.in_(factory_ids))
@@ -177,7 +161,6 @@ class LogService(BaseService):
 
         today = func.date(OperationLog.create_time) == func.current_date()
         today_op_count = query_op.filter(today).count()
-
         today_login_count = query_login.filter(today).count()
         today_success_login = query_login.filter(today, LoginLog.status == 1).count()
         today_fail_login = query_login.filter(today, LoginLog.status == 0).count()

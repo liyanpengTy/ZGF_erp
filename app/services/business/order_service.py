@@ -1,4 +1,5 @@
-"""订单管理服务"""
+"""订单管理服务。"""
+
 from datetime import datetime
 
 from sqlalchemy.orm import joinedload
@@ -10,10 +11,11 @@ from app.services.base.base_service import BaseService
 
 
 class OrderService(BaseService):
-    """订单管理服务"""
+    """订单管理服务。"""
 
     @staticmethod
     def generate_order_no(factory_id):
+        """按工厂和日期生成订单编号。"""
         today = datetime.now().strftime('%Y%m%d')
         last_order = Order.query.filter(
             Order.order_no.like(f'ORD{factory_id}{today}%'),
@@ -24,6 +26,7 @@ class OrderService(BaseService):
 
     @staticmethod
     def get_order_by_id(order_id):
+        """根据 ID 获取订单及其明细。"""
         return Order.query.options(
             joinedload(Order.details).selectinload(OrderDetail.skus),
             joinedload(Order.details).joinedload(OrderDetail.style),
@@ -31,10 +34,12 @@ class OrderService(BaseService):
 
     @staticmethod
     def get_order_by_no(order_no):
+        """根据订单编号获取订单。"""
         return Order.query.filter_by(order_no=order_no, is_deleted=0).first()
 
     @staticmethod
     def get_order_list(current_factory_id, filters):
+        """分页查询当前工厂的订单列表。"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
         order_no = filters.get('order_no', '')
@@ -73,6 +78,7 @@ class OrderService(BaseService):
 
     @staticmethod
     def create_order(current_user, current_factory_id, data):
+        """创建订单及其明细快照。"""
         if not current_factory_id:
             return None, '请先切换到工厂上下文'
 
@@ -107,7 +113,8 @@ class OrderService(BaseService):
                 customer_id=data.get('customer_id'),
                 customer_name=data.get('customer_name', ''),
                 order_date=datetime.strptime(data['order_date'], '%Y-%m-%d').date(),
-                delivery_date=datetime.strptime(data['delivery_date'], '%Y-%m-%d').date() if data.get('delivery_date') else None,
+                delivery_date=datetime.strptime(data['delivery_date'], '%Y-%m-%d').date()
+                if data.get('delivery_date') else None,
                 status='pending',
                 total_amount=0,
                 remark=data.get('remark', ''),
@@ -144,6 +151,7 @@ class OrderService(BaseService):
 
     @staticmethod
     def update_order(order, data):
+        """更新订单基础资料。"""
         if 'customer_id' in data:
             order.customer_id = data['customer_id']
         if 'customer_name' in data:
@@ -157,21 +165,24 @@ class OrderService(BaseService):
 
     @staticmethod
     def update_order_status(order, status):
+        """更新订单状态。"""
         order.status = status
         order.save()
         return order
 
     @staticmethod
     def delete_order(order):
+        """软删除订单。"""
         order.is_deleted = 1
         order.save()
         return True
 
     @staticmethod
     def check_permission(current_user, current_factory_id, order):
+        """校验订单数据是否属于当前访问范围。"""
         if not current_user:
             return False, '用户不存在'
-        if current_user.is_admin == 1:
+        if current_user.is_internal_user:
             return True, None
         if order.factory_id != current_factory_id:
             return False, '无权限操作'

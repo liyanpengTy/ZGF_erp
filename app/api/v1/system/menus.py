@@ -5,9 +5,10 @@ from app.models.system.menu import Menu
 from app.utils.response import ApiResponse
 from app.schemas.system.menu import MenuSchema, MenuCreateSchema, MenuUpdateSchema
 from marshmallow import ValidationError
+from app.api.common.auth import get_current_claims, get_current_user
 from app.api.common.models import get_common_models
 from app.utils.permissions import login_required
-from app.services import AuthService, MenuService
+from app.services import MenuService
 
 menu_ns = Namespace('菜单管理-menus', description='菜单管理')
 
@@ -78,12 +79,6 @@ menu_schema = MenuSchema()
 menus_schema = MenuSchema(many=True)
 menu_create_schema = MenuCreateSchema()
 menu_update_schema = MenuUpdateSchema()
-
-
-# ========== 辅助函数 ==========
-def get_current_user():
-    """获取当前登录用户"""
-    return AuthService.get_current_user()
 
 
 @menu_ns.route('')
@@ -237,9 +232,7 @@ class UserMenus(Resource):
         if not current_user:
             return ApiResponse.error('用户不存在')
 
-        # 获取工厂ID（从Token中）
-        from flask_jwt_extended import get_jwt
-        claims = get_jwt()
+        claims = get_current_claims()
         factory_id = claims.get('factory_id')
 
         menu_tree = MenuService.get_user_menus(current_user, factory_id)
