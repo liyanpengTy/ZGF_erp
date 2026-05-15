@@ -259,6 +259,126 @@ order_statistics_response = order_ns.clone('OrderStatisticsResponse', base_respo
     'data': fields.Nested(order_statistics_data_model, description='订单统计数据')
 })
 
+order_production_sku_item_model = order_ns.model('OrderProductionSkuItem', {
+    'order_detail_sku_id': fields.Integer(description='订单SKU ID', example=119),
+    'sku_name': fields.String(description='SKU 展示名称', example='红色-2XL'),
+    'color_id': fields.Integer(description='颜色ID', allow_null=True),
+    'color_name': fields.String(description='颜色名称', allow_null=True),
+    'size_id': fields.Integer(description='尺码ID', allow_null=True),
+    'size_name': fields.String(description='尺码名称', allow_null=True),
+    'ordered_quantity': fields.Integer(description='下单数量', example=25),
+    'cut_quantity': fields.Integer(description='实裁数量', example=20),
+    'bundle_quantity': fields.Integer(description='已生成菲数量', example=20),
+    'issued_quantity': fields.Integer(description='累计领货数量', example=20),
+    'returned_quantity': fields.Integer(description='累计交货数量', example=8),
+    'in_hand_quantity': fields.Integer(description='当前在手数量', example=12),
+    'completed_quantity': fields.Integer(description='已完工数量', example=0),
+    'shipped_quantity': fields.Integer(description='已出货数量', example=0),
+    'cutting_report_count': fields.Integer(description='裁床报工次数', example=1),
+    'bundle_count': fields.Integer(description='菲数量', example=1),
+})
+
+order_production_detail_item_model = order_ns.model('OrderProductionDetailItem', {
+    'detail_id': fields.Integer(description='订单明细ID', example=16),
+    'style_id': fields.Integer(description='款号ID', example=16),
+    'style_no': fields.String(description='款号', example='2235#'),
+    'style_name': fields.String(description='款号名称', example='2235#测试款'),
+    'ordered_quantity': fields.Integer(description='下单数量', example=25),
+    'cut_quantity': fields.Integer(description='实裁数量', example=20),
+    'bundle_quantity': fields.Integer(description='已生成菲数量', example=20),
+    'issued_quantity': fields.Integer(description='累计领货数量', example=20),
+    'returned_quantity': fields.Integer(description='累计交货数量', example=8),
+    'in_hand_quantity': fields.Integer(description='当前在手数量', example=12),
+    'completed_quantity': fields.Integer(description='已完工数量', example=0),
+    'shipped_quantity': fields.Integer(description='已出货数量', example=0),
+    'cutting_report_count': fields.Integer(description='裁床报工次数', example=1),
+    'bundle_count': fields.Integer(description='菲数量', example=1),
+    'sku_items': fields.List(fields.Nested(order_production_sku_item_model), description='SKU 生产统计列表'),
+})
+
+order_production_summary_model = order_ns.model('OrderProductionSummary', {
+    'detail_count': fields.Integer(description='明细数', example=1),
+    'sku_count': fields.Integer(description='SKU 数', example=1),
+    'ordered_quantity': fields.Integer(description='下单总数', example=25),
+    'cut_quantity': fields.Integer(description='实裁总数', example=20),
+    'bundle_quantity': fields.Integer(description='生成菲总数', example=20),
+    'issued_quantity': fields.Integer(description='累计领货总数', example=20),
+    'returned_quantity': fields.Integer(description='累计交货总数', example=8),
+    'in_hand_quantity': fields.Integer(description='当前在手总数', example=12),
+    'completed_quantity': fields.Integer(description='已完工总数', example=0),
+    'shipped_quantity': fields.Integer(description='已出货总数', example=0),
+    'cutting_report_count': fields.Integer(description='裁床报工次数', example=1),
+    'bundle_count': fields.Integer(description='菲总数', example=1),
+})
+
+order_production_statistics_data_model = order_ns.model('OrderProductionStatisticsData', {
+    'order_id': fields.Integer(description='订单ID', example=16),
+    'order_no': fields.String(description='订单号', example='DEMO-ORDER-002'),
+    'customer_id': fields.Integer(description='客户ID', allow_null=True),
+    'customer_name': fields.String(description='客户名称', allow_null=True),
+    'order_date': fields.String(description='订单日期', example='2026-05-16'),
+    'delivery_date': fields.String(description='交期', example='2026-05-24'),
+    'status': fields.String(description='订单状态', example='pending'),
+    'remark': fields.String(description='订单备注', allow_null=True),
+    'summary': fields.Nested(order_production_summary_model, description='订单生产汇总'),
+    'details': fields.List(fields.Nested(order_production_detail_item_model), description='订单明细生产统计列表'),
+})
+
+order_production_statistics_response = order_ns.clone('OrderProductionStatisticsResponse', base_response, {
+    'data': fields.Nested(order_production_statistics_data_model, description='订单生产统计数据')
+})
+
+order_shipment_availability_sku_item_model = order_ns.model('OrderShipmentAvailabilitySkuItem', {
+    'order_detail_sku_id': fields.Integer(description='订单SKU ID', example=119),
+    'sku_name': fields.String(description='SKU 展示名称', example='红色-2XL'),
+    'color_id': fields.Integer(description='颜色ID', allow_null=True),
+    'color_name': fields.String(description='颜色名称', allow_null=True),
+    'size_id': fields.Integer(description='尺码ID', allow_null=True),
+    'size_name': fields.String(description='尺码名称', allow_null=True),
+    'ordered_quantity': fields.Integer(description='下单数量', example=25),
+    'completed_quantity': fields.Integer(description='已完工数量', example=20),
+    'shipped_quantity': fields.Integer(description='已出货数量', example=8),
+    'available_quantity': fields.Integer(description='可出货数量', example=12),
+})
+
+order_shipment_availability_detail_item_model = order_ns.model('OrderShipmentAvailabilityDetailItem', {
+    'detail_id': fields.Integer(description='订单明细ID', example=16),
+    'style_id': fields.Integer(description='款号ID', example=16),
+    'style_no': fields.String(description='款号', example='2235#'),
+    'style_name': fields.String(description='款号名称', allow_null=True),
+    'ordered_quantity': fields.Integer(description='下单数量', example=25),
+    'completed_quantity': fields.Integer(description='已完工数量', example=20),
+    'shipped_quantity': fields.Integer(description='已出货数量', example=8),
+    'available_quantity': fields.Integer(description='可出货数量', example=12),
+    'sku_items': fields.List(fields.Nested(order_shipment_availability_sku_item_model), description='SKU 可出货明细列表'),
+})
+
+order_shipment_availability_summary_model = order_ns.model('OrderShipmentAvailabilitySummary', {
+    'detail_count': fields.Integer(description='明细数', example=1),
+    'sku_count': fields.Integer(description='SKU 数', example=1),
+    'ordered_quantity': fields.Integer(description='下单总数', example=25),
+    'completed_quantity': fields.Integer(description='已完工总数', example=20),
+    'shipped_quantity': fields.Integer(description='已出货总数', example=8),
+    'available_quantity': fields.Integer(description='可出货总数', example=12),
+})
+
+order_shipment_availability_data_model = order_ns.model('OrderShipmentAvailabilityData', {
+    'order_id': fields.Integer(description='订单ID', example=16),
+    'order_no': fields.String(description='订单号', example='DEMO-ORDER-002'),
+    'customer_id': fields.Integer(description='客户ID', allow_null=True),
+    'customer_name': fields.String(description='客户名称', allow_null=True),
+    'order_date': fields.String(description='订单日期', example='2026-05-16'),
+    'delivery_date': fields.String(description='交期', example='2026-05-24'),
+    'status': fields.String(description='订单状态', example='pending'),
+    'remark': fields.String(description='订单备注', allow_null=True),
+    'summary': fields.Nested(order_shipment_availability_summary_model, description='订单可出货汇总'),
+    'details': fields.List(fields.Nested(order_shipment_availability_detail_item_model), description='订单明细可出货统计列表'),
+})
+
+order_shipment_availability_response = order_ns.clone('OrderShipmentAvailabilityResponse', base_response, {
+    'data': fields.Nested(order_shipment_availability_data_model, description='订单可出货统计数据')
+})
+
 order_detail_sku_create_model = order_ns.model('OrderDetailSkuCreate', {
     'splice_config': fields.Nested(order_sku_splice_config_model, required=True, description='SKU 配置对象'),
     'remark': fields.String(description='SKU 备注', example='首单'),
@@ -331,6 +451,40 @@ def serialize_order_statistics(order):
             }
             for detail in order.details
         ],
+    }
+
+
+def serialize_order_production_statistics(order):
+    """序列化独立订单生产统计结果。"""
+    production_statistics = OrderService.build_order_production_statistics(order)
+    return {
+        'order_id': order.id,
+        'order_no': order.order_no,
+        'customer_id': order.customer_id,
+        'customer_name': order.customer_name,
+        'order_date': order.order_date.isoformat() if order.order_date else None,
+        'delivery_date': order.delivery_date.isoformat() if order.delivery_date else None,
+        'status': order.status,
+        'remark': order.remark,
+        'summary': production_statistics['summary'],
+        'details': production_statistics['details'],
+    }
+
+
+def serialize_order_shipment_availability(order):
+    """序列化独立订单可出货统计结果。"""
+    shipment_availability = OrderService.build_order_shipment_availability(order)
+    return {
+        'order_id': order.id,
+        'order_no': order.order_no,
+        'customer_id': order.customer_id,
+        'customer_name': order.customer_name,
+        'order_date': order.order_date.isoformat() if order.order_date else None,
+        'delivery_date': order.delivery_date.isoformat() if order.delivery_date else None,
+        'status': order.status,
+        'remark': order.remark,
+        'summary': shipment_availability['summary'],
+        'details': shipment_availability['details'],
     }
 
 
@@ -523,3 +677,55 @@ class OrderStatus(Resource):
 
         order = OrderService.update_order_status(order, data['status'])
         return ApiResponse.success(serialize_order(order), '状态更新成功')
+
+
+@order_ns.route('/<int:order_id>/production-statistics')
+class OrderProductionStatistics(Resource):
+    @login_required
+    @order_ns.response(200, '成功', order_production_statistics_response)
+    @order_ns.response(401, '未登录', unauthorized_response)
+    @order_ns.response(403, '无权限', forbidden_response)
+    @order_ns.response(404, '订单不存在', error_response)
+    def get(self, order_id):
+        """查询订单生产统计接口，返回下单、实裁、领货、交货、在手与完工汇总。"""
+        current_user = get_current_user()
+        current_factory_id = get_current_factory_id()
+
+        if not current_user:
+            return ApiResponse.error('用户不存在')
+
+        order = OrderService.get_order_by_id(order_id)
+        if not order:
+            return ApiResponse.error('订单不存在')
+
+        has_permission, error = OrderService.check_permission(current_user, current_factory_id, order)
+        if not has_permission:
+            return ApiResponse.error(error, 403)
+
+        return ApiResponse.success(serialize_order_production_statistics(order))
+
+
+@order_ns.route('/<int:order_id>/shipment-availability')
+class OrderShipmentAvailability(Resource):
+    @login_required
+    @order_ns.response(200, '成功', order_shipment_availability_response)
+    @order_ns.response(401, '未登录', unauthorized_response)
+    @order_ns.response(403, '无权限', forbidden_response)
+    @order_ns.response(404, '订单不存在', error_response)
+    def get(self, order_id):
+        """查询订单可出货统计接口，返回各 SKU 的已完工、已出货与可出货数量。"""
+        current_user = get_current_user()
+        current_factory_id = get_current_factory_id()
+
+        if not current_user:
+            return ApiResponse.error('用户不存在')
+
+        order = OrderService.get_order_by_id(order_id)
+        if not order:
+            return ApiResponse.error('订单不存在')
+
+        has_permission, error = OrderService.check_permission(current_user, current_factory_id, order)
+        if not has_permission:
+            return ApiResponse.error(error, 403)
+
+        return ApiResponse.success(serialize_order_shipment_availability(order))

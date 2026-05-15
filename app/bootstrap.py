@@ -10,6 +10,15 @@ from app.models.auth.user import User
 from app.models.base_data.category import Category
 from app.models.base_data.color import Color
 from app.models.base_data.size import Size
+from app.models.business.bundle import (
+    BundleTemplate,
+    BundleTemplateItem,
+    FactoryBundleRule,
+    FactoryCutBatchCounter,
+    ProductionBundle,
+    ProductionBundleFlow,
+)
+from app.models.business.cutting_report import WorkCuttingReport
 from app.models.business.order import (
     Order,
     OrderDetail,
@@ -19,6 +28,8 @@ from app.models.business.order import (
     OrderDetailSkuSpliceItem,
     OrderDetailSpliceSnapshot,
 )
+from app.models.business.process import Process
+from app.models.business.shipment import Shipment, ShipmentItem
 from app.models.business.style import Style, StyleAttribute, StyleSpliceItem
 from app.models.business.value_codec import encode_dynamic_value
 from app.models.system.factory import Factory
@@ -27,6 +38,7 @@ from app.models.system.reward_config import RewardConfig
 from app.models.system.role import Role, role_menu
 from app.models.system.user_factory import UserFactory
 from app.models.system.user_factory_role import UserFactoryRole
+from app.services.business.bundle_service import BundleTemplateService
 
 
 MENU_SEEDS = [
@@ -430,6 +442,30 @@ def _create_order_detail(order, style, remark):
     return detail
 
 
+def _ensure_process(code, name, description, sort_order):
+    """确保演示工序存在，不存在则创建，存在则同步基础字段。"""
+    process = Process.query.filter_by(code=code, is_deleted=0).first()
+    if process:
+        process.name = name
+        process.description = description
+        process.sort_order = sort_order
+        process.status = 1
+        db.session.add(process)
+        db.session.commit()
+        return process
+
+    process = Process(
+        code=code,
+        name=name,
+        description=description,
+        sort_order=sort_order,
+        status=1,
+    )
+    db.session.add(process)
+    db.session.commit()
+    return process
+
+
 def cleanup_demo_data():
     """清理现有演示数据，保留系统菜单、奖励配置与平台初始化结构。"""
     demo_factories = Factory.query.filter(Factory.code.in_(DEMO_FACTORY_CODES)).all()
@@ -454,6 +490,25 @@ def cleanup_demo_data():
             db.session.query(Role).filter(Role.id.in_(role_ids)).delete(synchronize_session=False)
 
         db.session.query(UserFactory).filter(UserFactory.factory_id.in_(demo_factory_ids)).delete(synchronize_session=False)
+
+        bundles = ProductionBundle.query.filter(ProductionBundle.factory_id.in_(demo_factory_ids)).all()
+        bundle_ids = [bundle.id for bundle in bundles]
+        if bundle_ids:
+            db.session.query(ProductionBundleFlow).filter(ProductionBundleFlow.bundle_id.in_(bundle_ids)).delete(synchronize_session=False)
+            db.session.query(ProductionBundle).filter(ProductionBundle.id.in_(bundle_ids)).delete(synchronize_session=False)
+
+        db.session.query(WorkCuttingReport).filter(WorkCuttingReport.factory_id.in_(demo_factory_ids)).delete(synchronize_session=False)
+        db.session.query(FactoryBundleRule).filter(FactoryBundleRule.factory_id.in_(demo_factory_ids)).delete(synchronize_session=False)
+        db.session.query(FactoryCutBatchCounter).filter(FactoryCutBatchCounter.factory_id.in_(demo_factory_ids)).delete(synchronize_session=False)
+
+        bundle_templates = BundleTemplate.query.filter(
+            BundleTemplate.factory_id.in_(demo_factory_ids),
+            BundleTemplate.is_deleted == 0,
+        ).all()
+        bundle_template_ids = [template.id for template in bundle_templates]
+        if bundle_template_ids:
+            db.session.query(BundleTemplateItem).filter(BundleTemplateItem.template_id.in_(bundle_template_ids)).delete(synchronize_session=False)
+            db.session.query(BundleTemplate).filter(BundleTemplate.id.in_(bundle_template_ids)).delete(synchronize_session=False)
 
         orders = Order.query.filter(Order.factory_id.in_(demo_factory_ids)).all()
         for order in orders:
@@ -535,6 +590,18 @@ def seed_demo_factory():
     _replace_user_roles(owner.id, factory.id, [owner_role.id])
     _replace_user_roles(employee.id, factory.id, [employee_role.id])
     return factory
+
+
+def seed_bundle_templates_and_rules(factory):
+    """初始化系统默认菲模板，并为演示工厂建立默认菲规则。"""
+    template = BundleTemplateService.ensure_system_default_template()
+    rule = BundleTemplateService.ensure_factory_rule(factory.id)
+    rule.default_template_id = template.id
+    rule.reset_cycle = 'yearly'
+    rule.bundle_code_prefix = 'FEI'
+    db.session.add(rule)
+    db.session.commit()
+    return {'system_template': template, 'factory_rule': rule}
 
 
 def seed_demo_base_data(factory):
@@ -738,6 +805,17 @@ def seed_reward_configs():
     db.session.commit()
 
 
+def seed_demo_processes():
+    """初始化演示用基础工序，供领货交货流转直接使用。"""
+    processes = {
+        'CUT': _ensure_process('CUT', '裁床', '裁床开裁工序', 1),
+        'SEW': _ensure_process('SEW', '车位', '车位缝制工序', 2),
+        'IRON': _ensure_process('IRON', '烫工', '整烫工序', 3),
+        'PACK': _ensure_process('PACK', '包装', '尾部包装工序', 4),
+    }
+    return processes
+
+
 def seed_demo_role_menus():
     """给演示工厂角色补齐基础菜单权限。"""
     factory = Factory.query.filter_by(code=DEMO_FACTORY_CODE, is_deleted=0).first()
@@ -775,13 +853,17 @@ def seed_all():
     admin, _ = seed_admin_user()
     seed_menus()
     seed_reward_configs()
+    processes = seed_demo_processes()
     factory = seed_demo_factory()
+    bundle_config = seed_bundle_templates_and_rules(factory)
     seed_demo_role_menus()
     base_data = seed_demo_base_data(factory)
     styles = seed_demo_business_data(factory, base_data)
     return {
         'admin': admin,
+        'processes': processes,
         'factory': factory,
+        'bundle_config': bundle_config,
         'base_data': base_data,
         'styles': styles,
     }

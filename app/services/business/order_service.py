@@ -5,6 +5,8 @@ from datetime import datetime
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.extensions import db
+from app.models.business.bundle import ProductionBundle
+from app.models.business.cutting_report import WorkCuttingReport
 from app.models.business.order import (
     Order,
     OrderDetail,
@@ -17,6 +19,8 @@ from app.models.business.order import (
 from app.models.business.style import Style
 from app.models.business.value_codec import encode_dynamic_value, is_scalar_value
 from app.services.base.base_service import BaseService
+from app.services.business.bundle_service import BundleService
+from app.services.business.shipment_service import ShipmentService
 
 
 class OrderService(BaseService):
@@ -214,6 +218,196 @@ class OrderService(BaseService):
             'detail_count': len(order.details),
             'sku_count': total_sku_count,
             'total_quantity': total_quantity,
+            'details': detail_items,
+        }
+
+    @staticmethod
+    def _build_sku_display_name(sku):
+        """构建订单 SKU 的展示名称，便于生产统计按行展示。"""
+        config = sku.splice_config
+        color_name = config.get('color_name')
+        size_name = config.get('size_name')
+        if color_name and size_name:
+            return f'{color_name}-{size_name}'
+        if color_name:
+            return color_name
+        if size_name:
+            return size_name
+        if config.get('variant_name'):
+            return config['variant_name']
+        if config.get('tag'):
+            return config['tag']
+        return sku.remark or f'SKU-{sku.id}'
+
+    @staticmethod
+    def build_order_production_statistics(order):
+        """构建订单生产统计，汇总下单、实裁、领货、交货、在手、完工与已出货数量。"""
+        sku_items = {}
+        detail_groups = {}
+
+        for detail in order.details:
+            detail_groups[detail.id] = {
+                'detail_id': detail.id,
+                'style_id': detail.style_id,
+                'style_no': detail.style.style_no if detail.style else None,
+                'style_name': detail.style.name if detail.style else None,
+                'ordered_quantity': 0,
+                'cut_quantity': 0,
+                'bundle_quantity': 0,
+                'issued_quantity': 0,
+                'returned_quantity': 0,
+                'in_hand_quantity': 0,
+                'completed_quantity': 0,
+                'shipped_quantity': 0,
+                'cutting_report_count': 0,
+                'bundle_count': 0,
+                'sku_items': [],
+            }
+            for sku in detail.skus:
+                config = sku.splice_config
+                ordered_quantity = config.get('quantity', 0) or 0
+                item = {
+                    'order_detail_sku_id': sku.id,
+                    'sku_name': OrderService._build_sku_display_name(sku),
+                    'color_id': config.get('color_id'),
+                    'color_name': config.get('color_name'),
+                    'size_id': config.get('size_id'),
+                    'size_name': config.get('size_name'),
+                    'ordered_quantity': ordered_quantity,
+                    'cut_quantity': 0,
+                    'bundle_quantity': 0,
+                    'issued_quantity': 0,
+                    'returned_quantity': 0,
+                    'in_hand_quantity': 0,
+                    'completed_quantity': 0,
+                    'shipped_quantity': 0,
+                    'cutting_report_count': 0,
+                    'bundle_count': 0,
+                }
+                sku_items[sku.id] = item
+                detail_groups[detail.id]['sku_items'].append(item)
+                detail_groups[detail.id]['ordered_quantity'] += ordered_quantity
+
+        cutting_reports = WorkCuttingReport.query.filter_by(order_id=order.id, is_deleted=0).all()
+        for report in cutting_reports:
+            item = sku_items.get(report.order_detail_sku_id)
+            if not item:
+                continue
+            item['cut_quantity'] += report.cut_quantity or 0
+            item['cutting_report_count'] += 1
+
+        bundles = ProductionBundle.query.options(
+            selectinload(ProductionBundle.flows)
+        ).filter_by(order_id=order.id, is_deleted=0).all()
+        for bundle in bundles:
+            item = sku_items.get(bundle.order_detail_sku_id)
+            if not item:
+                continue
+            metrics = BundleService.calculate_flow_metrics(bundle)
+            item['bundle_quantity'] += bundle.bundle_quantity or 0
+            item['bundle_count'] += 1
+            item['issued_quantity'] += metrics['issued_quantity']
+            item['returned_quantity'] += metrics['returned_quantity']
+            item['in_hand_quantity'] += metrics['in_hand_quantity']
+            if bundle.status == 'completed':
+                item['completed_quantity'] += bundle.bundle_quantity or 0
+
+        shipped_map = ShipmentService.get_shipped_quantity_map_for_order(order.id)
+        for sku_id, shipped_quantity in shipped_map.items():
+            item = sku_items.get(sku_id)
+            if not item:
+                continue
+            item['shipped_quantity'] += shipped_quantity
+
+        for detail_id, detail_group in detail_groups.items():
+            for item in detail_group['sku_items']:
+                detail_group['cut_quantity'] += item['cut_quantity']
+                detail_group['bundle_quantity'] += item['bundle_quantity']
+                detail_group['issued_quantity'] += item['issued_quantity']
+                detail_group['returned_quantity'] += item['returned_quantity']
+                detail_group['in_hand_quantity'] += item['in_hand_quantity']
+                detail_group['completed_quantity'] += item['completed_quantity']
+                detail_group['shipped_quantity'] += item['shipped_quantity']
+                detail_group['cutting_report_count'] += item['cutting_report_count']
+                detail_group['bundle_count'] += item['bundle_count']
+
+        detail_items = list(detail_groups.values())
+        summary = {
+            'detail_count': len(detail_items),
+            'sku_count': len(sku_items),
+            'ordered_quantity': sum(item['ordered_quantity'] for item in detail_items),
+            'cut_quantity': sum(item['cut_quantity'] for item in detail_items),
+            'bundle_quantity': sum(item['bundle_quantity'] for item in detail_items),
+            'issued_quantity': sum(item['issued_quantity'] for item in detail_items),
+            'returned_quantity': sum(item['returned_quantity'] for item in detail_items),
+            'in_hand_quantity': sum(item['in_hand_quantity'] for item in detail_items),
+            'completed_quantity': sum(item['completed_quantity'] for item in detail_items),
+            'shipped_quantity': sum(item['shipped_quantity'] for item in detail_items),
+            'cutting_report_count': sum(item['cutting_report_count'] for item in detail_items),
+            'bundle_count': sum(item['bundle_count'] for item in detail_items),
+        }
+        return {
+            'summary': summary,
+            'details': detail_items,
+        }
+
+    @staticmethod
+    def build_order_shipment_availability(order):
+        """构建订单可出货统计，汇总各 SKU 的已完工、已出货与可出货数量。"""
+        completed_map = ShipmentService.get_completed_quantity_map_for_order(order.id)
+        shipped_map = ShipmentService.get_shipped_quantity_map_for_order(order.id)
+        detail_groups = {}
+
+        for detail in order.details:
+            detail_group = {
+                'detail_id': detail.id,
+                'style_id': detail.style_id,
+                'style_no': detail.style.style_no if detail.style else None,
+                'style_name': detail.style.name if detail.style else None,
+                'ordered_quantity': 0,
+                'completed_quantity': 0,
+                'shipped_quantity': 0,
+                'available_quantity': 0,
+                'sku_items': [],
+            }
+
+            for sku in detail.skus:
+                config = sku.splice_config
+                ordered_quantity = config.get('quantity', 0) or 0
+                completed_quantity = completed_map.get(sku.id, 0)
+                shipped_quantity = shipped_map.get(sku.id, 0)
+                available_quantity = max(completed_quantity - shipped_quantity, 0)
+                sku_item = {
+                    'order_detail_sku_id': sku.id,
+                    'sku_name': OrderService._build_sku_display_name(sku),
+                    'color_id': config.get('color_id'),
+                    'color_name': config.get('color_name'),
+                    'size_id': config.get('size_id'),
+                    'size_name': config.get('size_name'),
+                    'ordered_quantity': ordered_quantity,
+                    'completed_quantity': completed_quantity,
+                    'shipped_quantity': shipped_quantity,
+                    'available_quantity': available_quantity,
+                }
+                detail_group['sku_items'].append(sku_item)
+                detail_group['ordered_quantity'] += ordered_quantity
+                detail_group['completed_quantity'] += completed_quantity
+                detail_group['shipped_quantity'] += shipped_quantity
+                detail_group['available_quantity'] += available_quantity
+
+            detail_groups[detail.id] = detail_group
+
+        detail_items = list(detail_groups.values())
+        summary = {
+            'detail_count': len(detail_items),
+            'sku_count': sum(len(item['sku_items']) for item in detail_items),
+            'ordered_quantity': sum(item['ordered_quantity'] for item in detail_items),
+            'completed_quantity': sum(item['completed_quantity'] for item in detail_items),
+            'shipped_quantity': sum(item['shipped_quantity'] for item in detail_items),
+            'available_quantity': sum(item['available_quantity'] for item in detail_items),
+        }
+        return {
+            'summary': summary,
             'details': detail_items,
         }
 

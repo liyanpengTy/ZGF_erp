@@ -19,7 +19,11 @@ from app.services.business import (
     StylePriceService,
     StyleElasticService,
     ProcessService,
-    OrderService
+    OrderService,
+    BundleService,
+    BundleTemplateService,
+    CuttingReportService,
+    ShipmentService,
 )
 
 __all__ = [
@@ -54,5 +58,9 @@ __all__ = [
     'StylePriceService',
     'StyleElasticService',
     'ProcessService',
-    'OrderService'
+    'OrderService',
+    'BundleService',
+    'BundleTemplateService',
+    'CuttingReportService',
+    'ShipmentService',
 ]
