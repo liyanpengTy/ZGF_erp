@@ -38,11 +38,7 @@ user_create_model = user_ns.model('UserCreate', {
     'password': fields.String(required=True, description='密码', example='123456'),
     'nickname': fields.String(description='昵称', example='测试用户'),
     'phone': fields.String(description='手机号', example='13800138000'),
-    'platform_identity': fields.String(
-        description='平台身份',
-        example='external_user',
-        choices=['platform_admin', 'platform_staff', 'external_user']
-    ),
+    'platform_identity': fields.String(description='平台身份', example='external_user', choices=['platform_admin', 'platform_staff', 'external_user']),
     'factory_id': fields.Integer(description='工厂ID')
 })
 
@@ -62,37 +58,42 @@ user_assign_roles_model = user_ns.model('AssignRoles', {
 })
 
 user_item_model = user_ns.model('UserItem', {
-    'id': fields.Integer(),
-    'username': fields.String(),
-    'nickname': fields.String(),
-    'phone': fields.String(),
-    'avatar': fields.String(),
-    'platform_identity': fields.String(),
-    'platform_identity_label': fields.String(),
-    'subject_type': fields.String(),
-    'subject_type_label': fields.String(),
-    'status': fields.Integer(),
-    'invite_code': fields.String(),
-    'invited_count': fields.Integer(),
-    'is_paid': fields.Integer(),
-    'create_time': fields.String(),
-    'last_login_time': fields.String()
+    'id': fields.Integer(description='用户ID', example=2),
+    'username': fields.String(description='用户名', example='factory_admin'),
+    'nickname': fields.String(description='昵称', example='工厂管理员'),
+    'phone': fields.String(description='手机号', example='18370601281'),
+    'avatar': fields.String(description='头像地址', example=None),
+    'platform_identity': fields.String(description='平台身份', example='external_user'),
+    'platform_identity_label': fields.String(description='平台身份名称', example='外部人员'),
+    'subject_type': fields.String(description='主体类型', example='factory_subject'),
+    'subject_type_label': fields.String(description='主体类型名称', example='工厂主体'),
+    'status': fields.Integer(description='状态', example=1),
+    'invite_code': fields.String(description='邀请码', example='ABC12346'),
+    'invited_count': fields.Integer(description='邀请人数', example=None),
+    'is_paid': fields.Integer(description='是否已付费', example=None),
+    'created_by': fields.Integer(description='创建人ID', example=None),
+    'create_time': fields.String(description='创建时间', example='2026-04-21 01:17:24'),
+    'last_login_time': fields.String(description='最后登录时间', example='2026-05-15 12:35:13')
 })
 
-user_list_data = user_ns.model('UserListData', {
-    'items': fields.List(fields.Nested(user_item_model)),
-    'total': fields.Integer(),
-    'page': fields.Integer(),
-    'page_size': fields.Integer(),
-    'pages': fields.Integer()
+user_list_data = user_ns.model('SystemUserListData', {
+    'items': fields.List(fields.Nested(user_item_model), description='用户列表'),
+    'total': fields.Integer(description='总条数'),
+    'page': fields.Integer(description='当前页码'),
+    'page_size': fields.Integer(description='每页条数'),
+    'pages': fields.Integer(description='总页数')
 })
 
-user_list_response = user_ns.clone('UserListResponse', base_response, {
-    'data': fields.Nested(user_list_data)
+user_list_response = user_ns.clone('SystemUserListResponse', base_response, {
+    'data': fields.Nested(user_list_data, description='用户分页数据')
 })
 
-user_item_response = user_ns.clone('UserItemResponse', base_response, {
-    'data': fields.Nested(user_item_model)
+user_item_response = user_ns.clone('SystemUserItemResponse', base_response, {
+    'data': fields.Nested(user_item_model, description='用户详情数据')
+})
+
+user_test_response = user_ns.model('UserTestResponse', {
+    'message': fields.String(description='测试结果')
 })
 
 user_schema = UserSchema()
@@ -412,6 +413,7 @@ class UserPermissions(Resource):
 
 @user_ns.route('/test')
 class Test(Resource):
+    @user_ns.response(200, '成功', user_test_response)
     def get(self):
         """联调使用的最小测试接口。"""
         return {'message': 'test ok'}

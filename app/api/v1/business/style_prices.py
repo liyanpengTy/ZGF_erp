@@ -17,6 +17,10 @@ style_price_ns = Namespace('款号价格管理-style-prices', description='款�
 common = get_common_models(style_price_ns)
 base_response = common['base_response']
 unauthorized_response = common['unauthorized_response']
+error_response = common['error_response']
+forbidden_response = common['forbidden_response']
+build_page_data_model = common['build_page_data_model']
+build_page_response_model = common['build_page_response_model']
 
 style_price_query_parser = page_parser.copy()
 style_price_query_parser.add_argument('style_id', type=int, required=True, location='args', help='款号 ID')
@@ -29,27 +33,30 @@ style_price_query_parser.add_argument(
 )
 
 style_price_item_model = style_price_ns.model('StylePriceItem', {
-    'id': fields.Integer(),
-    'style_id': fields.Integer(),
-    'price_type': fields.String(),
-    'price_type_label': fields.String(),
-    'price': fields.Float(),
-    'effective_date': fields.String(),
-    'remark': fields.String(),
-    'create_time': fields.String(),
-    'update_time': fields.String(),
+    'id': fields.Integer(description='价格记录ID'),
+    'style_id': fields.Integer(description='款号ID'),
+    'price_type': fields.String(description='价格类型'),
+    'price_type_label': fields.String(description='价格类型名称'),
+    'price': fields.Float(description='价格'),
+    'effective_date': fields.String(description='生效日期'),
+    'remark': fields.String(description='备注'),
+    'create_time': fields.String(description='创建时间'),
+    'update_time': fields.String(description='更新时间'),
 })
 
-style_price_list_data = style_price_ns.model('StylePriceListData', {
-    'items': fields.List(fields.Nested(style_price_item_model)),
-    'total': fields.Integer(),
-    'page': fields.Integer(),
-    'page_size': fields.Integer(),
-    'pages': fields.Integer(),
+style_price_list_data = build_page_data_model(style_price_ns, 'StylePriceListData', style_price_item_model, items_description='价格列表')
+style_price_list_response = build_page_response_model(style_price_ns, 'StylePriceListResponse', base_response, style_price_list_data, '价格分页数据')
+style_price_item_response = style_price_ns.clone('StylePriceItemResponse', base_response, {
+    'data': fields.Nested(style_price_item_model, description='价格详情数据')
 })
 
-style_price_list_response = style_price_ns.clone('StylePriceListResponse', base_response, {'data': fields.Nested(style_price_list_data)})
-style_price_item_response = style_price_ns.clone('StylePriceItemResponse', base_response, {'data': fields.Nested(style_price_item_model)})
+style_price_create_model = style_price_ns.model('StylePriceCreate', {
+    'style_id': fields.Integer(required=True, description='款号 ID', example=1),
+    'price_type': fields.String(required=True, description='价格类型', choices=['customer', 'internal', 'outsourced', 'button', 'other'], example='customer'),
+    'price': fields.Float(required=True, description='价格', example=12.5),
+    'effective_date': fields.String(required=True, description='生效日期', example='2026-05-15'),
+    'remark': fields.String(description='备注', example='首单报价'),
+})
 
 style_price_schema = StylePriceSchema()
 style_price_create_schema = StylePriceCreateSchema()
@@ -62,7 +69,7 @@ class StylePriceList(Resource):
     @style_price_ns.response(200, '成功', style_price_list_response)
     @style_price_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """分页查询指定款号下的价格记录。"""
+        """查询款号价格分页列表。"""
         args = style_price_query_parser.parse_args()
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
@@ -89,16 +96,14 @@ class StylePriceList(Resource):
         })
 
     @login_required
-    @style_price_ns.expect(style_price_ns.model('StylePriceCreate', {
-        'style_id': fields.Integer(required=True, description='款号 ID'),
-        'price_type': fields.String(required=True, description='价格类型', choices=['customer', 'internal', 'outsourced', 'button', 'other']),
-        'price': fields.Float(required=True, description='价格'),
-        'effective_date': fields.String(required=True, description='生效日期', example='2024-01-01'),
-        'remark': fields.String(description='备注'),
-    }))
+    @style_price_ns.expect(style_price_create_model)
     @style_price_ns.response(201, '创建成功', style_price_item_response)
+    @style_price_ns.response(400, '参数错误', error_response)
+    @style_price_ns.response(401, '未登录', unauthorized_response)
+    @style_price_ns.response(403, '无权限', forbidden_response)
+    @style_price_ns.response(404, '款号不存在', error_response)
     def post(self):
-        """为指定款号新增价格记录。"""
+        """创建款号价格记录。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
@@ -123,8 +128,11 @@ class StylePriceList(Resource):
 class StylePriceDetail(Resource):
     @login_required
     @style_price_ns.response(200, '成功', style_price_item_response)
+    @style_price_ns.response(401, '未登录', unauthorized_response)
+    @style_price_ns.response(403, '无权限', forbidden_response)
+    @style_price_ns.response(404, '价格记录不存在', error_response)
     def get(self, price_id):
-        """查看单条款号价格记录详情。"""
+        """查询款号价格详情。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
@@ -144,8 +152,11 @@ class StylePriceDetail(Resource):
 
     @login_required
     @style_price_ns.response(200, '删除成功', base_response)
+    @style_price_ns.response(401, '未登录', unauthorized_response)
+    @style_price_ns.response(403, '无权限', forbidden_response)
+    @style_price_ns.response(404, '价格记录不存在', error_response)
     def delete(self, price_id):
-        """删除单条款号价格记录。"""
+        """删除款号价格记录。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 

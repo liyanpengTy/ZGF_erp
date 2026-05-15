@@ -1,7 +1,11 @@
+"""款号相关序列化器。"""
+
 from marshmallow import Schema, fields, validate
 
 
 class StyleSchema(Schema):
+    """款号序列化器。"""
+
     id = fields.Int()
     factory_id = fields.Int(required=True)
     style_no = fields.Str(required=True, validate=validate.Length(min=1, max=50))
@@ -24,6 +28,8 @@ class StyleSchema(Schema):
 
 
 class StyleCreateSchema(Schema):
+    """创建款号参数。"""
+
     style_no = fields.Str(required=True, validate=validate.Length(min=1, max=50))
     customer_style_no = fields.Str()
     name = fields.Str()
@@ -41,6 +47,8 @@ class StyleCreateSchema(Schema):
 
 
 class StyleUpdateSchema(Schema):
+    """更新款号参数。"""
+
     style_no = fields.Str(validate=validate.Length(min=1, max=50))
     customer_style_no = fields.Str()
     name = fields.Str()

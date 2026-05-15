@@ -19,6 +19,8 @@ base_response = common['base_response']
 error_response = common['error_response']
 unauthorized_response = common['unauthorized_response']
 forbidden_response = common['forbidden_response']
+build_page_data_model = common['build_page_data_model']
+build_page_response_model = common['build_page_response_model']
 
 wage_query_parser = page_parser.copy()
 wage_query_parser.add_argument('user_id', type=int, location='args', help='员工ID')
@@ -32,38 +34,73 @@ wage_query_parser.add_argument(
 )
 
 employee_wage_item_model = employee_wage_ns.model('EmployeeWageItem', {
-    'id': fields.Integer(),
-    'user_id': fields.Integer(),
-    'username': fields.String(),
-    'nickname': fields.String(),
-    'process_id': fields.Integer(),
-    'process_name': fields.String(),
-    'wage_type': fields.String(),
-    'wage_type_label': fields.String(),
-    'monthly_salary': fields.Float(),
-    'piece_rate': fields.Float(),
-    'base_salary': fields.Float(),
-    'base_piece_rate': fields.Float(),
-    'hourly_rate': fields.Float(),
-    'effective_date': fields.String(),
-    'remark': fields.String(),
-    'create_time': fields.String()
+    'id': fields.Integer(description='薪资记录ID', example=1),
+    'user_id': fields.Integer(description='员工ID', example=2),
+    'username': fields.String(description='用户名', example='factory_employee'),
+    'nickname': fields.String(description='昵称', example='工厂员工'),
+    'process_id': fields.Integer(description='工序ID', example=3),
+    'process_name': fields.String(description='工序名称', example='锁边'),
+    'wage_type': fields.String(description='计酬方式', example='piece'),
+    'wage_type_label': fields.String(description='计酬方式名称', example='计件'),
+    'monthly_salary': fields.Float(description='月薪金额', example=None),
+    'piece_rate': fields.Float(description='计件单价', example=1.2),
+    'base_salary': fields.Float(description='底薪', example=None),
+    'base_piece_rate': fields.Float(description='保底计件单价', example=None),
+    'hourly_rate': fields.Float(description='计时单价', example=None),
+    'effective_date': fields.String(description='生效日期', example='2026-05-01'),
+    'remark': fields.String(description='备注', example='夏季工价'),
+    'create_time': fields.String(description='创建时间', example='2026-05-01 10:00:00')
 })
 
-wage_list_data = employee_wage_ns.model('WageListData', {
-    'items': fields.List(fields.Nested(employee_wage_item_model)),
-    'total': fields.Integer(),
-    'page': fields.Integer(),
-    'page_size': fields.Integer(),
-    'pages': fields.Integer()
-})
-
-wage_list_response = employee_wage_ns.clone('WageListResponse', base_response, {
-    'data': fields.Nested(wage_list_data)
-})
+wage_list_data = build_page_data_model(employee_wage_ns, 'WageListData', employee_wage_item_model, items_description='计酬列表')
+wage_list_response = build_page_response_model(employee_wage_ns, 'WageListResponse', base_response, wage_list_data, '计酬分页数据')
 
 wage_item_response = employee_wage_ns.clone('WageItemResponse', base_response, {
-    'data': fields.Nested(employee_wage_item_model)
+    'data': fields.Nested(employee_wage_item_model, description='薪资详情数据')
+})
+
+wage_calculate_result_model = employee_wage_ns.model('WageCalculateResult', {
+    'user_id': fields.Integer(description='员工ID', example=2),
+    'process_id': fields.Integer(description='工序ID', example=3),
+    'wage_amount': fields.Float(description='试算工资金额', example=128.5)
+})
+
+wage_calculate_response = employee_wage_ns.clone('WageCalculateResponse', base_response, {
+    'data': fields.Nested(wage_calculate_result_model, description='试算结果数据')
+})
+
+employee_wage_create_model = employee_wage_ns.model('EmployeeWageCreate', {
+    'user_id': fields.Integer(required=True, description='员工ID', example=2),
+    'process_id': fields.Integer(required=True, description='工序ID', example=3),
+    'wage_type': fields.String(required=True, description='计酬方式', choices=['monthly', 'piece', 'base_piece', 'hourly'], example='piece'),
+    'monthly_salary': fields.Float(description='月薪金额', example=6000),
+    'piece_rate': fields.Float(description='计件单价', example=1.2),
+    'base_salary': fields.Float(description='底薪', example=3000),
+    'base_piece_rate': fields.Float(description='保底计件单价', example=0.8),
+    'hourly_rate': fields.Float(description='计时单价', example=25),
+    'effective_date': fields.String(required=True, description='生效日期', example='2026-05-01'),
+    'remark': fields.String(description='备注', example='夏季工价')
+})
+
+employee_wage_update_model = employee_wage_ns.model('EmployeeWageUpdate', {
+    'wage_type': fields.String(description='计酬方式', choices=['monthly', 'piece', 'base_piece', 'hourly'], example='hourly'),
+    'monthly_salary': fields.Float(description='月薪金额', example=6500),
+    'piece_rate': fields.Float(description='计件单价', example=1.5),
+    'base_salary': fields.Float(description='底薪', example=3200),
+    'base_piece_rate': fields.Float(description='保底计件单价', example=1.0),
+    'hourly_rate': fields.Float(description='计时单价', example=28),
+    'effective_date': fields.String(description='生效日期', example='2026-06-01'),
+    'remark': fields.String(description='备注', example='更新工价')
+})
+
+wage_calculate_model = employee_wage_ns.model('WageCalculate', {
+    'user_id': fields.Integer(required=True, description='员工ID', example=2),
+    'process_id': fields.Integer(required=True, description='工序ID', example=3),
+    'quantity': fields.Integer(description='完成数量', default=0, example=100),
+    'work_hours': fields.Float(description='工作小时数', default=0, example=8),
+    'work_days': fields.Float(description='工作天数', default=1, example=1),
+    'total_work_days': fields.Float(description='当月总工作天数', default=22, example=22),
+    'work_date': fields.String(description='工作日期', example='2026-05-15')
 })
 
 wage_schema = EmployeeWageSchema()
@@ -99,7 +136,7 @@ class EmployeeWageList(Resource):
     @employee_wage_ns.response(401, '未登录', unauthorized_response)
     @employee_wage_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """获取员工计酬列表。"""
+        """查询员工计酬分页列表。"""
         args = wage_query_parser.parse_args()
         current_user = get_current_user()
 
@@ -118,24 +155,10 @@ class EmployeeWageList(Resource):
 
     @login_required
     @permission_required('system:employee_wage:add')
-    @employee_wage_ns.expect(employee_wage_ns.model('EmployeeWageCreate', {
-        'user_id': fields.Integer(required=True, description='员工ID'),
-        'process_id': fields.Integer(required=True, description='工序ID'),
-        'wage_type': fields.String(
-            required=True,
-            description='计酬方式',
-            choices=['monthly', 'piece', 'base_piece', 'hourly']
-        ),
-        'monthly_salary': fields.Float(description='月薪金额'),
-        'piece_rate': fields.Float(description='计件单价'),
-        'base_salary': fields.Float(description='底薪'),
-        'base_piece_rate': fields.Float(description='保底计件单价'),
-        'hourly_rate': fields.Float(description='计时单价'),
-        'effective_date': fields.String(required=True, description='生效日期', example='2024-01-01'),
-        'remark': fields.String(description='备注')
-    }))
+    @employee_wage_ns.expect(employee_wage_create_model)
     @employee_wage_ns.response(201, '创建成功', wage_item_response)
     @employee_wage_ns.response(400, '参数错误', error_response)
+    @employee_wage_ns.response(401, '未登录', unauthorized_response)
     @employee_wage_ns.response(403, '无权限', forbidden_response)
     @employee_wage_ns.response(409, '配置已存在', error_response)
     def post(self):
@@ -162,10 +185,11 @@ class EmployeeWageDetail(Resource):
     @login_required
     @permission_required('system:employee_wage:view')
     @employee_wage_ns.response(200, '成功', wage_item_response)
+    @employee_wage_ns.response(401, '未登录', unauthorized_response)
     @employee_wage_ns.response(404, '不存在', error_response)
     @employee_wage_ns.response(403, '无权限', forbidden_response)
     def get(self, wage_id):
-        """获取计酬配置详情。"""
+        """查询计酬配置详情。"""
         current_user = get_current_user()
         has_permission, error = check_wage_view_permission(current_user)
         if not has_permission:
@@ -179,17 +203,10 @@ class EmployeeWageDetail(Resource):
 
     @login_required
     @permission_required('system:employee_wage:edit')
-    @employee_wage_ns.expect(employee_wage_ns.model('EmployeeWageUpdate', {
-        'wage_type': fields.String(description='计酬方式', choices=['monthly', 'piece', 'base_piece', 'hourly']),
-        'monthly_salary': fields.Float(description='月薪金额'),
-        'piece_rate': fields.Float(description='计件单价'),
-        'base_salary': fields.Float(description='底薪'),
-        'base_piece_rate': fields.Float(description='保底计件单价'),
-        'hourly_rate': fields.Float(description='计时单价'),
-        'effective_date': fields.String(description='生效日期', example='2024-01-01'),
-        'remark': fields.String(description='备注')
-    }))
+    @employee_wage_ns.expect(employee_wage_update_model)
     @employee_wage_ns.response(200, '更新成功', wage_item_response)
+    @employee_wage_ns.response(400, '参数错误', error_response)
+    @employee_wage_ns.response(401, '未登录', unauthorized_response)
     @employee_wage_ns.response(404, '不存在', error_response)
     @employee_wage_ns.response(403, '无权限', forbidden_response)
     def patch(self, wage_id):
@@ -217,6 +234,7 @@ class EmployeeWageDetail(Resource):
     @login_required
     @permission_required('system:employee_wage:delete')
     @employee_wage_ns.response(200, '删除成功', base_response)
+    @employee_wage_ns.response(401, '未登录', unauthorized_response)
     @employee_wage_ns.response(404, '不存在', error_response)
     @employee_wage_ns.response(403, '无权限', forbidden_response)
     def delete(self, wage_id):
@@ -238,18 +256,12 @@ class EmployeeWageDetail(Resource):
 class WageCalculate(Resource):
     @login_required
     @permission_required('system:employee_wage:view')
-    @employee_wage_ns.expect(employee_wage_ns.model('WageCalculate', {
-        'user_id': fields.Integer(required=True, description='员工ID'),
-        'process_id': fields.Integer(required=True, description='工序ID'),
-        'quantity': fields.Integer(description='完成数量', default=0),
-        'work_hours': fields.Float(description='工作小时数', default=0),
-        'work_days': fields.Float(description='工作天数', default=1),
-        'total_work_days': fields.Float(description='当月总工作天数', default=22),
-        'work_date': fields.String(description='工作日期', example='2024-01-15')
-    }))
-    @employee_wage_ns.response(200, '成功', base_response)
+    @employee_wage_ns.expect(wage_calculate_model)
+    @employee_wage_ns.response(200, '成功', wage_calculate_response)
+    @employee_wage_ns.response(401, '未登录', unauthorized_response)
+    @employee_wage_ns.response(403, '无权限', forbidden_response)
     def post(self):
-        """试算指定报工条件下的工资金额。"""
+        """试算工资金额。"""
         current_user = get_current_user()
         has_permission, error = check_wage_view_permission(current_user)
         if not has_permission:

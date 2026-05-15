@@ -18,6 +18,9 @@ common = get_common_models(category_ns)
 base_response = common['base_response']
 error_response = common['error_response']
 unauthorized_response = common['unauthorized_response']
+forbidden_response = common['forbidden_response']
+build_page_data_model = common['build_page_data_model']
+build_page_response_model = common['build_page_response_model']
 
 category_query_parser = page_parser.copy()
 category_query_parser.add_argument('name', type=str, location='args', help='分类名称')
@@ -27,31 +30,46 @@ category_query_parser.add_argument('factory_only', type=int, location='args', he
 category_query_parser.add_argument('category_type', type=str, location='args', help='分类类型', choices=['style', 'material', 'order'])
 
 category_item_model = category_ns.model('CategoryItem', {
-    'id': fields.Integer(),
-    'name': fields.String(),
-    'parent_id': fields.Integer(),
-    'code': fields.String(),
-    'category_type': fields.String(),
-    'factory_id': fields.Integer(),
-    'sort_order': fields.Integer(),
-    'status': fields.Integer(),
-    'remark': fields.String(),
-    'create_time': fields.String(),
-    'update_time': fields.String(),
-    'children': fields.List(fields.Raw),
+    'id': fields.Integer(description='分类ID'),
+    'name': fields.String(description='分类名称'),
+    'parent_id': fields.Integer(description='父级分类ID'),
+    'code': fields.String(description='分类编码'),
+    'category_type': fields.String(description='分类类型'),
+    'factory_id': fields.Integer(description='所属工厂ID'),
+    'sort_order': fields.Integer(description='排序值'),
+    'status': fields.Integer(description='状态'),
+    'remark': fields.String(description='备注'),
+    'create_time': fields.String(description='创建时间'),
+    'update_time': fields.String(description='更新时间'),
+    'children': fields.List(fields.Raw, description='递归子分类列表；每个子节点结构与当前分类节点一致'),
 })
 
-category_list_data = category_ns.model('CategoryListData', {
-    'items': fields.List(fields.Nested(category_item_model)),
-    'total': fields.Integer(),
-    'page': fields.Integer(),
-    'page_size': fields.Integer(),
-    'pages': fields.Integer(),
+category_list_data = build_page_data_model(category_ns, 'CategoryListData', category_item_model, items_description='分类列表')
+category_list_response = build_page_response_model(category_ns, 'CategoryListResponse', base_response, category_list_data, '分类分页数据')
+category_item_response = category_ns.clone('CategoryItemResponse', base_response, {
+    'data': fields.Nested(category_item_model, description='分类详情数据')
+})
+category_tree_response = category_ns.clone('CategoryTreeResponse', base_response, {
+    'data': fields.List(fields.Nested(category_item_model), description='分类树数据')
 })
 
-category_list_response = category_ns.clone('CategoryListResponse', base_response, {'data': fields.Nested(category_list_data)})
-category_item_response = category_ns.clone('CategoryItemResponse', base_response, {'data': fields.Nested(category_item_model)})
-category_tree_response = category_ns.clone('CategoryTreeResponse', base_response, {'data': fields.List(fields.Nested(category_item_model))})
+category_create_model = category_ns.model('CategoryCreate', {
+    'name': fields.String(required=True, description='分类名称', example='针织'),
+    'code': fields.String(required=True, description='分类编码', example='KNIT'),
+    'parent_id': fields.Integer(description='父分类ID', default=0, example=0),
+    'category_type': fields.String(description='分类类型', default='style', choices=['style', 'material', 'order'], example='material'),
+    'sort_order': fields.Integer(description='排序', default=0, example=0),
+    'remark': fields.String(description='备注', example='物料分类'),
+})
+
+category_update_model = category_ns.model('CategoryUpdate', {
+    'name': fields.String(description='分类名称', example='棉麻'),
+    'parent_id': fields.Integer(description='父分类ID', example=0),
+    'category_type': fields.String(description='分类类型', choices=['style', 'material', 'order'], example='material'),
+    'sort_order': fields.Integer(description='排序', example=10),
+    'status': fields.Integer(description='状态', choices=[0, 1], example=1),
+    'remark': fields.String(description='备注', example='基础面料分类'),
+})
 
 category_schema = CategorySchema()
 categories_schema = CategorySchema(many=True)
@@ -66,7 +84,7 @@ class CategoryList(Resource):
     @category_ns.response(200, '成功', category_list_response)
     @category_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """分页查询分类列表，支持按名称、父分类、状态和分类类型筛选。"""
+        """查询分类分页列表。"""
         args = category_query_parser.parse_args()
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
@@ -84,17 +102,13 @@ class CategoryList(Resource):
         })
 
     @login_required
-    @category_ns.expect(category_ns.model('CategoryCreate', {
-        'name': fields.String(required=True, description='分类名称'),
-        'code': fields.String(required=True, description='分类编码'),
-        'parent_id': fields.Integer(description='父分类ID', default=0),
-        'category_type': fields.String(description='分类类型', default='style', choices=['style', 'material', 'order']),
-        'sort_order': fields.Integer(description='排序', default=0),
-        'remark': fields.String(description='备注'),
-    }))
+    @category_ns.expect(category_create_model)
     @category_ns.response(201, '创建成功', category_item_response)
+    @category_ns.response(400, '参数错误', error_response)
+    @category_ns.response(401, '未登录', unauthorized_response)
+    @category_ns.response(409, '分类已存在', error_response)
     def post(self):
-        """在当前工厂上下文下创建分类。"""
+        """创建分类。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
@@ -117,8 +131,9 @@ class CategoryList(Resource):
 class CategoryTree(Resource):
     @login_required
     @category_ns.response(200, '成功', category_tree_response)
+    @category_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """按树形结构返回当前可见的分类数据。"""
+        """查询分类树。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
@@ -134,8 +149,11 @@ class CategoryTree(Resource):
 class CategoryDetail(Resource):
     @login_required
     @category_ns.response(200, '成功', category_item_response)
+    @category_ns.response(401, '未登录', unauthorized_response)
+    @category_ns.response(403, '无权限', forbidden_response)
+    @category_ns.response(404, '分类不存在', error_response)
     def get(self, category_id):
-        """查看单个分类详情。"""
+        """查询分类详情。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
@@ -150,17 +168,14 @@ class CategoryDetail(Resource):
         return ApiResponse.success(category_schema.dump(category))
 
     @login_required
-    @category_ns.expect(category_ns.model('CategoryUpdate', {
-        'name': fields.String(description='分类名称'),
-        'parent_id': fields.Integer(description='父分类ID'),
-        'category_type': fields.String(description='分类类型', choices=['style', 'material', 'order']),
-        'sort_order': fields.Integer(description='排序'),
-        'status': fields.Integer(description='状态', choices=[0, 1]),
-        'remark': fields.String(description='备注'),
-    }))
+    @category_ns.expect(category_update_model)
     @category_ns.response(200, '更新成功', category_item_response)
+    @category_ns.response(400, '参数错误', error_response)
+    @category_ns.response(401, '未登录', unauthorized_response)
+    @category_ns.response(403, '无权限', forbidden_response)
+    @category_ns.response(404, '分类不存在', error_response)
     def patch(self, category_id):
-        """更新当前工厂自有的分类信息。"""
+        """更新分类。"""
         current_factory_id = get_current_factory_id()
         category = CategoryService.get_category_by_id(category_id)
         if not category:
@@ -181,8 +196,12 @@ class CategoryDetail(Resource):
 
     @login_required
     @category_ns.response(200, '删除成功', base_response)
+    @category_ns.response(401, '未登录', unauthorized_response)
+    @category_ns.response(403, '无权限', forbidden_response)
+    @category_ns.response(404, '分类不存在', error_response)
+    @category_ns.response(409, '分类存在子项或被引用', error_response)
     def delete(self, category_id):
-        """删除当前工厂自有的分类。"""
+        """删除分类。"""
         current_factory_id = get_current_factory_id()
         category = CategoryService.get_category_by_id(category_id)
         if not category:

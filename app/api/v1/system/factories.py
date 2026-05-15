@@ -66,24 +66,17 @@ factory_update_model = factory_ns.model('FactoryUpdate', {
 
 add_user_model = factory_ns.model('AddUser', {
     'user_id': fields.Integer(required=True, description='用户ID', example=1),
-    'relation_type': fields.String(
-        required=True,
-        description='关系类型',
-        choices=['owner', 'employee', 'customer', 'collaborator']
-    ),
-    'collaborator_type': fields.String(
-        description='协作类型，仅 relation_type=collaborator 时使用',
-        choices=['button_partner', 'shrink_partner', 'print_partner', 'other_partner']
-    )
+    'relation_type': fields.String(required=True, description='关系类型', choices=['owner', 'employee', 'customer', 'collaborator']),
+    'collaborator_type': fields.String(description='协作类型，仅 relation_type=collaborator 时使用', choices=['button_partner', 'shrink_partner', 'print_partner', 'other_partner'])
 })
 
 qrcode_response_data = factory_ns.model('QRCodeResponseData', {
-    'qrcode': fields.String(),
-    'qrcode_key': fields.String()
+    'qrcode': fields.String(description='二维码内容或地址', example='factory-bind://TEST001?key=abc123'),
+    'qrcode_key': fields.String(description='二维码绑定键值', example='abc123')
 })
 
 qrcode_response = factory_ns.clone('QRCodeResponse', base_response, {
-    'data': fields.Nested(qrcode_response_data)
+    'data': fields.Nested(qrcode_response_data, description='二维码数据')
 })
 
 bind_factory_model = factory_ns.model('BindFactory', {
@@ -91,96 +84,96 @@ bind_factory_model = factory_ns.model('BindFactory', {
 })
 
 bind_response_data = factory_ns.model('BindResponseData', {
-    'factory_id': fields.Integer(),
-    'factory_name': fields.String(),
-    'factory_code': fields.String()
+    'factory_id': fields.Integer(description='工厂ID', example=1),
+    'factory_name': fields.String(description='工厂名称', example='测试工厂'),
+    'factory_code': fields.String(description='工厂编码', example='TEST001')
 })
 
 bind_response = factory_ns.clone('BindResponse', base_response, {
-    'data': fields.Nested(bind_response_data)
+    'data': fields.Nested(bind_response_data, description='绑定结果数据')
 })
 
 factory_item_model = factory_ns.model('FactoryItem', {
-    'id': fields.Integer(),
-    'name': fields.String(),
-    'code': fields.String(),
-    'contact_person': fields.String(),
-    'contact_phone': fields.String(),
-    'address': fields.String(),
-    'status': fields.Integer(),
-    'qrcode': fields.String(),
-    'remark': fields.String(),
-    'service_expire_date': fields.String(),
-    'service_status': fields.String(),
-    'create_time': fields.String(),
-    'update_time': fields.String()
+    'id': fields.Integer(description='工厂ID', example=1),
+    'name': fields.String(description='工厂名称', example='测试工厂'),
+    'code': fields.String(description='工厂编码', example='TEST001'),
+    'contact_person': fields.String(description='联系人', example='张三'),
+    'contact_phone': fields.String(description='联系电话', example='13800138000'),
+    'address': fields.String(description='地址', example='广东省深圳市南山区'),
+    'status': fields.Integer(description='状态', example=1),
+    'qrcode': fields.String(description='工厂二维码', example=None),
+    'remark': fields.String(description='备注', example=None),
+    'service_expire_date': fields.String(description='服务到期日期', example=None),
+    'service_status': fields.String(description='服务状态', example='active'),
+    'create_time': fields.String(description='创建时间', example='2026-04-21 01:17:24'),
+    'update_time': fields.String(description='更新时间', example='2026-04-21 01:17:24')
 })
 
 factory_list_data = factory_ns.model('FactoryListData', {
-    'items': fields.List(fields.Nested(factory_item_model)),
-    'total': fields.Integer(),
-    'page': fields.Integer(),
-    'page_size': fields.Integer(),
-    'pages': fields.Integer()
+    'items': fields.List(fields.Nested(factory_item_model), description='工厂列表'),
+    'total': fields.Integer(description='总条数'),
+    'page': fields.Integer(description='当前页码'),
+    'page_size': fields.Integer(description='每页条数'),
+    'pages': fields.Integer(description='总页数')
 })
 
 factory_create_response_data = factory_ns.model('FactoryCreateResponseData', {
-    'id': fields.Integer(),
-    'name': fields.String(),
-    'code': fields.String(),
-    'contact_person': fields.String(),
-    'contact_phone': fields.String(),
-    'address': fields.String(),
-    'status': fields.Integer(),
-    'remark': fields.String(),
-    'service_expire_date': fields.String(),
-    'service_status': fields.String(),
-    'create_time': fields.String(),
-    'update_time': fields.String(),
-    'admin_username': fields.String(),
-    'admin_password': fields.String()
+    'id': fields.Integer(description='工厂ID', example=1),
+    'name': fields.String(description='工厂名称', example='测试工厂'),
+    'code': fields.String(description='工厂编码', example='TEST001'),
+    'contact_person': fields.String(description='联系人', example='张三'),
+    'contact_phone': fields.String(description='联系电话', example='13800138000'),
+    'address': fields.String(description='地址', example='广东省深圳市南山区'),
+    'status': fields.Integer(description='状态', example=1),
+    'remark': fields.String(description='备注', example=None),
+    'service_expire_date': fields.String(description='服务到期日期', example='2026-12-31'),
+    'service_status': fields.String(description='服务状态', example='active'),
+    'create_time': fields.String(description='创建时间', example='2026-04-21 01:17:24'),
+    'update_time': fields.String(description='更新时间', example='2026-04-21 01:17:24'),
+    'admin_username': fields.String(description='默认管理员账号', example='factory_admin'),
+    'admin_password': fields.String(description='默认管理员密码', example='123456')
 })
 
 user_item_model = factory_ns.model('FactoryUserItem', {
-    'id': fields.Integer(),
-    'username': fields.String(),
-    'nickname': fields.String(),
-    'phone': fields.String(),
-    'status': fields.Integer(),
-    'platform_identity': fields.String(),
-    'platform_identity_label': fields.String(),
-    'subject_type': fields.String(),
-    'subject_type_label': fields.String(),
-    'relation_type': fields.String(),
-    'relation_type_label': fields.String(),
-    'collaborator_type': fields.String(),
-    'collaborator_type_label': fields.String(),
-    'entry_date': fields.String(),
-    'leave_date': fields.String()
+    'id': fields.Integer(description='用户ID', example=2),
+    'username': fields.String(description='用户名', example='factory_admin'),
+    'nickname': fields.String(description='昵称', example='工厂管理员'),
+    'phone': fields.String(description='手机号', example='18370601281'),
+    'status': fields.Integer(description='状态', example=1),
+    'platform_identity': fields.String(description='平台身份', example='external_user'),
+    'platform_identity_label': fields.String(description='平台身份名称', example='外部人员'),
+    'subject_type': fields.String(description='主体类型', example='individual_subject'),
+    'subject_type_label': fields.String(description='主体类型名称', example='个人主体'),
+    'relation_type': fields.String(description='关联关系类型', example='employee'),
+    'relation_type_label': fields.String(description='关联关系名称', example='工厂员工'),
+    'collaborator_type': fields.String(description='协作方类型', example=None),
+    'collaborator_type_label': fields.String(description='协作方类型名称', example=None),
+    'entry_date': fields.String(description='入厂日期', example='2026-04-21'),
+    'leave_date': fields.String(description='离厂日期', example=None)
 })
 
-user_list_data = factory_ns.model('UserListData', {
-    'items': fields.List(fields.Nested(user_item_model)),
-    'total': fields.Integer(),
-    'page': fields.Integer(),
-    'page_size': fields.Integer(),
-    'pages': fields.Integer()
+user_list_data = factory_ns.model('FactoryUserListData', {
+    'items': fields.List(fields.Nested(user_item_model), description='工厂用户列表'),
+    'total': fields.Integer(description='总条数'),
+    'page': fields.Integer(description='当前页码'),
+    'page_size': fields.Integer(description='每页条数'),
+    'pages': fields.Integer(description='总页数')
 })
 
 factory_list_response = factory_ns.clone('FactoryListResponse', base_response, {
-    'data': fields.Nested(factory_list_data)
+    'data': fields.Nested(factory_list_data, description='工厂分页数据')
 })
 factory_item_response = factory_ns.clone('FactoryItemResponse', base_response, {
-    'data': fields.Nested(factory_item_model)
+    'data': fields.Nested(factory_item_model, description='工厂详情数据')
 })
 factory_create_response = factory_ns.clone('FactoryCreateResponse', base_response, {
-    'data': fields.Nested(factory_create_response_data)
+    'data': fields.Nested(factory_create_response_data, description='工厂创建结果数据')
 })
-user_list_response = factory_ns.clone('UserListResponse', base_response, {
-    'data': fields.Nested(user_list_data)
+user_list_response = factory_ns.clone('FactoryUserListResponse', base_response, {
+    'data': fields.Nested(user_list_data, description='工厂用户分页数据')
 })
-user_item_response = factory_ns.clone('UserItemResponse', base_response, {
-    'data': fields.Nested(user_item_model)
+user_item_response = factory_ns.clone('FactoryUserItemResponse', base_response, {
+    'data': fields.Nested(user_item_model, description='工厂用户详情数据')
 })
 
 factory_schema = FactorySchema()

@@ -51,27 +51,27 @@ menu_update_model = menu_ns.model('MenuUpdate', {
 
 # ========== 响应模型 ==========
 menu_item_model = menu_ns.model('MenuItem', {
-    'id': fields.Integer(),
-    'parent_id': fields.Integer(),
-    'name': fields.String(),
-    'path': fields.String(),
-    'component': fields.String(),
-    'permission': fields.String(),
-    'type': fields.Integer(),
-    'icon': fields.String(),
-    'sort_order': fields.Integer(),
-    'status': fields.Integer(),
-    'create_time': fields.String(),
-    'update_time': fields.String(),
-    'children': fields.List(fields.Raw)
+    'id': fields.Integer(description='菜单ID'),
+    'parent_id': fields.Integer(description='父菜单ID'),
+    'name': fields.String(description='菜单名称'),
+    'path': fields.String(description='路由路径'),
+    'component': fields.String(description='组件路径'),
+    'permission': fields.String(description='权限标识'),
+    'type': fields.Integer(description='菜单类型'),
+    'icon': fields.String(description='图标'),
+    'sort_order': fields.Integer(description='排序值'),
+    'status': fields.Integer(description='状态'),
+    'create_time': fields.String(description='创建时间'),
+    'update_time': fields.String(description='更新时间'),
+    'children': fields.List(fields.Raw, description='递归子菜单列表；每个子节点结构与当前菜单节点一致')
 })
 
 menu_list_response = menu_ns.clone('MenuListResponse', base_response, {
-    'data': fields.List(fields.Nested(menu_item_model))
+    'data': fields.List(fields.Nested(menu_item_model), description='菜单树列表')
 })
 
 menu_item_response = menu_ns.clone('MenuItemResponse', base_response, {
-    'data': fields.Nested(menu_item_model)
+    'data': fields.Nested(menu_item_model, description='菜单详情数据')
 })
 
 # ========== Schema 初始化 ==========

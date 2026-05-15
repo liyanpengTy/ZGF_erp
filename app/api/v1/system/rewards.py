@@ -25,65 +25,65 @@ reward_query_parser.add_argument('reward_object', type=str, location='args', hel
 
 # ========== 响应模型 ==========
 reward_config_item_model = reward_ns.model('RewardConfigItem', {
-    'id': fields.Integer(),
-    'name': fields.String(),
-    'rule_type': fields.String(),
-    'threshold': fields.Integer(),
-    'reward_object': fields.String(),
-    'reward_object_label': fields.String(),
-    'reward_type': fields.String(),
-    'reward_type_label': fields.String(),
-    'reward_value': fields.Float(),
-    'is_active': fields.Integer(),
-    'remark': fields.String()
+    'id': fields.Integer(description='奖励配置ID'),
+    'name': fields.String(description='配置名称'),
+    'rule_type': fields.String(description='规则类型'),
+    'threshold': fields.Integer(description='阈值'),
+    'reward_object': fields.String(description='奖励对象'),
+    'reward_object_label': fields.String(description='奖励对象名称'),
+    'reward_type': fields.String(description='奖励类型'),
+    'reward_type_label': fields.String(description='奖励类型名称'),
+    'reward_value': fields.Float(description='奖励值'),
+    'is_active': fields.Integer(description='是否启用'),
+    'remark': fields.String(description='备注')
 })
 
 reward_record_item_model = reward_ns.model('RewardRecordItem', {
-    'id': fields.Integer(),
-    'reward_object': fields.String(),
-    'reward_object_label': fields.String(),
-    'user_id': fields.Integer(),
-    'username': fields.String(),
-    'factory_id': fields.Integer(),
-    'factory_name': fields.String(),
-    'reward_config_name': fields.String(),
-    'reward_type': fields.String(),
-    'reward_type_label': fields.String(),
-    'reward_value': fields.Float(),
-    'trigger_condition': fields.String(),
-    'trigger_value': fields.Integer(),
-    'status': fields.String(),
-    'status_label': fields.String(),
-    'distributor_name': fields.String(),
-    'distributed_time': fields.String(),
-    'create_time': fields.String()
+    'id': fields.Integer(description='奖励记录ID'),
+    'reward_object': fields.String(description='奖励对象'),
+    'reward_object_label': fields.String(description='奖励对象名称'),
+    'user_id': fields.Integer(description='用户ID'),
+    'username': fields.String(description='用户名'),
+    'factory_id': fields.Integer(description='工厂ID'),
+    'factory_name': fields.String(description='工厂名称'),
+    'reward_config_name': fields.String(description='奖励配置名称'),
+    'reward_type': fields.String(description='奖励类型'),
+    'reward_type_label': fields.String(description='奖励类型名称'),
+    'reward_value': fields.Float(description='奖励值'),
+    'trigger_condition': fields.String(description='触发条件'),
+    'trigger_value': fields.Integer(description='触发值'),
+    'status': fields.String(description='发放状态'),
+    'status_label': fields.String(description='发放状态名称'),
+    'distributor_name': fields.String(description='发放人名称'),
+    'distributed_time': fields.String(description='发放时间'),
+    'create_time': fields.String(description='创建时间')
 })
 
 reward_stats_model = reward_ns.model('RewardStats', {
-    'total_pending': fields.Integer(),
-    'total_distributed': fields.Integer(),
-    'factory_pending': fields.Integer(),
-    'personal_pending': fields.Integer()
+    'total_pending': fields.Integer(description='待发放总数'),
+    'total_distributed': fields.Integer(description='已发放总数'),
+    'factory_pending': fields.Integer(description='工厂待发放数'),
+    'personal_pending': fields.Integer(description='个人待发放数')
 })
 
 reward_list_data = reward_ns.model('RewardListData', {
-    'items': fields.List(fields.Nested(reward_record_item_model)),
-    'total': fields.Integer(),
-    'page': fields.Integer(),
-    'page_size': fields.Integer(),
-    'pages': fields.Integer()
+    'items': fields.List(fields.Nested(reward_record_item_model), description='奖励记录列表'),
+    'total': fields.Integer(description='总条数'),
+    'page': fields.Integer(description='当前页码'),
+    'page_size': fields.Integer(description='每页条数'),
+    'pages': fields.Integer(description='总页数')
 })
 
 reward_config_list_response = reward_ns.clone('RewardConfigListResponse', base_response, {
-    'data': fields.List(fields.Nested(reward_config_item_model))
+    'data': fields.List(fields.Nested(reward_config_item_model), description='奖励配置列表')
 })
 
 reward_list_response = reward_ns.clone('RewardListResponse', base_response, {
-    'data': fields.Nested(reward_list_data)
+    'data': fields.Nested(reward_list_data, description='奖励记录分页数据')
 })
 
 reward_stats_response = reward_ns.clone('RewardStatsResponse', base_response, {
-    'data': fields.Nested(reward_stats_model)
+    'data': fields.Nested(reward_stats_model, description='奖励统计数据')
 })
 
 

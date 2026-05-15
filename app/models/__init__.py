@@ -11,12 +11,20 @@ from app.models.system.reward_record import RewardRecord
 from app.models.base_data.size import Size
 from app.models.base_data.category import Category
 from app.models.base_data.color import Color
-from app.models.business.style import Style
+from app.models.business.style import Style, StyleImage, StyleSpliceItem, StyleAttribute
 from app.models.business.style_price import StylePrice
 from app.models.business.style_process import StyleProcess
 from app.models.business.style_elastic import StyleElastic
 from app.models.business.process import Process, StyleProcessMapping
-from app.models.business.order import Order, OrderDetail, OrderDetailSku
+from app.models.business.order import (
+    Order,
+    OrderDetail,
+    OrderDetailSku,
+    OrderDetailSpliceSnapshot,
+    OrderDetailAttributeSnapshot,
+    OrderDetailSkuSpliceItem,
+    OrderDetailSkuAttribute,
+)
 from app.models.system.employee_wage import EmployeeWage
 
 __all__ = [
@@ -36,6 +44,9 @@ __all__ = [
     'Category',
     'Color',
     'Style',
+    'StyleImage',
+    'StyleSpliceItem',
+    'StyleAttribute',
     'StylePrice',
     'StyleProcess',
     'StyleElastic',
@@ -44,5 +55,9 @@ __all__ = [
     'Order',
     'OrderDetail',
     'OrderDetailSku',
+    'OrderDetailSpliceSnapshot',
+    'OrderDetailAttributeSnapshot',
+    'OrderDetailSkuSpliceItem',
+    'OrderDetailSkuAttribute',
     'EmployeeWage'
 ]

@@ -15,7 +15,8 @@ base_response = common['base_response']
 error_response = common['error_response']
 unauthorized_response = common['unauthorized_response']
 forbidden_response = common['forbidden_response']
-page_response = common['page_response']
+build_page_data_model = common['build_page_data_model']
+build_page_response_model = common['build_page_response_model']
 
 # ========== 操作日志请求解析器 ==========
 operation_log_query_parser = page_with_date_parser.copy()
@@ -34,53 +35,55 @@ login_log_query_parser.add_argument('factory_id', type=int, location='args', hel
 
 # ========== 响应模型 ==========
 operation_log_item_model = log_ns.model('OperationLogItem', {
-    'id': fields.Integer(),
-    'user_id': fields.Integer(),
-    'username': fields.String(),
-    'factory_id': fields.Integer(),
-    'operation': fields.String(),
-    'method': fields.String(),
-    'url': fields.String(),
-    'params': fields.String(),
-    'ip': fields.String(),
-    'duration': fields.Integer(),
-    'status': fields.Integer(),
-    'error_msg': fields.String(),
-    'create_time': fields.String()
+    'id': fields.Integer(description='操作日志ID'),
+    'user_id': fields.Integer(description='用户ID'),
+    'username': fields.String(description='用户名'),
+    'factory_id': fields.Integer(description='工厂ID'),
+    'operation': fields.String(description='操作名称'),
+    'method': fields.String(description='请求方法'),
+    'url': fields.String(description='请求地址'),
+    'params': fields.String(description='请求参数'),
+    'ip': fields.String(description='请求IP'),
+    'duration': fields.Integer(description='耗时毫秒数'),
+    'status': fields.Integer(description='执行状态'),
+    'error_msg': fields.String(description='错误信息'),
+    'create_time': fields.String(description='创建时间')
 })
 
 login_log_item_model = log_ns.model('LoginLogItem', {
-    'id': fields.Integer(),
-    'user_id': fields.Integer(),
-    'username': fields.String(),
-    'login_type': fields.String(),
-    'ip': fields.String(),
-    'status': fields.Integer(),
-    'error_msg': fields.String(),
-    'create_time': fields.String()
+    'id': fields.Integer(description='登录日志ID'),
+    'user_id': fields.Integer(description='用户ID'),
+    'username': fields.String(description='用户名'),
+    'login_type': fields.String(description='登录方式'),
+    'ip': fields.String(description='登录IP'),
+    'status': fields.Integer(description='登录状态'),
+    'error_msg': fields.String(description='错误信息'),
+    'create_time': fields.String(description='创建时间')
 })
 
-log_list_data = log_ns.model('LogListData', {
-    'items': fields.List(fields.Raw),
-    'total': fields.Integer(),
-    'page': fields.Integer(),
-    'page_size': fields.Integer(),
-    'pages': fields.Integer()
-})
+operation_log_list_data = build_page_data_model(log_ns, 'OperationLogListData', operation_log_item_model, items_description='操作日志列表')
+login_log_list_data = build_page_data_model(log_ns, 'LoginLogListData', login_log_item_model, items_description='登录日志列表')
 
 stats_data = log_ns.model('StatsData', {
-    'today_operation_count': fields.Integer(),
-    'today_login_count': fields.Integer(),
-    'today_success_login': fields.Integer(),
-    'today_fail_login': fields.Integer()
+    'today_operation_count': fields.Integer(description='今日操作次数'),
+    'today_login_count': fields.Integer(description='今日登录次数'),
+    'today_success_login': fields.Integer(description='今日成功登录次数'),
+    'today_fail_login': fields.Integer(description='今日失败登录次数')
 })
 
-log_list_response = log_ns.clone('LogListResponse', base_response, {
-    'data': fields.Nested(log_list_data)
+operation_log_list_response = build_page_response_model(log_ns, 'OperationLogListResponse', base_response, operation_log_list_data, '操作日志分页数据')
+login_log_list_response = build_page_response_model(log_ns, 'LoginLogListResponse', base_response, login_log_list_data, '登录日志分页数据')
+
+operation_log_item_response = log_ns.clone('OperationLogItemResponse', base_response, {
+    'data': fields.Nested(operation_log_item_model, description='操作日志详情数据')
+})
+
+login_log_item_response = log_ns.clone('LoginLogItemResponse', base_response, {
+    'data': fields.Nested(login_log_item_model, description='登录日志详情数据')
 })
 
 stats_response = log_ns.clone('StatsResponse', base_response, {
-    'data': fields.Nested(stats_data)
+    'data': fields.Nested(stats_data, description='日志统计数据')
 })
 
 # ========== Schema 初始化 ==========
@@ -94,10 +97,10 @@ login_logs_schema = LoginLogSchema(many=True)
 class OperationLogList(Resource):
     @login_required
     @log_ns.expect(operation_log_query_parser)
-    @log_ns.response(200, '成功', log_list_response)
+    @log_ns.response(200, '成功', operation_log_list_response)
     @log_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """操作日志列表"""
+        """查询操作日志分页列表。"""
         args = operation_log_query_parser.parse_args()
         current_user = get_current_user()
 
@@ -118,10 +121,12 @@ class OperationLogList(Resource):
 @log_ns.route('/operation/<int:log_id>')
 class OperationLogDetail(Resource):
     @login_required
-    @log_ns.response(200, '成功', base_response)
+    @log_ns.response(200, '成功', operation_log_item_response)
+    @log_ns.response(401, '未登录', unauthorized_response)
+    @log_ns.response(403, '无权限', forbidden_response)
     @log_ns.response(404, '日志不存在', error_response)
     def get(self, log_id):
-        """操作日志详情"""
+        """查询操作日志详情。"""
         current_user = get_current_user()
 
         log = LogService.get_operation_log_by_id(log_id)
@@ -139,10 +144,10 @@ class OperationLogDetail(Resource):
 class LoginLogList(Resource):
     @login_required
     @log_ns.expect(login_log_query_parser)
-    @log_ns.response(200, '成功', log_list_response)
+    @log_ns.response(200, '成功', login_log_list_response)
     @log_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """登录日志列表"""
+        """查询登录日志分页列表。"""
         args = login_log_query_parser.parse_args()
         current_user = get_current_user()
 
@@ -163,10 +168,12 @@ class LoginLogList(Resource):
 @log_ns.route('/login/<int:log_id>')
 class LoginLogDetail(Resource):
     @login_required
-    @log_ns.response(200, '成功', base_response)
+    @log_ns.response(200, '成功', login_log_item_response)
+    @log_ns.response(401, '未登录', unauthorized_response)
+    @log_ns.response(403, '无权限', forbidden_response)
     @log_ns.response(404, '日志不存在', error_response)
     def get(self, log_id):
-        """登录日志详情"""
+        """查询登录日志详情。"""
         current_user = get_current_user()
 
         log = LogService.get_login_log_by_id(log_id)
@@ -186,7 +193,7 @@ class LogStats(Resource):
     @log_ns.response(200, '成功', stats_response)
     @log_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """日志统计"""
+        """查询日志统计数据。"""
         current_user = get_current_user()
 
         if not current_user:

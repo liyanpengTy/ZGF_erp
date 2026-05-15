@@ -31,11 +31,7 @@ role_create_model = role_ns.model('RoleCreate', {
     'description': fields.String(description='描述', example='工厂管理员'),
     'sort_order': fields.Integer(description='排序', default=0, example=1),
     'factory_id': fields.Integer(required=True, description='工厂ID'),
-    'data_scope': fields.String(
-        description='数据范围',
-        choices=['all_factory', 'assigned', 'own_related', 'self_only'],
-        example='all_factory'
-    ),
+    'data_scope': fields.String(description='数据范围', choices=['all_factory', 'assigned', 'own_related', 'self_only'], example='all_factory'),
     'is_factory_admin': fields.Integer(description='是否工厂管理员角色', choices=[0, 1], example=1)
 })
 
@@ -53,45 +49,46 @@ role_assign_menu_model = role_ns.model('RoleAssignMenu', {
 })
 
 role_item_model = role_ns.model('RoleItem', {
-    'id': fields.Integer(),
-    'factory_id': fields.Integer(),
-    'name': fields.String(),
-    'code': fields.String(),
-    'description': fields.String(),
-    'status': fields.Integer(),
-    'sort_order': fields.Integer(),
-    'data_scope': fields.String(),
-    'data_scope_label': fields.String(),
-    'is_factory_admin': fields.Integer(),
-    'create_time': fields.String(),
-    'update_time': fields.String()
+    'id': fields.Integer(description='角色ID'),
+    'factory_id': fields.Integer(description='工厂ID'),
+    'name': fields.String(description='角色名称'),
+    'code': fields.String(description='角色编码'),
+    'description': fields.String(description='角色描述'),
+    'status': fields.Integer(description='状态'),
+    'sort_order': fields.Integer(description='排序值'),
+    'data_scope': fields.String(description='数据范围'),
+    'data_scope_label': fields.String(description='数据范围名称'),
+    'is_factory_admin': fields.Integer(description='是否工厂管理员角色'),
+    'create_time': fields.String(description='创建时间'),
+    'update_time': fields.String(description='更新时间')
 })
 
 role_list_data = role_ns.model('RoleListData', {
-    'items': fields.List(fields.Nested(role_item_model)),
-    'total': fields.Integer(),
-    'page': fields.Integer(),
-    'page_size': fields.Integer(),
-    'pages': fields.Integer()
+    'items': fields.List(fields.Nested(role_item_model), description='角色列表'),
+    'total': fields.Integer(description='总条数'),
+    'page': fields.Integer(description='当前页码'),
+    'page_size': fields.Integer(description='每页条数'),
+    'pages': fields.Integer(description='总页数')
 })
 
 role_list_response = role_ns.clone('RoleListResponse', base_response, {
-    'data': fields.Nested(role_list_data)
+    'data': fields.Nested(role_list_data, description='角色分页数据')
 })
 role_item_response = role_ns.clone('RoleItemResponse', base_response, {
-    'data': fields.Nested(role_item_model)
+    'data': fields.Nested(role_item_model, description='角色详情数据')
 })
 menu_ids_response = role_ns.clone('MenuIdsResponse', base_response, {
-    'data': fields.List(fields.Integer)
+    'data': fields.List(fields.Integer, description='菜单ID列表')
+})
+role_user_item_model = role_ns.model('RoleUserItem', {
+    'id': fields.Integer(description='用户ID'),
+    'username': fields.String(description='用户名'),
+    'nickname': fields.String(description='昵称'),
+    'phone': fields.String(description='手机号'),
+    'status': fields.Integer(description='状态')
 })
 role_users_response = role_ns.clone('RoleUsersResponse', base_response, {
-    'data': fields.List(fields.Nested(role_ns.model('RoleUserItem', {
-        'id': fields.Integer(),
-        'username': fields.String(),
-        'nickname': fields.String(),
-        'phone': fields.String(),
-        'status': fields.Integer()
-    })))
+    'data': fields.List(fields.Nested(role_user_item_model), description='角色下的用户列表')
 })
 
 role_schema = RoleSchema()

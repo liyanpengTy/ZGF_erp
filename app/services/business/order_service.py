@@ -2,16 +2,255 @@
 
 from datetime import datetime
 
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.extensions import db
-from app.models.business.order import Order, OrderDetail, OrderDetailSku
+from app.models.business.order import (
+    Order,
+    OrderDetail,
+    OrderDetailAttributeSnapshot,
+    OrderDetailSku,
+    OrderDetailSkuAttribute,
+    OrderDetailSkuSpliceItem,
+    OrderDetailSpliceSnapshot,
+)
 from app.models.business.style import Style
+from app.models.business.value_codec import encode_dynamic_value, is_scalar_value
 from app.services.base.base_service import BaseService
 
 
 class OrderService(BaseService):
     """订单管理服务。"""
+
+    @staticmethod
+    def _sorted_dimension_items(counter):
+        """将统计字典转换为保持录入顺序的列表结构。"""
+        return [
+            {'name': name, 'quantity': quantity}
+            for name, quantity in counter.items()
+        ]
+
+    @staticmethod
+    def _build_table_payload(key, title, headers, rows, summary_row):
+        """构建统一的表格统计结构，便于前端按同一协议渲染。"""
+        return {
+            'key': key,
+            'title': title,
+            'headers': headers,
+            'rows': rows,
+            'summary_row': summary_row,
+        }
+
+    @staticmethod
+    def build_detail_statistics(detail):
+        """构建订单明细统计，包含颜色、尺码、矩阵和拼接维度汇总。"""
+        color_totals = {}
+        size_totals = {}
+        matrix = {}
+        splice_sections = {}
+        splice_sequence_labels = {}
+        splice_table_rows = []
+        tables = []
+        matrix_columns = []
+        matrix_rows = []
+        column_totals = {}
+        total_quantity = 0
+
+        for item in detail.snapshot_splice_data:
+            splice_sequence_labels[item['sequence']] = item['description']
+
+        for sku in detail.skus:
+            config = sku.splice_config
+            quantity = config.get('quantity', 0) or 0
+            color_name = config.get('color_name')
+            size_name = config.get('size_name')
+            total_quantity += quantity
+
+            if color_name:
+                color_totals[color_name] = color_totals.get(color_name, 0) + quantity
+            if size_name:
+                size_totals[size_name] = size_totals.get(size_name, 0) + quantity
+
+            if color_name and size_name:
+                color_bucket = matrix.setdefault(color_name, {})
+                color_bucket[size_name] = color_bucket.get(size_name, 0) + quantity
+                if size_name not in matrix_columns:
+                    matrix_columns.append(size_name)
+                if color_name not in matrix_rows:
+                    matrix_rows.append(color_name)
+                column_totals[size_name] = column_totals.get(size_name, 0) + quantity
+
+            for splice_item in config.get('splice_data', []) or []:
+                section_bucket = splice_sections.setdefault(splice_item['sequence'], {})
+                description = splice_item['description']
+                section_bucket[description] = section_bucket.get(description, 0) + quantity
+
+            if config.get('splice_data'):
+                current_row = {}
+                for splice_item in config.get('splice_data', []):
+                    current_row[splice_item['sequence']] = splice_item['description']
+                splice_table_rows.append({
+                    'remark': sku.remark,
+                    'values': current_row,
+                    'total': quantity,
+                })
+
+        color_size_matrix = None
+        if matrix_columns or matrix_rows:
+            rows = []
+            table_rows = []
+            for color_name in matrix_rows:
+                values = {size_name: matrix.get(color_name, {}).get(size_name, 0) for size_name in matrix_columns}
+                row_total = sum(values.values())
+                rows.append({
+                    'name': color_name,
+                    'values': values,
+                    'total': row_total,
+                })
+                table_rows.append({
+                    'label': color_name,
+                    'cells': [values.get(size_name, 0) for size_name in matrix_columns],
+                    'total': row_total,
+                })
+            color_size_matrix = {
+                'columns': matrix_columns,
+                'rows': rows,
+                'column_totals': {size_name: column_totals.get(size_name, 0) for size_name in matrix_columns},
+                'grand_total': sum(column_totals.values()),
+                'table_headers': ['颜色', *matrix_columns, '合计'],
+                'table_rows': table_rows,
+                'summary_row': {
+                    'label': '合计',
+                    'cells': [column_totals.get(size_name, 0) for size_name in matrix_columns],
+                    'total': sum(column_totals.values()),
+                },
+            }
+            tables.append(OrderService._build_table_payload(
+                key='color_size_matrix',
+                title='颜色尺码统计',
+                headers=color_size_matrix['table_headers'],
+                rows=color_size_matrix['table_rows'],
+                summary_row=color_size_matrix['summary_row'],
+            ))
+
+        splice_section_items = []
+        for sequence in sorted(splice_sections):
+            values = [
+                {'name': name, 'quantity': quantity}
+                for name, quantity in splice_sections[sequence].items()
+            ]
+            splice_section_items.append({
+                'sequence': sequence,
+                'values': values,
+                'total': sum(item['quantity'] for item in values),
+            })
+
+        splice_item_table = None
+        if splice_sequence_labels and splice_table_rows:
+            ordered_sequences = sorted(splice_sequence_labels)
+            splice_item_table = {
+                'headers': [splice_sequence_labels[sequence] for sequence in ordered_sequences] + ['数量'],
+                'rows': [
+                    {
+                        'remark': row['remark'],
+                        'cells': [row['values'].get(sequence) for sequence in ordered_sequences],
+                        'total': row['total'],
+                    }
+                    for row in splice_table_rows
+                ],
+                'summary_row': {
+                    'label': '合计',
+                    'cells': [''] * len(ordered_sequences),
+                    'total': sum(row['total'] for row in splice_table_rows),
+                },
+            }
+            tables.append(OrderService._build_table_payload(
+                key='splice_item_table',
+                title='拼接组合统计',
+                headers=splice_item_table['headers'],
+                rows=[
+                    {
+                        'label': row['remark'],
+                        'cells': row['cells'],
+                        'total': row['total'],
+                    }
+                    for row in splice_item_table['rows']
+                ],
+                summary_row=splice_item_table['summary_row'],
+            ))
+
+        return {
+            'sku_count': len(detail.skus),
+            'total_quantity': total_quantity,
+            'color_totals': OrderService._sorted_dimension_items(color_totals),
+            'size_totals': OrderService._sorted_dimension_items(size_totals),
+            'color_size_matrix': color_size_matrix,
+            'splice_sections': splice_section_items,
+            'splice_item_table': splice_item_table,
+            'tables': tables,
+        }
+
+    @staticmethod
+    def build_order_statistics(order):
+        """构建订单级统计汇总，整合各明细件数与行数。"""
+        detail_items = []
+        total_quantity = 0
+        total_sku_count = 0
+
+        for detail in order.details:
+            detail_statistics = OrderService.build_detail_statistics(detail)
+            total_quantity += detail_statistics['total_quantity']
+            total_sku_count += detail_statistics['sku_count']
+            detail_items.append({
+                'detail_id': detail.id,
+                'style_id': detail.style_id,
+                'style_no': detail.style.style_no if detail.style else None,
+                'style_name': detail.style.name if detail.style else None,
+                'sku_count': detail_statistics['sku_count'],
+                'total_quantity': detail_statistics['total_quantity'],
+            })
+
+        return {
+            'detail_count': len(order.details),
+            'sku_count': total_sku_count,
+            'total_quantity': total_quantity,
+            'details': detail_items,
+        }
+
+    @staticmethod
+    def build_order_list_statistics(orders):
+        """构建订单列表级统计，汇总整页订单的件数、行数和常用维度。"""
+        status_totals = {}
+        customer_totals = {}
+        delivery_date_totals = {}
+        total_quantity = 0
+        total_sku_count = 0
+        total_detail_count = 0
+
+        for order in orders:
+            order_statistics = OrderService.build_order_statistics(order)
+            order_quantity = order_statistics['total_quantity']
+            total_quantity += order_quantity
+            total_sku_count += order_statistics['sku_count']
+            total_detail_count += order_statistics['detail_count']
+
+            status_key = order.status or ''
+            customer_key = order.customer_name or ''
+            delivery_date_key = order.delivery_date.isoformat() if order.delivery_date else ''
+
+            status_totals[status_key] = status_totals.get(status_key, 0) + order_quantity
+            customer_totals[customer_key] = customer_totals.get(customer_key, 0) + order_quantity
+            delivery_date_totals[delivery_date_key] = delivery_date_totals.get(delivery_date_key, 0) + order_quantity
+
+        return {
+            'order_count': len(orders),
+            'detail_count': total_detail_count,
+            'sku_count': total_sku_count,
+            'total_quantity': total_quantity,
+            'status_totals': OrderService._sorted_dimension_items(status_totals),
+            'customer_totals': OrderService._sorted_dimension_items(customer_totals),
+            'delivery_date_totals': OrderService._sorted_dimension_items(delivery_date_totals),
+        }
 
     @staticmethod
     def generate_order_no(factory_id):
@@ -25,12 +264,22 @@ class OrderService(BaseService):
         return f'ORD{factory_id}{today}{seq:04d}'
 
     @staticmethod
+    def get_order_query_options():
+        """统一封装订单查询时需要预加载的关联项。"""
+        return [
+            selectinload(Order.details).joinedload(OrderDetail.style),
+            selectinload(Order.details).selectinload(OrderDetail.snapshot_splice_items),
+            selectinload(Order.details).selectinload(OrderDetail.snapshot_attribute_items),
+            selectinload(Order.details).selectinload(OrderDetail.skus).joinedload(OrderDetailSku.color),
+            selectinload(Order.details).selectinload(OrderDetail.skus).joinedload(OrderDetailSku.size),
+            selectinload(Order.details).selectinload(OrderDetail.skus).selectinload(OrderDetailSku.splice_items),
+            selectinload(Order.details).selectinload(OrderDetail.skus).selectinload(OrderDetailSku.attribute_items),
+        ]
+
+    @staticmethod
     def get_order_by_id(order_id):
         """根据 ID 获取订单及其明细。"""
-        return Order.query.options(
-            joinedload(Order.details).selectinload(OrderDetail.skus),
-            joinedload(Order.details).joinedload(OrderDetail.style),
-        ).filter_by(id=order_id, is_deleted=0).first()
+        return Order.query.options(*OrderService.get_order_query_options()).filter_by(id=order_id, is_deleted=0).first()
 
     @staticmethod
     def get_order_by_no(order_no):
@@ -52,8 +301,7 @@ class OrderService(BaseService):
             return {'items': [], 'total': 0, 'page': page, 'page_size': page_size, 'pages': 0}
 
         query = Order.query.filter_by(factory_id=current_factory_id, is_deleted=0).options(
-            joinedload(Order.details).selectinload(OrderDetail.skus),
-            joinedload(Order.details).joinedload(OrderDetail.style),
+            *OrderService.get_order_query_options()
         )
 
         if order_no:
@@ -77,6 +325,121 @@ class OrderService(BaseService):
         }
 
     @staticmethod
+    def validate_splice_items(splice_items):
+        """校验 SKU 拼接结构列表。"""
+        if not isinstance(splice_items, list):
+            return False
+        for item in splice_items:
+            if not isinstance(item, dict):
+                return False
+            if 'sequence' not in item or 'description' not in item:
+                return False
+            if not isinstance(item['sequence'], int):
+                return False
+        return True
+
+    @staticmethod
+    def split_sku_config(splice_config):
+        """拆分 SKU 配置为结构化字段、拼接明细和扩展属性。"""
+        if not isinstance(splice_config, dict):
+            return None, 'SKU 配置必须是对象'
+
+        splice_items = splice_config.get('splice_data', splice_config.get('splice_items', []))
+        if splice_items and not OrderService.validate_splice_items(splice_items):
+            return None, 'SKU 拼接数据格式错误'
+
+        data = {
+            'color_id': splice_config.get('color_id'),
+            'size_id': splice_config.get('size_id'),
+            'quantity': splice_config.get('quantity', 1),
+            'unit_price': splice_config.get('unit_price', 0),
+            'priority': splice_config.get('priority', 0),
+            'splice_items': splice_items or [],
+            'attributes': [],
+        }
+
+        ignored_keys = {
+            'color_id', 'size_id', 'quantity', 'unit_price', 'priority',
+            'splice_data', 'splice_items', 'color_name', 'size_name',
+        }
+        for index, (key, value) in enumerate(splice_config.items(), start=1):
+            if key in ignored_keys:
+                continue
+            if not is_scalar_value(value):
+                return None, f'SKU 字段 {key} 只支持标量值'
+            value_type, raw_value = encode_dynamic_value(value)
+            data['attributes'].append({
+                'attr_key': key,
+                'attr_value': raw_value,
+                'value_type': value_type,
+                'sort_order': index,
+            })
+        return data, None
+
+    @staticmethod
+    def replace_detail_snapshots(detail, style):
+        """按款号当前结构重建订单明细快照。"""
+        detail.snapshot_splice_items[:] = []
+        detail.snapshot_attribute_items[:] = []
+
+        for item in style.splice_data:
+            detail.snapshot_splice_items.append(
+                OrderDetailSpliceSnapshot(
+                    sequence=item['sequence'],
+                    description=item['description'],
+                )
+            )
+
+        for index, (attr_key, attr_value) in enumerate(style.custom_attributes.items(), start=1):
+            value_type, raw_value = encode_dynamic_value(attr_value)
+            detail.snapshot_attribute_items.append(
+                OrderDetailAttributeSnapshot(
+                    attr_key=attr_key,
+                    attr_value=raw_value,
+                    value_type=value_type,
+                    sort_order=index,
+                )
+            )
+
+    @staticmethod
+    def build_sku(detail, sku_data):
+        """根据接口参数创建结构化 SKU 对象。"""
+        parsed_config, error = OrderService.split_sku_config(sku_data['splice_config'])
+        if error:
+            return None, error
+
+        sku = OrderDetailSku(
+            detail_id=detail.id,
+            color_id=parsed_config['color_id'],
+            size_id=parsed_config['size_id'],
+            quantity=parsed_config['quantity'] or 1,
+            unit_price=parsed_config['unit_price'] or 0,
+            priority=parsed_config['priority'] or 0,
+            remark=sku_data.get('remark', ''),
+        )
+        db.session.add(sku)
+        db.session.flush()
+
+        for item in parsed_config['splice_items']:
+            sku.splice_items.append(
+                OrderDetailSkuSpliceItem(
+                    sequence=item['sequence'],
+                    description=item['description'],
+                )
+            )
+
+        for attr in parsed_config['attributes']:
+            sku.attribute_items.append(
+                OrderDetailSkuAttribute(
+                    attr_key=attr['attr_key'],
+                    attr_value=attr['attr_value'],
+                    value_type=attr['value_type'],
+                    sort_order=attr['sort_order'],
+                )
+            )
+        return sku, None
+
+    @staticmethod
     def create_order(current_user, current_factory_id, data):
         """创建订单及其明细快照。"""
         if not current_factory_id:
@@ -90,7 +453,10 @@ class OrderService(BaseService):
         if not style_ids:
             return None, '订单明细缺少款号'
 
-        styles = Style.query.filter(
+        styles = Style.query.options(
+            selectinload(Style.splice_items),
+            selectinload(Style.attribute_items),
+        ).filter(
             Style.id.in_(style_ids),
             Style.factory_id == current_factory_id,
             Style.is_deleted == 0,
@@ -128,20 +494,17 @@ class OrderService(BaseService):
                 detail = OrderDetail(
                     order_id=order.id,
                     style_id=style.id,
-                    snapshot_splice_data=style.splice_data if style.is_splice == 1 else None,
-                    snapshot_custom_attributes=style.custom_attributes,
                     remark=detail_data.get('remark', ''),
                 )
                 db.session.add(detail)
                 db.session.flush()
 
+                OrderService.replace_detail_snapshots(detail, style)
+
                 for sku_data in detail_data['skus']:
-                    sku = OrderDetailSku(
-                        detail_id=detail.id,
-                        splice_config=sku_data['splice_config'],
-                        remark=sku_data.get('remark', ''),
-                    )
-                    db.session.add(sku)
+                    _, error = OrderService.build_sku(detail, sku_data)
+                    if error:
+                        raise ValueError(error)
 
             db.session.commit()
             return OrderService.get_order_by_id(order.id), None

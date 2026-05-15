@@ -1,12 +1,14 @@
 """款号管理服务。"""
 
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
+from app.extensions import db
 from app.models.base_data.category import Category
-from app.models.business.style import Style
+from app.models.business.style import Style, StyleAttribute, StyleImage, StyleSpliceItem
 from app.models.business.style_elastic import StyleElastic
 from app.models.business.style_price import StylePrice
 from app.models.business.style_process import StyleProcess
+from app.models.business.value_codec import encode_dynamic_value, is_scalar_value
 from app.services.base.base_service import BaseService
 
 
@@ -16,7 +18,12 @@ class StyleService(BaseService):
     @staticmethod
     def get_style_by_id(style_id):
         """根据 ID 获取款号。"""
-        return Style.query.filter_by(id=style_id, is_deleted=0).first()
+        return Style.query.options(
+            joinedload(Style.category),
+            selectinload(Style.image_items),
+            selectinload(Style.splice_items),
+            selectinload(Style.attribute_items),
+        ).filter_by(id=style_id, is_deleted=0).first()
 
     @staticmethod
     def get_style_by_no(factory_id, style_no):
@@ -46,6 +53,51 @@ class StyleService(BaseService):
         return True
 
     @staticmethod
+    def validate_custom_attributes(custom_attributes):
+        """校验自定义属性结构是否为键值对。"""
+        if custom_attributes is None:
+            return True
+        if not isinstance(custom_attributes, dict):
+            return False
+        return all(is_scalar_value(value) for value in custom_attributes.values())
+
+    @staticmethod
+    def replace_style_images(style, images):
+        """重建款号图片明细。"""
+        style.image_items[:] = []
+        for index, image_url in enumerate(images or [], start=1):
+            if not image_url:
+                continue
+            style.image_items.append(StyleImage(image_url=image_url, sort_order=index))
+
+    @staticmethod
+    def replace_style_splice_items(style, splice_data):
+        """重建款号拼接结构明细。"""
+        style.splice_items[:] = []
+        for item in splice_data or []:
+            style.splice_items.append(
+                StyleSpliceItem(
+                    sequence=item['sequence'],
+                    description=item['description'],
+                )
+            )
+
+    @staticmethod
+    def replace_style_attributes(style, custom_attributes):
+        """重建款号自定义属性明细。"""
+        style.attribute_items[:] = []
+        for index, (attr_key, attr_value) in enumerate((custom_attributes or {}).items(), start=1):
+            value_type, raw_value = encode_dynamic_value(attr_value)
+            style.attribute_items.append(
+                StyleAttribute(
+                    attr_key=attr_key,
+                    attr_value=raw_value,
+                    value_type=value_type,
+                    sort_order=index,
+                )
+            )
+
+    @staticmethod
     def get_style_list(current_factory_id, filters):
         """分页查询当前工厂的款号列表。"""
         page = filters.get('page', 1)
@@ -60,7 +112,12 @@ class StyleService(BaseService):
         if not current_factory_id:
             return {'items': [], 'total': 0, 'page': page, 'page_size': page_size, 'pages': 0}
 
-        query = Style.query.filter_by(factory_id=current_factory_id, is_deleted=0).options(joinedload(Style.category))
+        query = Style.query.filter_by(factory_id=current_factory_id, is_deleted=0).options(
+            joinedload(Style.category),
+            selectinload(Style.image_items),
+            selectinload(Style.splice_items),
+            selectinload(Style.attribute_items),
+        )
         if style_no:
             query = query.filter(Style.style_no.like(f'%{style_no}%'))
         if name:
@@ -102,26 +159,38 @@ class StyleService(BaseService):
             if not StyleService.validate_splice_data(data['splice_data']):
                 return None, '拼接数据格式错误，需要包含 sequence 和 description 字段'
 
-        style = Style(
-            factory_id=current_factory_id,
-            style_no=data['style_no'],
-            customer_style_no=data.get('customer_style_no', ''),
-            name=data.get('name', ''),
-            category_id=data.get('category_id'),
-            gender=data.get('gender', ''),
-            season=data.get('season', ''),
-            material=data.get('material', ''),
-            description=data.get('description', ''),
-            status=1,
-            images=data.get('images', []),
-            need_cutting=data.get('need_cutting', 0),
-            cutting_reserve=data.get('cutting_reserve', 0),
-            custom_attributes=data.get('custom_attributes', {}),
-            is_splice=data.get('is_splice', 0),
-            splice_data=data.get('splice_data', []),
-        )
-        style.save()
-        return style, None
+        if not StyleService.validate_custom_attributes(data.get('custom_attributes')):
+            return None, '自定义属性格式错误，仅支持标量值'
+
+        try:
+            style = Style(
+                factory_id=current_factory_id,
+                style_no=data['style_no'],
+                customer_style_no=data.get('customer_style_no', ''),
+                name=data.get('name', ''),
+                category_id=data.get('category_id'),
+                gender=data.get('gender', ''),
+                season=data.get('season', ''),
+                material=data.get('material', ''),
+                description=data.get('description', ''),
+                status=1,
+                need_cutting=data.get('need_cutting', 0),
+                cutting_reserve=data.get('cutting_reserve', 0),
+                is_splice=data.get('is_splice', 0),
+            )
+            db.session.add(style)
+            db.session.flush()
+
+            StyleService.replace_style_images(style, data.get('images', []))
+            StyleService.replace_style_attributes(style, data.get('custom_attributes', {}))
+            if style.is_splice == 1:
+                StyleService.replace_style_splice_items(style, data.get('splice_data', []))
+
+            db.session.commit()
+            return StyleService.get_style_by_id(style.id), None
+        except Exception as exc:
+            db.session.rollback()
+            return None, f'创建款号失败: {exc}'
 
     @staticmethod
     def update_style(style, data, current_factory_id):
@@ -139,14 +208,12 @@ class StyleService(BaseService):
                     return None, '分类不存在'
             style.category_id = data['category_id']
 
-        if 'is_splice' in data:
-            style.is_splice = data['is_splice']
+        if 'custom_attributes' in data and not StyleService.validate_custom_attributes(data['custom_attributes']):
+            return None, '自定义属性格式错误，仅支持标量值'
 
-        if 'splice_data' in data:
-            if style.is_splice == 1 and data['splice_data']:
-                if not StyleService.validate_splice_data(data['splice_data']):
-                    return None, '拼接数据格式错误'
-            style.splice_data = data['splice_data']
+        if 'splice_data' in data and style.is_splice == 1 and data['splice_data']:
+            if not StyleService.validate_splice_data(data['splice_data']):
+                return None, '拼接数据格式错误'
 
         if 'customer_style_no' in data:
             style.customer_style_no = data['customer_style_no']
@@ -162,21 +229,35 @@ class StyleService(BaseService):
             style.description = data['description']
         if 'status' in data:
             style.status = data['status']
-        if 'images' in data:
-            style.images = data['images']
         if 'need_cutting' in data:
             style.need_cutting = data['need_cutting']
         if 'cutting_reserve' in data:
             style.cutting_reserve = data['cutting_reserve']
-        if 'custom_attributes' in data:
-            style.custom_attributes = data['custom_attributes']
+        if 'is_splice' in data:
+            style.is_splice = data['is_splice']
 
-        style.save()
-        return style, None
+        try:
+            if 'images' in data:
+                StyleService.replace_style_images(style, data['images'])
+            if 'custom_attributes' in data:
+                StyleService.replace_style_attributes(style, data['custom_attributes'])
+            if 'splice_data' in data:
+                if style.is_splice == 1:
+                    StyleService.replace_style_splice_items(style, data['splice_data'])
+                else:
+                    StyleService.replace_style_splice_items(style, [])
+            elif 'is_splice' in data and style.is_splice != 1:
+                StyleService.replace_style_splice_items(style, [])
+
+            db.session.commit()
+            return StyleService.get_style_by_id(style.id), None
+        except Exception as exc:
+            db.session.rollback()
+            return None, f'更新款号失败: {exc}'
 
     @staticmethod
     def delete_style(style):
-        """删除款号前校验关联价格、工序和松紧数据。"""
+        """删除款号前校验关联价格、工艺和松紧数据。"""
         price_count = StylePrice.query.filter_by(style_id=style.id, is_deleted=0).count()
         process_count = StyleProcess.query.filter_by(style_id=style.id, is_deleted=0).count()
         elastic_count = StyleElastic.query.filter_by(style_id=style.id, is_deleted=0).count()

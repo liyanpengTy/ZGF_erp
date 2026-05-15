@@ -29,7 +29,7 @@ login_request_model = auth_ns.model('LoginRequest', {
 })
 
 switch_factory_model = auth_ns.model('SwitchFactoryRequest', {
-    'factory_id': fields.Integer(required=True, description='工厂ID')
+    'factory_id': fields.Integer(required=True, description='工厂ID', example=1)
 })
 
 register_request_model = auth_ns.model('RegisterRequest', {
@@ -41,67 +41,85 @@ register_request_model = auth_ns.model('RegisterRequest', {
 })
 
 register_response_data = auth_ns.model('RegisterResponseData', {
-    'id': fields.Integer(description='用户ID'),
-    'username': fields.String(description='用户名'),
-    'invite_code': fields.String(description='邀请码')
+    'id': fields.Integer(description='用户ID', example=8),
+    'username': fields.String(description='用户名', example='newuser'),
+    'invite_code': fields.String(description='邀请码', example='ABC12345')
 })
 
 register_response = auth_ns.clone('RegisterResponse', base_response, {
-    'data': fields.Nested(register_response_data)
+    'data': fields.Nested(register_response_data, description='注册结果数据')
 })
 
 user_info_model = auth_ns.model('UserInfo', {
-    'id': fields.Integer(description='用户ID'),
-    'username': fields.String(description='用户名'),
-    'nickname': fields.String(description='昵称'),
-    'phone': fields.String(description='手机号'),
-    'avatar': fields.String(description='头像'),
-    'platform_identity': fields.String(description='平台身份'),
-    'platform_identity_label': fields.String(description='平台身份名称'),
-    'subject_type': fields.String(description='主体类型'),
-    'subject_type_label': fields.String(description='主体类型名称'),
-    'status': fields.Integer(description='状态'),
-    'invite_code': fields.String(description='邀请码'),
-    'invited_count': fields.Integer(description='邀请人数'),
-    'is_paid': fields.Integer(description='是否已付费'),
-    'create_time': fields.String(description='创建时间'),
-    'last_login_time': fields.String(description='最后登录时间')
+    'id': fields.Integer(description='用户ID', example=2),
+    'username': fields.String(description='用户名', example='factory_admin'),
+    'nickname': fields.String(description='昵称', example='工厂管理员'),
+    'phone': fields.String(description='手机号', example='18370601281'),
+    'avatar': fields.String(description='头像', example=None),
+    'platform_identity': fields.String(description='平台身份', example='external_user'),
+    'platform_identity_label': fields.String(description='平台身份名称', example='外部人员'),
+    'subject_type': fields.String(description='主体类型', example='factory_subject'),
+    'subject_type_label': fields.String(description='主体类型名称', example='工厂主体'),
+    'status': fields.Integer(description='状态', example=1),
+    'invite_code': fields.String(description='邀请码', example='ABC12346'),
+    'invited_count': fields.Integer(description='邀请人数', example=None),
+    'is_paid': fields.Integer(description='是否已付费', example=None),
+    'create_time': fields.String(description='创建时间', example='2026-04-21 01:17:24'),
+    'last_login_time': fields.String(description='最后登录时间', example='2026-05-15 12:35:13')
 })
 
 factory_info_model = auth_ns.model('FactoryInfo', {
-    'id': fields.Integer(description='工厂ID'),
-    'name': fields.String(description='工厂名称'),
-    'code': fields.String(description='工厂编码'),
-    'relation_type': fields.String(description='关系类型'),
-    'relation_type_label': fields.String(description='关系类型名称'),
-    'collaborator_type': fields.String(description='协作类型'),
-    'collaborator_type_label': fields.String(description='协作类型名称'),
-    'service_expire_date': fields.String(description='服务到期日期'),
-    'service_status': fields.String(description='服务状态')
+    'id': fields.Integer(description='工厂ID', example=1),
+    'name': fields.String(description='工厂名称', example='测试工厂'),
+    'code': fields.String(description='工厂编码', example='TEST001'),
+    'relation_type': fields.String(description='关系类型', example='owner'),
+    'relation_type_label': fields.String(description='关系类型名称', example='工厂管理员'),
+    'collaborator_type': fields.String(description='协作类型', example=None),
+    'collaborator_type_label': fields.String(description='协作类型名称', example=None),
+    'service_expire_date': fields.String(description='服务到期日期', example=None),
+    'service_status': fields.String(description='服务状态', example='active')
 })
 
 login_response_data = auth_ns.model('LoginResponseData', {
-    'access_token': fields.String(description='访问令牌'),
-    'refresh_token': fields.String(description='刷新令牌'),
+    'access_token': fields.String(description='访问令牌', example='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.access'),
+    'refresh_token': fields.String(description='刷新令牌', example='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.refresh'),
     'user_info': fields.Nested(user_info_model, description='用户信息'),
     'factories': fields.List(fields.Nested(factory_info_model), description='关联工厂列表'),
     'current_factory': fields.Nested(factory_info_model, description='当前工厂', allow_null=True)
 })
 
 refresh_response_data = auth_ns.model('RefreshResponseData', {
-    'access_token': fields.String(description='新的访问令牌')
+    'access_token': fields.String(description='新的访问令牌', example='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.new_access')
 })
 
 login_response = auth_ns.clone('LoginResponse', base_response, {
-    'data': fields.Nested(login_response_data)
+    'data': fields.Nested(login_response_data, description='登录结果数据')
 })
 
 refresh_response = auth_ns.clone('RefreshResponse', base_response, {
-    'data': fields.Nested(refresh_response_data)
+    'data': fields.Nested(refresh_response_data, description='刷新令牌结果数据')
 })
 
 user_info_response = auth_ns.clone('UserInfoResponse', base_response, {
-    'data': fields.Nested(user_info_model)
+    'data': fields.Nested(user_info_model, description='当前用户信息')
+})
+
+my_factories_response = auth_ns.clone('MyFactoriesResponse', base_response, {
+    'data': fields.List(
+        fields.Nested(factory_info_model),
+        description='当前用户已绑定的工厂列表',
+        example=[{
+            'id': 1,
+            'name': '测试工厂',
+            'code': 'TEST001',
+            'relation_type': 'owner',
+            'relation_type_label': '工厂管理员',
+            'collaborator_type': None,
+            'collaborator_type_label': None,
+            'service_expire_date': None,
+            'service_status': 'active'
+        }]
+    )
 })
 
 
@@ -239,7 +257,7 @@ class SwitchFactory(Resource):
 @auth_ns.route('/my-factories')
 class MyFactories(Resource):
     @login_required
-    @auth_ns.response(200, '获取成功', base_response)
+    @auth_ns.response(200, '获取成功', my_factories_response)
     @auth_ns.response(401, '未登录', unauthorized_response)
     def get(self):
         """返回当前用户已绑定的工厂列表。"""

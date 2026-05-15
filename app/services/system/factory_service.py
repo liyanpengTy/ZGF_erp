@@ -22,19 +22,19 @@ class FactoryService(BaseService):
 
     @staticmethod
     def _sync_user_identity(user):
-        """在工厂关系变化后刷新用户身份，当前仅保留 platform_identity 单一来源。"""
+        """在工厂关系变更后刷新用户身份，当前仅保留 platform_identity 单一来源。"""
         if not user.platform_identity:
             user.platform_identity = PLATFORM_IDENTITY_EXTERNAL
         user.save()
 
     @staticmethod
     def get_factory_by_id(factory_id):
-        """按主键查询未删除工厂。"""
+        """按主键查询未删除的工厂。"""
         return Factory.query.filter_by(id=factory_id, is_deleted=0).first()
 
     @staticmethod
     def get_factory_by_code(code):
-        """按工厂编码查询未删除工厂。"""
+        """按工厂编码查询未删除的工厂。"""
         return Factory.query.filter_by(code=code, is_deleted=0).first()
 
     @staticmethod
@@ -107,7 +107,7 @@ class FactoryService(BaseService):
             relation_type=RELATION_TYPE_OWNER,
             status=1,
             entry_date=datetime.now().date(),
-            remark='工厂管理员账号'
+            remark='工厂管理员账户'
         )
         user_factory.save()
         FactoryService._sync_user_identity(factory_admin)
@@ -300,7 +300,7 @@ class FactoryService(BaseService):
             existing_relation.relation_type = RELATION_TYPE_OWNER
             existing_relation.collaborator_type = None
             existing_relation.entry_date = datetime.now().date()
-            existing_relation.remark = '工厂管理员账号'
+            existing_relation.remark = '工厂管理员账户'
             existing_relation.save()
             user_factory = existing_relation
         else:
@@ -310,7 +310,7 @@ class FactoryService(BaseService):
                 relation_type=RELATION_TYPE_OWNER,
                 status=1,
                 entry_date=datetime.now().date(),
-                remark='工厂管理员账号'
+                remark='工厂管理员账户'
             )
             user_factory.save()
 
@@ -327,7 +327,7 @@ class FactoryService(BaseService):
         if not user_factory:
             return False, '用户未关联此工厂'
         if user_factory.relation_type == RELATION_TYPE_OWNER:
-            return False, '不能移除工厂管理员账号'
+            return False, '不能移除工厂管理员账户'
 
         user_factory.is_deleted = 1
         user_factory.leave_date = datetime.now().date()
@@ -352,17 +352,17 @@ class FactoryService(BaseService):
 
     @staticmethod
     def reset_owner_password(factory_id):
-        """把工厂管理员密码重置为系统默认密码。"""
+        """将工厂管理员密码重置为系统默认密码。"""
         owner = FactoryService.get_factory_owner(factory_id)
         if not owner:
-            return False, '工厂管理员账号不存在'
+            return False, '工厂管理员账户不存在'
         owner.password = bcrypt.generate_password_hash('123456').decode('utf-8')
         owner.save()
         return True, None
 
     @staticmethod
     def generate_qrcode(factory):
-        """为工厂生成新的绑定二维码和二维码 key。"""
+        """为工厂生成新的绑定二维码地址和二维码 key。"""
         import uuid
 
         qrcode_key = uuid.uuid4().hex[:32]

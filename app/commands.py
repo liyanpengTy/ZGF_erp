@@ -61,9 +61,19 @@ def seed_demo_factory_command():
 @click.command('seed-all')
 @with_appcontext
 def seed_all_command():
-    """执行完整初始化。"""
-    seed_all()
-    click.echo('完整初始化完成')
+    """清理旧演示数据后，重建标准初始化数据。"""
+    result = seed_all()
+    factory = result['factory']
+    click.echo(f'完整初始化完成: {factory.name} ({factory.code})')
+
+
+@click.command('reset-demo-data')
+@with_appcontext
+def reset_demo_data_command():
+    """显式重置演示数据，并重建标准初始化数据。"""
+    result = seed_all()
+    factory = result['factory']
+    click.echo(f'演示数据已重置: {factory.name} ({factory.code})')
 
 
 def register_commands(app):
@@ -74,3 +84,4 @@ def register_commands(app):
     app.cli.add_command(seed_reward_config_command)
     app.cli.add_command(seed_demo_factory_command)
     app.cli.add_command(seed_all_command)
+    app.cli.add_command(reset_demo_data_command)

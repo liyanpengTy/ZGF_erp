@@ -3,6 +3,7 @@
 from datetime import datetime
 
 from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt, get_jwt_identity
+from sqlalchemy import case
 
 from app.extensions import bcrypt
 from app.models.auth.user import User
@@ -66,13 +67,20 @@ class AuthService(BaseService):
     @staticmethod
     def get_user_factories(user_id):
         """查询用户有效绑定的工厂列表，并转换成统一返回结构。"""
+        relation_priority = case(
+            (UserFactory.relation_type == 'owner', 0),
+            (UserFactory.relation_type == 'employee', 1),
+            (UserFactory.relation_type == 'customer', 2),
+            (UserFactory.relation_type == 'collaborator', 3),
+            else_=99,
+        )
         records = UserFactory.query.filter_by(
             user_id=user_id,
             status=1,
             is_deleted=0
         ).join(Factory, UserFactory.factory_id == Factory.id).filter(
             Factory.is_deleted == 0
-        ).order_by(UserFactory.id.asc()).all()
+        ).order_by(relation_priority.asc(), UserFactory.id.asc()).all()
         return [AuthService.build_factory_context(record) for record in records]
 
     @staticmethod

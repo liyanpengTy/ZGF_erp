@@ -18,48 +18,70 @@ common = get_common_models(process_ns)
 base_response = common['base_response']
 error_response = common['error_response']
 unauthorized_response = common['unauthorized_response']
+forbidden_response = common['forbidden_response']
+build_page_data_model = common['build_page_data_model']
+build_page_response_model = common['build_page_response_model']
 
 process_query_parser = page_parser.copy()
 process_query_parser.add_argument('name', type=str, location='args', help='工序名称')
 process_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
 
 process_item_model = process_ns.model('ProcessItem', {
-    'id': fields.Integer(),
-    'name': fields.String(),
-    'code': fields.String(),
-    'description': fields.String(),
-    'sort_order': fields.Integer(),
-    'status': fields.Integer(),
-    'create_time': fields.String(),
-    'update_time': fields.String(),
+    'id': fields.Integer(description='工序ID'),
+    'name': fields.String(description='工序名称'),
+    'code': fields.String(description='工序编码'),
+    'description': fields.String(description='工序描述'),
+    'sort_order': fields.Integer(description='排序值'),
+    'status': fields.Integer(description='状态'),
+    'create_time': fields.String(description='创建时间'),
+    'update_time': fields.String(description='更新时间'),
 })
 
-process_list_data = process_ns.model('ProcessListData', {
-    'items': fields.List(fields.Nested(process_item_model)),
-    'total': fields.Integer(),
-    'page': fields.Integer(),
-    'page_size': fields.Integer(),
-    'pages': fields.Integer(),
+process_list_data = build_page_data_model(process_ns, 'ProcessListData', process_item_model, items_description='工序列表')
+process_list_response = build_page_response_model(process_ns, 'ProcessListResponse', base_response, process_list_data, '工序分页数据')
+process_item_response = process_ns.clone('ProcessItemResponse', base_response, {
+    'data': fields.Nested(process_item_model, description='工序详情数据')
 })
 
-process_list_response = process_ns.clone('ProcessListResponse', base_response, {'data': fields.Nested(process_list_data)})
-process_item_response = process_ns.clone('ProcessItemResponse', base_response, {'data': fields.Nested(process_item_model)})
-
-style_process_item_model = process_ns.model('StyleProcessItem', {
-    'id': fields.Integer(),
-    'style_id': fields.Integer(),
-    'process_id': fields.Integer(),
-    'process_name': fields.String(),
-    'process_code': fields.String(),
-    'sequence': fields.Integer(),
-    'remark': fields.String(),
+style_process_item_model = process_ns.model('ProcessStyleProcessItem', {
+    'id': fields.Integer(description='映射ID'),
+    'style_id': fields.Integer(description='款号ID'),
+    'process_id': fields.Integer(description='工序ID'),
+    'process_name': fields.String(description='工序名称'),
+    'process_code': fields.String(description='工序编码'),
+    'sequence': fields.Integer(description='工序顺序'),
+    'remark': fields.String(description='备注'),
 })
 
 style_process_list_response = process_ns.clone(
     'StyleProcessListResponse',
     base_response,
-    {'data': fields.List(fields.Nested(style_process_item_model))}
+    {'data': fields.List(fields.Nested(style_process_item_model), description='款号工序映射列表')}
 )
+
+style_process_item_create_model = process_ns.model('StyleProcessItemCreate', {
+    'process_id': fields.Integer(required=True, description='工序ID'),
+    'sequence': fields.Integer(description='工序顺序', default=1),
+    'remark': fields.String(description='备注'),
+})
+
+style_process_batch_save_model = process_ns.model('StyleProcessBatchSave', {
+    'mappings': fields.List(fields.Nested(style_process_item_create_model), required=True, description='工序列表'),
+})
+
+process_create_model = process_ns.model('ProcessCreate', {
+    'name': fields.String(required=True, description='工序名称', example='裁床'),
+    'code': fields.String(required=True, description='工序编码', example='CUT'),
+    'description': fields.String(description='工序描述', example='裁片前置工序'),
+    'sort_order': fields.Integer(description='排序', default=0, example=0),
+})
+
+process_update_model = process_ns.model('ProcessUpdate', {
+    'name': fields.String(description='工序名称', example='缝制'),
+    'description': fields.String(description='工序描述', example='主线缝制工序'),
+    'sort_order': fields.Integer(description='排序', example=10),
+    'status': fields.Integer(description='状态', choices=[0, 1], example=1),
+})
 
 process_schema = ProcessSchema()
 processes_schema = ProcessSchema(many=True)
@@ -84,7 +106,7 @@ class ProcessList(Resource):
     @process_ns.response(200, '成功', process_list_response)
     @process_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """分页查询工序列表。"""
+        """查询工序分页列表。"""
         if not get_current_user():
             return ApiResponse.error('用户不存在')
         args = process_query_parser.parse_args()
@@ -98,15 +120,14 @@ class ProcessList(Resource):
         })
 
     @login_required
-    @process_ns.expect(process_ns.model('ProcessCreate', {
-        'name': fields.String(required=True, description='工序名称'),
-        'code': fields.String(required=True, description='工序编码'),
-        'description': fields.String(description='工序描述'),
-        'sort_order': fields.Integer(description='排序', default=0),
-    }))
+    @process_ns.expect(process_create_model)
     @process_ns.response(201, '创建成功', process_item_response)
+    @process_ns.response(400, '参数错误', error_response)
+    @process_ns.response(401, '未登录', unauthorized_response)
+    @process_ns.response(403, '无权限', forbidden_response)
+    @process_ns.response(409, '工序已存在', error_response)
     def post(self):
-        """创建工序主数据。"""
+        """创建工序。"""
         current_user = get_current_user()
         has_permission, error = check_process_admin_permission(current_user)
         if not has_permission:
@@ -127,8 +148,10 @@ class ProcessList(Resource):
 class ProcessDetail(Resource):
     @login_required
     @process_ns.response(200, '成功', process_item_response)
+    @process_ns.response(401, '未登录', unauthorized_response)
+    @process_ns.response(404, '工序不存在', error_response)
     def get(self, process_id):
-        """查看单个工序详情。"""
+        """查询工序详情。"""
         if not get_current_user():
             return ApiResponse.error('用户不存在')
         process = ProcessService.get_process_by_id(process_id)
@@ -137,15 +160,14 @@ class ProcessDetail(Resource):
         return ApiResponse.success(process_schema.dump(process))
 
     @login_required
-    @process_ns.expect(process_ns.model('ProcessUpdate', {
-        'name': fields.String(description='工序名称'),
-        'description': fields.String(description='工序描述'),
-        'sort_order': fields.Integer(description='排序'),
-        'status': fields.Integer(description='状态', choices=[0, 1]),
-    }))
+    @process_ns.expect(process_update_model)
     @process_ns.response(200, '更新成功', process_item_response)
+    @process_ns.response(400, '参数错误', error_response)
+    @process_ns.response(401, '未登录', unauthorized_response)
+    @process_ns.response(403, '无权限', forbidden_response)
+    @process_ns.response(404, '工序不存在', error_response)
     def patch(self, process_id):
-        """更新工序主数据。"""
+        """更新工序。"""
         current_user = get_current_user()
         has_permission, error = check_process_admin_permission(current_user)
         if not has_permission:
@@ -167,8 +189,12 @@ class ProcessDetail(Resource):
 
     @login_required
     @process_ns.response(200, '删除成功', base_response)
+    @process_ns.response(401, '未登录', unauthorized_response)
+    @process_ns.response(403, '无权限', forbidden_response)
+    @process_ns.response(404, '工序不存在', error_response)
+    @process_ns.response(409, '工序已被引用', error_response)
     def delete(self, process_id):
-        """删除工序主数据。"""
+        """删除工序。"""
         current_user = get_current_user()
         has_permission, error = check_process_admin_permission(current_user)
         if not has_permission:
@@ -188,8 +214,9 @@ class ProcessDetail(Resource):
 class EnabledProcesses(Resource):
     @login_required
     @process_ns.response(200, '成功', base_response)
+    @process_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """查询全部启用状态的工序。"""
+        """查询启用工序列表。"""
         if not get_current_user():
             return ApiResponse.error('用户不存在')
         processes = ProcessService.get_all_enabled_processes()
@@ -200,8 +227,11 @@ class EnabledProcesses(Resource):
 class StyleProcesses(Resource):
     @login_required
     @process_ns.response(200, '成功', style_process_list_response)
+    @process_ns.response(401, '未登录', unauthorized_response)
+    @process_ns.response(403, '无权限', forbidden_response)
+    @process_ns.response(404, '款号不存在', error_response)
     def get(self, style_id):
-        """查询款号已绑定的工序列表。"""
+        """查询款号工序映射列表。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
         if not current_user:
@@ -215,16 +245,13 @@ class StyleProcesses(Resource):
         return ApiResponse.success(style_process_mapping_schema.dump(mappings, many=True))
 
     @login_required
-    @process_ns.expect(process_ns.model('StyleProcessBatchSave', {
-        'mappings': fields.List(fields.Nested(process_ns.model('StyleProcessItemCreate', {
-            'process_id': fields.Integer(required=True, description='工序ID'),
-            'sequence': fields.Integer(description='工序顺序', default=1),
-            'remark': fields.String(description='备注'),
-        })), required=True, description='工序列表'),
-    }))
+    @process_ns.expect(style_process_batch_save_model)
     @process_ns.response(200, '保存成功', style_process_list_response)
+    @process_ns.response(401, '未登录', unauthorized_response)
+    @process_ns.response(403, '无权限', forbidden_response)
+    @process_ns.response(404, '款号不存在', error_response)
     def post(self, style_id):
-        """批量保存款号和工序的映射关系。"""
+        """批量保存款号工序映射。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
         if not current_user:
@@ -243,8 +270,11 @@ class StyleProcesses(Resource):
 class StyleProcessDetail(Resource):
     @login_required
     @process_ns.response(200, '删除成功', base_response)
+    @process_ns.response(401, '未登录', unauthorized_response)
+    @process_ns.response(403, '无权限', forbidden_response)
+    @process_ns.response(404, '映射不存在', error_response)
     def delete(self, style_id, mapping_id):
-        """删除单条款号工序映射。"""
+        """删除款号工序映射。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
         if not current_user:

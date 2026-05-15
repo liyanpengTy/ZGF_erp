@@ -32,57 +32,61 @@ password_change_model = profile_ns.model('PasswordChange', {
     'confirm_password': fields.String(required=True, description='确认新密码', example='654321')
 })
 
-user_info_model = profile_ns.model('UserInfo', {
-    'id': fields.Integer(),
-    'username': fields.String(),
-    'nickname': fields.String(),
-    'phone': fields.String(),
-    'avatar': fields.String(),
-    'platform_identity': fields.String(),
-    'platform_identity_label': fields.String(),
-    'subject_type': fields.String(),
-    'subject_type_label': fields.String(),
-    'status': fields.Integer(),
+user_info_model = profile_ns.model('ProfileUserInfo', {
+    'id': fields.Integer(description='用户ID'),
+    'username': fields.String(description='用户名'),
+    'nickname': fields.String(description='昵称'),
+    'phone': fields.String(description='手机号'),
+    'avatar': fields.String(description='头像地址'),
+    'platform_identity': fields.String(description='平台身份'),
+    'platform_identity_label': fields.String(description='平台身份名称'),
+    'subject_type': fields.String(description='主体类型'),
+    'subject_type_label': fields.String(description='主体类型名称'),
+    'status': fields.Integer(description='状态'),
     'invite_code': fields.String(description='邀请码'),
     'invited_count': fields.Integer(description='邀请人数'),
     'is_paid': fields.Integer(description='是否已付费'),
-    'create_time': fields.String(),
-    'last_login_time': fields.String()
+    'create_time': fields.String(description='创建时间'),
+    'last_login_time': fields.String(description='最后登录时间')
+})
+
+profile_statistics_detail_model = profile_ns.model('Statistics', {
+    'total_operations': fields.Integer(description='累计操作次数'),
+    'total_logins': fields.Integer(description='累计登录次数'),
+    'today_logined': fields.Boolean(description='今日是否登录')
 })
 
 profile_stats_model = profile_ns.model('ProfileStats', {
-    'user_id': fields.Integer(),
-    'username': fields.String(),
-    'nickname': fields.String(),
-    'phone': fields.String(),
-    'avatar': fields.String(),
-    'platform_identity': fields.String(),
-    'platform_identity_label': fields.String(),
-    'subject_type': fields.String(),
-    'subject_type_label': fields.String(),
-    'create_time': fields.String(),
-    'last_login_time': fields.String(),
-    'statistics': fields.Nested(profile_ns.model('Statistics', {
-        'total_operations': fields.Integer(),
-        'total_logins': fields.Integer(),
-        'today_logined': fields.Boolean()
-    }))
+    'user_id': fields.Integer(description='用户ID'),
+    'username': fields.String(description='用户名'),
+    'nickname': fields.String(description='昵称'),
+    'phone': fields.String(description='手机号'),
+    'avatar': fields.String(description='头像地址'),
+    'platform_identity': fields.String(description='平台身份'),
+    'platform_identity_label': fields.String(description='平台身份名称'),
+    'subject_type': fields.String(description='主体类型'),
+    'subject_type_label': fields.String(description='主体类型名称'),
+    'create_time': fields.String(description='创建时间'),
+    'last_login_time': fields.String(description='最后登录时间'),
+    'statistics': fields.Nested(profile_statistics_detail_model, description='个人统计数据')
 })
 
 avatar_response_data = profile_ns.model('AvatarResponseData', {
-    'avatar': fields.String(),
-    'url': fields.String()
+    'avatar': fields.String(description='头像相对路径'),
+    'url': fields.String(description='头像访问地址')
+})
+
+profile_invited_user_model = profile_ns.model('InvitedUser', {
+    'id': fields.Integer(description='用户ID'),
+    'username': fields.String(description='用户名'),
+    'nickname': fields.String(description='昵称'),
+    'create_time': fields.String(description='创建时间')
 })
 
 invite_info_model = profile_ns.model('InviteInfo', {
     'invite_code': fields.String(description='邀请码'),
     'invited_count': fields.Integer(description='邀请人数'),
-    'invited_users': fields.List(fields.Nested(profile_ns.model('InvitedUser', {
-        'id': fields.Integer(),
-        'username': fields.String(),
-        'nickname': fields.String(),
-        'create_time': fields.String()
-    })), description='邀请的用户列表')
+    'invited_users': fields.List(fields.Nested(profile_invited_user_model), description='邀请的用户列表')
 })
 
 invite_reward_model = profile_ns.model('InviteReward', {
@@ -94,24 +98,24 @@ invite_reward_model = profile_ns.model('InviteReward', {
     'reward_type': fields.String(description='奖励类型')
 })
 
-user_info_response = profile_ns.clone('UserInfoResponse', base_response, {
-    'data': fields.Nested(user_info_model)
+user_info_response = profile_ns.clone('ProfileUserInfoResponse', base_response, {
+    'data': fields.Nested(user_info_model, description='个人信息数据')
 })
 
 profile_stats_response = profile_ns.clone('ProfileStatsResponse', base_response, {
-    'data': fields.Nested(profile_stats_model)
+    'data': fields.Nested(profile_stats_model, description='个人统计数据')
 })
 
 avatar_response = profile_ns.clone('AvatarResponse', base_response, {
-    'data': fields.Nested(avatar_response_data)
+    'data': fields.Nested(avatar_response_data, description='头像上传结果数据')
 })
 
 invite_info_response = profile_ns.clone('InviteInfoResponse', base_response, {
-    'data': fields.Nested(invite_info_model)
+    'data': fields.Nested(invite_info_model, description='邀请信息数据')
 })
 
 invite_reward_response = profile_ns.clone('InviteRewardResponse', base_response, {
-    'data': fields.Nested(invite_reward_model)
+    'data': fields.Nested(invite_reward_model, description='邀请奖励数据')
 })
 
 user_schema = UserSchema()
