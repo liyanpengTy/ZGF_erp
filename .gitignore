@@ -10,7 +10,7 @@ __pycache__/
 run.py
 
 # 数据库迁移文件
-migrations
+# migrations
 
 # Distribution / packaging
 .Python
