@@ -27,7 +27,7 @@ from app.utils.response import ApiResponse
 def register_extensions(app):
     """初始化扩展组件。"""
     db.init_app(app)
-    migrate.init_app(app, db)
+    migrate.init_app(app, db, compare_type=True, compare_server_default=False)
     jwt.init_app(app)
     bcrypt.init_app(app)
     cors.init_app(
