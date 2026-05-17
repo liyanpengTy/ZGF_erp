@@ -150,7 +150,7 @@ class SizeDetail(Resource):
         if not size:
             return ApiResponse.error('尺码不存在')
 
-        if size.factory_id != current_factory_id:
+        if not SizeService.check_manage_permission(current_user, current_factory_id, size)[0]:
             return ApiResponse.error('只能修改自己工厂的尺码', 403)
 
         try:
@@ -171,11 +171,12 @@ class SizeDetail(Resource):
     @size_ns.response(404, '尺码不存在', error_response)
     def delete(self, size_id):
         """删除尺码。"""
+        current_user = get_current_user()
         current_factory_id = get_current_factory_id()
         size = SizeService.get_size_by_id(size_id)
         if not size:
             return ApiResponse.error('尺码不存在')
-        if size.factory_id != current_factory_id:
+        if not SizeService.check_manage_permission(current_user, current_factory_id, size)[0]:
             return ApiResponse.error('只能删除自己工厂的尺码', 403)
         SizeService.delete_size(size)
         return ApiResponse.success(message='删除成功')

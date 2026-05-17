@@ -2,9 +2,11 @@
 
 from datetime import date, timedelta
 
-from sqlalchemy import or_
-
-from app.constants.identity import PLATFORM_IDENTITY_ADMIN, PLATFORM_IDENTITY_EXTERNAL
+from app.constants.identity import (
+    PLATFORM_IDENTITY_ADMIN,
+    PLATFORM_IDENTITY_EXTERNAL,
+    PLATFORM_IDENTITY_STAFF,
+)
 from app.extensions import bcrypt, db
 from app.models.auth.user import User
 from app.models.base_data.category import Category
@@ -100,12 +102,64 @@ DEMO_FACTORY_CODE = 'TEST001'
 DEMO_FACTORY_NAME = '测试工厂'
 DEMO_FACTORY_CODES = {'TEST001', 'TEST002'}
 DEMO_USERNAMES = {
-    'admin',
     'factory_admin',
     'factory_employee',
     'factory_customer',
     'factory_collaborator',
 }
+
+PLATFORM_FACTORY_VIEWER_MENU_KEYS = [
+    'system_root',
+    'system_factories',
+    'system_factory_query',
+]
+
+FACTORY_ADMIN_MENU_KEYS = [
+    'base_root',
+    'base_sizes',
+    'base_categories',
+    'base_colors',
+    'business_root',
+    'business_styles',
+    'business_style_query',
+    'business_style_add',
+    'business_style_edit',
+    'business_style_delete',
+    'business_processes',
+    'business_orders',
+    'profile_root',
+    'profile_info',
+    'profile_password',
+]
+
+FACTORY_EMPLOYEE_MENU_KEYS = [
+    'base_root',
+    'base_sizes',
+    'base_categories',
+    'base_colors',
+    'business_root',
+    'business_styles',
+    'business_style_query',
+    'business_processes',
+    'business_orders',
+    'profile_root',
+    'profile_info',
+    'profile_password',
+]
+
+FACTORY_CUSTOMER_MENU_KEYS = [
+    'business_root',
+    'business_orders',
+    'profile_root',
+    'profile_info',
+    'profile_password',
+]
+
+FACTORY_COLLABORATOR_MENU_KEYS = [
+    'profile_root',
+    'profile_info',
+    'profile_password',
+]
 
 
 def create_tables():
@@ -280,13 +334,30 @@ def _find_existing_menu(menu_data, parent_id):
 
 
 def _sync_role_menu(role, target_menu_ids):
-    """把指定菜单集合补齐到目标角色。"""
+    """把角色菜单权限精确同步到目标集合，移除旧的脏权限。"""
+    target_menu_ids = set(target_menu_ids or [])
     existing_ids = {
         menu_id for menu_id, in db.session.query(role_menu.c.menu_id).filter(role_menu.c.role_id == role.id).all()
     }
-    for menu_id in target_menu_ids:
-        if menu_id not in existing_ids:
-            db.session.execute(role_menu.insert().values(role_id=role.id, menu_id=menu_id))
+
+    for menu_id in existing_ids - target_menu_ids:
+        db.session.execute(
+            role_menu.delete().where(
+                role_menu.c.role_id == role.id,
+                role_menu.c.menu_id == menu_id,
+            )
+        )
+
+    for menu_id in target_menu_ids - existing_ids:
+        db.session.execute(role_menu.insert().values(role_id=role.id, menu_id=menu_id))
+
+
+def _get_menu_ids_by_keys(menu_map, menu_keys):
+    """根据菜单 key 列表解析对应的菜单 ID。"""
+    missing_keys = [menu_key for menu_key in menu_keys if menu_key not in menu_map]
+    if missing_keys:
+        raise KeyError(f'菜单种子缺失: {", ".join(missing_keys)}')
+    return [menu_map[menu_key].id for menu_key in menu_keys]
 
 
 def _create_color(factory_id, name, code, sort_order):
@@ -471,7 +542,7 @@ def cleanup_demo_data():
     demo_factories = Factory.query.filter(Factory.code.in_(DEMO_FACTORY_CODES)).all()
     demo_factory_ids = [factory.id for factory in demo_factories]
 
-    demo_users = User.query.filter(User.username.in_(DEMO_USERNAMES - {'admin'}), User.is_deleted == 0).all()
+    demo_users = User.query.filter(User.username.in_(DEMO_USERNAMES), User.is_deleted == 0).all()
     demo_user_ids = [user.id for user in demo_users]
 
     if demo_factory_ids:
@@ -539,6 +610,43 @@ def seed_admin_user():
     return _ensure_user('admin', '平台管理员', PLATFORM_IDENTITY_ADMIN)
 
 
+def seed_platform_staff_user(menu_map):
+    """初始化平台普通人员示例账号及其工厂模块查看权限。"""
+    platform_staff, _ = _ensure_user('platform_staff', '平台普通人员', PLATFORM_IDENTITY_STAFF)
+    platform_staff_role, _ = _ensure_role(
+        0,
+        'platform_factory_viewer',
+        '平台工厂查看员',
+        '可查看工厂列表与工厂详情，但不具备写操作权限',
+        10,
+        data_scope='all_factory',
+    )
+
+    _sync_role_menu(
+        platform_staff_role,
+        _get_menu_ids_by_keys(menu_map, PLATFORM_FACTORY_VIEWER_MENU_KEYS),
+    )
+    _replace_user_roles(platform_staff.id, 0, [platform_staff_role.id])
+    db.session.commit()
+    return {
+        'platform_staff': platform_staff,
+        'platform_roles': [platform_staff_role],
+    }
+
+
+def seed_system_data():
+    """初始化系统级种子数据，包括平台账号、菜单、奖励配置与平台角色。"""
+    admin, _ = seed_admin_user()
+    menu_map = seed_menus()
+    seed_reward_configs()
+    platform_demo = seed_platform_staff_user(menu_map)
+    return {
+        'admin': admin,
+        'menu_map': menu_map,
+        'platform_demo': platform_demo,
+    }
+
+
 def seed_demo_factory():
     """创建标准演示工厂、演示账号、关系和角色。"""
     factory = Factory(
@@ -586,9 +694,27 @@ def seed_demo_factory():
         2,
         legacy_codes=['staff'],
     )
+    customer_role, _ = _ensure_role(
+        factory.id,
+        'factory_customer',
+        '订单客户',
+        '工厂订单客户角色，仅查看与自己相关的订单数据',
+        3,
+        data_scope='self_only',
+    )
+    collaborator_role, _ = _ensure_role(
+        factory.id,
+        'factory_collaborator',
+        '协作用户',
+        '工厂协作用户角色，当前仅保留个人中心访问能力',
+        4,
+        data_scope='self_only',
+    )
 
     _replace_user_roles(owner.id, factory.id, [owner_role.id])
     _replace_user_roles(employee.id, factory.id, [employee_role.id])
+    _replace_user_roles(customer.id, factory.id, [customer_role.id])
+    _replace_user_roles(collaborator.id, factory.id, [collaborator_role.id])
     return factory
 
 
@@ -816,54 +942,48 @@ def seed_demo_processes():
     return processes
 
 
-def seed_demo_role_menus():
-    """给演示工厂角色补齐基础菜单权限。"""
-    factory = Factory.query.filter_by(code=DEMO_FACTORY_CODE, is_deleted=0).first()
-    if not factory:
-        return
+def seed_demo_role_menus(factory, menu_map):
+    """给演示工厂角色重建菜单权限，避免外部角色拿到系统模块。"""
+    role_menu_keys = {
+        'factory_admin': FACTORY_ADMIN_MENU_KEYS,
+        'factory_staff': FACTORY_EMPLOYEE_MENU_KEYS,
+        'factory_customer': FACTORY_CUSTOMER_MENU_KEYS,
+        'factory_collaborator': FACTORY_COLLABORATOR_MENU_KEYS,
+    }
 
-    owner_role = Role.query.filter_by(factory_id=factory.id, code='factory_admin', is_deleted=0).first()
-    employee_role = Role.query.filter_by(factory_id=factory.id, code='factory_staff', is_deleted=0).first()
-    if not owner_role or not employee_role:
-        return
-
-    all_menu_ids = [menu.id for menu in Menu.query.filter_by(is_deleted=0, status=1).all()]
-    staff_menu_ids = [
-        menu.id for menu in Menu.query.filter(
-            Menu.is_deleted == 0,
-            Menu.status == 1,
-            or_(
-                Menu.permission == '',
-                Menu.permission.is_(None),
-                Menu.permission.like('base:%'),
-                Menu.permission.like('business:%'),
-            )
-        ).all()
-    ]
-
-    _sync_role_menu(owner_role, all_menu_ids)
-    _sync_role_menu(employee_role, staff_menu_ids)
+    for role_code, menu_keys in role_menu_keys.items():
+        role = Role.query.filter_by(factory_id=factory.id, code=role_code, is_deleted=0).first()
+        if not role:
+            continue
+        _sync_role_menu(role, _get_menu_ids_by_keys(menu_map, menu_keys))
     db.session.commit()
 
 
-def seed_all():
-    """执行完整初始化，包括清理旧演示数据后重建。"""
-    create_tables()
-    cleanup_demo_data()
-    admin, _ = seed_admin_user()
-    seed_menus()
-    seed_reward_configs()
+def seed_demo_data(menu_map=None):
+    """初始化演示工厂、演示角色、基础资料与订单业务数据。"""
+    menu_map = menu_map or seed_menus()
     processes = seed_demo_processes()
     factory = seed_demo_factory()
     bundle_config = seed_bundle_templates_and_rules(factory)
-    seed_demo_role_menus()
+    seed_demo_role_menus(factory, menu_map)
     base_data = seed_demo_base_data(factory)
     styles = seed_demo_business_data(factory, base_data)
     return {
-        'admin': admin,
         'processes': processes,
         'factory': factory,
         'bundle_config': bundle_config,
         'base_data': base_data,
         'styles': styles,
+    }
+
+
+def seed_all():
+    """执行完整初始化，先重建系统种子数据，再刷新演示数据。"""
+    create_tables()
+    system_data = seed_system_data()
+    cleanup_demo_data()
+    demo_data = seed_demo_data(system_data['menu_map'])
+    return {
+        **system_data,
+        **demo_data,
     }

@@ -279,3 +279,15 @@ class StyleService(BaseService):
         if style.factory_id != current_factory_id:
             return False, '无权限操作'
         return True, None
+    @staticmethod
+    def check_manage_permission(current_user, current_factory_id, style):
+        """校验当前用户是否可以维护款号，写操作必须处于明确的工厂上下文中。"""
+        if not current_user:
+            return False, '用户不存在'
+        if current_user.is_internal_user:
+            return True, None
+        if not current_factory_id:
+            return False, '当前登录态缺少工厂上下文，请先切换工厂'
+        if style.factory_id != current_factory_id:
+            return False, '只能修改自己工厂的款号'
+        return True, None

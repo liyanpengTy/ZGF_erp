@@ -106,3 +106,17 @@ class ColorService(BaseService):
         if color.factory_id != 0 and color.factory_id != current_factory_id:
             return False, '无权限操作'
         return True, None
+    @staticmethod
+    def check_manage_permission(current_user, current_factory_id, color):
+        """校验当前用户是否可以维护颜色，外部用户仅允许维护当前工厂自定义颜色。"""
+        if not current_user:
+            return False, '用户不存在'
+        if current_user.is_internal_user:
+            return True, None
+        if not current_factory_id:
+            return False, '当前登录态缺少工厂上下文，请先切换工厂'
+        if color.factory_id == 0:
+            return False, '无权修改系统公共颜色'
+        if color.factory_id != current_factory_id:
+            return False, '只能修改自己工厂的颜色'
+        return True, None

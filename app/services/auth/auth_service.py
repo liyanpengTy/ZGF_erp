@@ -65,6 +65,21 @@ class AuthService(BaseService):
         }
 
     @staticmethod
+    def build_internal_factory_context(factory):
+        """为平台内部账号构建工厂上下文，便于切入指定工厂的业务视角。"""
+        return {
+            'id': factory.id,
+            'name': factory.name,
+            'code': factory.code,
+            'relation_type': None,
+            'relation_type_label': '平台内部上下文',
+            'collaborator_type': None,
+            'collaborator_type_label': None,
+            'service_expire_date': factory.service_expire_date.isoformat() if factory.service_expire_date else None,
+            'service_status': factory.service_status
+        }
+
+    @staticmethod
     def get_user_factories(user_id):
         """查询用户有效绑定的工厂列表，并转换成统一返回结构。"""
         relation_priority = case(

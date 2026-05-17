@@ -115,6 +115,7 @@ class StyleList(Resource):
         """查询款号分页列表。"""
         args = style_query_parser.parse_args()
         current_user = get_current_user()
+        current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
         if not current_user:
@@ -173,6 +174,7 @@ class StyleDetail(Resource):
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
+        current_user = get_current_user()
         style = StyleService.get_style_by_id(style_id)
         if not style:
             return ApiResponse.error('款号不存在')
@@ -199,7 +201,7 @@ class StyleDetail(Resource):
         style = StyleService.get_style_by_id(style_id)
         if not style:
             return ApiResponse.error('款号不存在')
-        if style.factory_id != current_factory_id:
+        if not StyleService.check_manage_permission(get_current_user(), current_factory_id, style)[0]:
             return ApiResponse.error('只能修改自己工厂的款号', 403)
 
         try:
@@ -223,11 +225,12 @@ class StyleDetail(Resource):
     @style_ns.response(409, '款号已被引用', error_response)
     def delete(self, style_id):
         """删除款号。"""
+        current_user = get_current_user()
         current_factory_id = get_current_factory_id()
         style = StyleService.get_style_by_id(style_id)
         if not style:
             return ApiResponse.error('款号不存在')
-        if style.factory_id != current_factory_id:
+        if not StyleService.check_manage_permission(get_current_user(), current_factory_id, style)[0]:
             return ApiResponse.error('只能删除自己工厂的款号', 403)
         success, error = StyleService.delete_style(style)
         if not success:

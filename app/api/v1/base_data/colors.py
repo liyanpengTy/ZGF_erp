@@ -79,6 +79,7 @@ class ColorList(Resource):
         """查询颜色分页列表。"""
         args = color_query_parser.parse_args()
         current_user = get_current_user()
+        current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
         if not current_user:
@@ -131,6 +132,7 @@ class ColorDetail(Resource):
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
+        current_user = get_current_user()
         color = ColorService.get_color_by_id(color_id)
         if not color:
             return ApiResponse.error('颜色不存在')
@@ -154,7 +156,7 @@ class ColorDetail(Resource):
         color = ColorService.get_color_by_id(color_id)
         if not color:
             return ApiResponse.error('颜色不存在')
-        if color.factory_id != current_factory_id:
+        if not ColorService.check_manage_permission(get_current_user(), current_factory_id, color)[0]:
             return ApiResponse.error('只能修改自己工厂的颜色', 403)
 
         try:
@@ -175,11 +177,12 @@ class ColorDetail(Resource):
     @color_ns.response(404, '颜色不存在', error_response)
     def delete(self, color_id):
         """删除颜色。"""
+        current_user = get_current_user()
         current_factory_id = get_current_factory_id()
         color = ColorService.get_color_by_id(color_id)
         if not color:
             return ApiResponse.error('颜色不存在')
-        if color.factory_id != current_factory_id:
+        if not ColorService.check_manage_permission(get_current_user(), current_factory_id, color)[0]:
             return ApiResponse.error('只能删除自己工厂的颜色', 403)
         ColorService.delete_color(color)
         return ApiResponse.success(message='删除成功')

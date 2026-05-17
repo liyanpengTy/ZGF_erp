@@ -87,6 +87,7 @@ class CategoryList(Resource):
         """查询分类分页列表。"""
         args = category_query_parser.parse_args()
         current_user = get_current_user()
+        current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
         if not current_user:
@@ -157,6 +158,7 @@ class CategoryDetail(Resource):
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
+        current_user = get_current_user()
         category = CategoryService.get_category_by_id(category_id)
         if not category:
             return ApiResponse.error('分类不存在')
@@ -180,7 +182,7 @@ class CategoryDetail(Resource):
         category = CategoryService.get_category_by_id(category_id)
         if not category:
             return ApiResponse.error('分类不存在')
-        if category.factory_id != current_factory_id:
+        if not CategoryService.check_manage_permission(get_current_user(), current_factory_id, category)[0]:
             return ApiResponse.error('只能修改自己工厂的分类', 403)
 
         try:
@@ -202,11 +204,12 @@ class CategoryDetail(Resource):
     @category_ns.response(409, '分类存在子项或被引用', error_response)
     def delete(self, category_id):
         """删除分类。"""
+        current_user = get_current_user()
         current_factory_id = get_current_factory_id()
         category = CategoryService.get_category_by_id(category_id)
         if not category:
             return ApiResponse.error('分类不存在')
-        if category.factory_id != current_factory_id:
+        if not CategoryService.check_manage_permission(get_current_user(), current_factory_id, category)[0]:
             return ApiResponse.error('只能删除自己工厂的分类', 403)
         success, error = CategoryService.delete_category(category)
         if not success:
