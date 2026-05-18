@@ -1,11 +1,15 @@
 from marshmallow import Schema, fields, validate
 
+from app.constants.identity import ROLE_SCOPE_FACTORY, ROLE_SCOPES
+
 
 class RoleSchema(Schema):
     """角色序列化器。"""
 
     id = fields.Int()
-    factory_id = fields.Int()
+    scope_type = fields.Str()
+    scope_type_label = fields.Str()
+    scope_id = fields.Int()
     name = fields.Str()
     code = fields.Str()
     description = fields.Str()
@@ -21,6 +25,8 @@ class RoleSchema(Schema):
 class RoleCreateSchema(Schema):
     """创建角色参数。"""
 
+    scope_type = fields.Str(load_default=ROLE_SCOPE_FACTORY, validate=validate.OneOf(sorted(ROLE_SCOPES)))
+    scope_id = fields.Int(load_default=0, allow_none=True)
     name = fields.Str(required=True, validate=validate.Length(min=2, max=50))
     code = fields.Str(required=True, validate=validate.Length(min=2, max=50))
     description = fields.Str(validate=validate.Length(max=255))

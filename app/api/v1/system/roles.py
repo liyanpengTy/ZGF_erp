@@ -4,7 +4,7 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_user
+from app.api.common.auth import get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
 from app.schemas.system.role import RoleAssignMenuSchema, RoleCreateSchema, RoleSchema, RoleUpdateSchema
@@ -23,14 +23,16 @@ forbidden_response = common['forbidden_response']
 role_query_parser = page_parser.copy()
 role_query_parser.add_argument('name', type=str, location='args', help='角色名称（模糊查询）')
 role_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
-role_query_parser.add_argument('factory_id', type=int, location='args', help='工厂ID（平台内部人员使用）')
+role_query_parser.add_argument('scope_type', type=str, location='args', help='角色归属范围', choices=['platform', 'factory', 'partner_subject'])
+role_query_parser.add_argument('scope_id', type=int, location='args', help='角色归属主键，工厂角色传工厂ID')
 
 role_create_model = role_ns.model('RoleCreate', {
+    'scope_type': fields.String(description='角色归属范围；工厂管理员创建时可不传，后端固定为factory', choices=['platform', 'factory', 'partner_subject'], example='factory'),
+    'scope_id': fields.Integer(description='角色归属主键；平台角色可不传，工厂管理员创建时后端固定为当前工厂ID', example=1),
     'name': fields.String(required=True, description='角色名称', example='工厂管理员'),
     'code': fields.String(required=True, description='角色编码', example='factory_admin'),
     'description': fields.String(description='描述', example='工厂管理员'),
     'sort_order': fields.Integer(description='排序', default=0, example=1),
-    'factory_id': fields.Integer(required=True, description='工厂ID'),
     'data_scope': fields.String(description='数据范围', choices=['all_factory', 'assigned', 'own_related', 'self_only'], example='all_factory'),
     'is_factory_admin': fields.Integer(description='是否工厂管理员角色', choices=[0, 1], example=1)
 })
@@ -50,7 +52,9 @@ role_assign_menu_model = role_ns.model('RoleAssignMenu', {
 
 role_item_model = role_ns.model('RoleItem', {
     'id': fields.Integer(description='角色ID'),
-    'factory_id': fields.Integer(description='工厂ID'),
+    'scope_type': fields.String(description='角色归属范围'),
+    'scope_type_label': fields.String(description='角色归属范围名称'),
+    'scope_id': fields.Integer(description='角色归属主键'),
     'name': fields.String(description='角色名称'),
     'code': fields.String(description='角色编码'),
     'description': fields.String(description='角色描述'),
@@ -110,10 +114,11 @@ class RoleList(Resource):
         current_user = get_current_user()
         if not current_user:
             return ApiResponse.error('用户不存在')
+        current_factory_id = get_current_factory_id()
 
-        result, error = RoleService.get_role_list(current_user, args)
+        result, error = RoleService.get_role_list(current_user, args, current_factory_id)
         if error:
-            return ApiResponse.error(error, 400)
+            return ApiResponse.error(error, 403 if error == '无权限查看角色' else 400)
 
         return ApiResponse.success({
             'items': roles_schema.dump(result['items']),
@@ -127,26 +132,29 @@ class RoleList(Resource):
     @role_ns.expect(role_create_model)
     @role_ns.response(201, '创建成功', role_item_response)
     @role_ns.response(400, '参数错误', error_response)
-    @role_ns.response(403, '只有平台管理员可创建', forbidden_response)
+    @role_ns.response(403, '无权限创建', forbidden_response)
     @role_ns.response(409, '角色编码或名称已存在', error_response)
     def post(self):
-        """在指定工厂下创建角色。"""
+        """按归属范围创建角色，支持平台角色与工厂角色。"""
         current_user = get_current_user()
-        if not current_user.is_platform_admin:
-            return ApiResponse.error('只有平台管理员可以创建角色', 403)
+        current_factory_id = get_current_factory_id()
+        if not current_user:
+            return ApiResponse.error('用户不存在')
 
         try:
             data = role_create_schema.load(request.get_json())
         except ValidationError as e:
             return ApiResponse.error(str(e.messages), 400)
 
-        factory_id = request.get_json().get('factory_id')
-        if not factory_id:
-            return ApiResponse.error('请指定工厂ID', 400)
+        if not current_user.is_platform_admin:
+            if not RoleService.has_factory_admin_permission(current_user, current_factory_id):
+                return ApiResponse.error('只有平台管理员或工厂管理员可以创建角色', 403)
+            data['scope_type'] = 'factory'
+            data['scope_id'] = current_factory_id
 
-        role, error = RoleService.create_role(data, factory_id)
+        role, error = RoleService.create_role(data)
         if error:
-            return ApiResponse.error(error, 409)
+            return ApiResponse.error(error, 400 if 'scope_id' in error else 409)
         return ApiResponse.success(role_schema.dump(role), '创建成功', 201)
 
 
@@ -173,12 +181,13 @@ class RoleDetail(Resource):
     def patch(self, role_id):
         """更新角色名称、数据范围和工厂管理员标识。"""
         current_user = get_current_user()
-        if not current_user.is_platform_admin:
-            return ApiResponse.error('只有平台管理员可以更新角色', 403)
+        current_factory_id = get_current_factory_id()
 
         role = RoleService.get_role_by_id(role_id)
         if not role:
             return ApiResponse.error('角色不存在')
+        if not RoleService.can_manage_role(current_user, role, current_factory_id):
+            return ApiResponse.error('只有平台管理员或本工厂管理员可以更新角色', 403)
 
         try:
             data = role_update_schema.load(request.get_json())
@@ -198,12 +207,13 @@ class RoleDetail(Resource):
     def delete(self, role_id):
         """删除角色，删除前会检查是否仍被用户占用。"""
         current_user = get_current_user()
-        if not current_user.is_platform_admin:
-            return ApiResponse.error('只有平台管理员可以删除角色', 403)
+        current_factory_id = get_current_factory_id()
 
         role = RoleService.get_role_by_id(role_id)
         if not role:
             return ApiResponse.error('角色不存在')
+        if not RoleService.can_manage_role(current_user, role, current_factory_id):
+            return ApiResponse.error('只有平台管理员或本工厂管理员可以删除角色', 403)
 
         success, error = RoleService.delete_role(role)
         if not success:
@@ -235,12 +245,13 @@ class RoleMenus(Resource):
     def post(self, role_id):
         """重建角色菜单权限绑定关系。"""
         current_user = get_current_user()
-        if not current_user.is_platform_admin:
-            return ApiResponse.error('只有平台管理员可以分配权限', 403)
+        current_factory_id = get_current_factory_id()
 
         role = RoleService.get_role_by_id(role_id)
         if not role:
             return ApiResponse.error('角色不存在')
+        if not RoleService.can_manage_role(current_user, role, current_factory_id):
+            return ApiResponse.error('只有平台管理员或本工厂管理员可以分配权限', 403)
 
         try:
             data = role_assign_menu_schema.load(request.get_json())

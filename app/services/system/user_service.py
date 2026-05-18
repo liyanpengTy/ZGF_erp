@@ -2,6 +2,7 @@
 
 from flask_jwt_extended import get_jwt
 
+from app.constants.identity import ROLE_SCOPE_FACTORY, ROLE_SCOPE_PLATFORM
 from app.extensions import bcrypt, db
 from app.models.auth.user import User
 from app.models.system.menu import Menu
@@ -9,6 +10,7 @@ from app.models.system.role import Role, role_menu
 from app.models.system.user_factory import UserFactory
 from app.models.system.user_factory_role import UserFactoryRole
 from app.services.base.base_service import BaseService
+from app.services.system.role_service import RoleService
 
 
 class UserService(BaseService):
@@ -110,31 +112,65 @@ class UserService(BaseService):
     @staticmethod
     def get_user_roles(user_id, factory_id):
         """查询用户在指定工厂上下文下的角色集合。"""
-        role_ids = db.session.query(UserFactoryRole.role_id).filter_by(
-            user_id=user_id,
-            factory_id=factory_id,
-            is_deleted=0
-        ).all()
-        role_ids = [role_id for role_id, in role_ids]
-        if role_ids:
-            return Role.query.filter(Role.id.in_(role_ids), Role.is_deleted == 0).all()
-        return []
+        role_query = UserFactoryRole.query.join(Role, Role.id == UserFactoryRole.role_id).filter(
+            UserFactoryRole.user_id == user_id,
+            UserFactoryRole.factory_id == factory_id,
+            UserFactoryRole.is_deleted == 0,
+            Role.status == 1,
+            Role.is_deleted == 0,
+        )
+        if factory_id == 0:
+            role_query = role_query.filter(
+                Role.scope_type == ROLE_SCOPE_PLATFORM,
+                Role.scope_id == 0,
+            )
+        else:
+            role_query = role_query.filter(
+                Role.scope_type == ROLE_SCOPE_FACTORY,
+                Role.scope_id == factory_id,
+            )
+        return [record.role for record in role_query.all()]
 
     @staticmethod
     def assign_roles(user_id, role_ids, factory_id, current_user):
         """先清空旧角色，再按当前上下文重建新的角色绑定。"""
+        target_user = UserService.get_user_by_id(user_id)
+        if not target_user:
+            return False, '用户不存在'
+
+        role_scope_types = set()
         for role_id in role_ids:
             role = Role.query.filter_by(id=role_id, is_deleted=0).first()
             if not role:
                 return False, f'角色ID {role_id} 不存在'
-            if role.factory_id > 0 and role.factory_id != factory_id:
-                return False, f'角色 {role.name} 不属于该工厂'
+            role_scope_types.add(role.scope_type)
+            if role.is_factory_role:
+                if not factory_id:
+                    return False, '工厂角色分配必须指定工厂ID'
+                if role.scope_id != factory_id:
+                    return False, f'角色 {role.name} 不属于该工厂'
+            if role.is_platform_role and not target_user.is_internal_user:
+                return False, f'角色 {role.name} 只能分配给平台内部用户'
 
-        if factory_id is not None:
+        if len(role_scope_types) > 1:
+            return False, '不能在同一次分配中混合平台角色和工厂角色'
+
+        if ROLE_SCOPE_PLATFORM in role_scope_types or (not role_scope_types and target_user.is_internal_user and factory_id in (None, 0)):
+            assignment_factory_id = 0
+        else:
+            assignment_factory_id = factory_id
+
+        if not current_user.is_platform_admin:
+            if assignment_factory_id == 0 or ROLE_SCOPE_PLATFORM in role_scope_types:
+                return False, '只有平台管理员可以分配平台角色'
+            if not RoleService.has_factory_admin_permission(current_user, assignment_factory_id):
+                return False, '只有平台管理员或本工厂管理员可以分配工厂角色'
+
+        if assignment_factory_id is not None:
             db.session.execute(
                 UserFactoryRole.__table__.delete().where(
                     UserFactoryRole.user_id == user_id,
-                    UserFactoryRole.factory_id == factory_id
+                    UserFactoryRole.factory_id == assignment_factory_id
                 )
             )
         else:
@@ -144,7 +180,7 @@ class UserService(BaseService):
             role = Role.query.get(role_id)
             user_factory_role = UserFactoryRole(
                 user_id=user_id,
-                factory_id=0 if role.factory_id == 0 else factory_id,
+                factory_id=0 if role.is_platform_role else factory_id,
                 role_id=role_id
             )
             db.session.add(user_factory_role)
@@ -176,7 +212,8 @@ class UserService(BaseService):
                 UserFactoryRole.user_id == user.id,
                 UserFactoryRole.factory_id == 0,
                 UserFactoryRole.is_deleted == 0,
-                Role.factory_id == 0,
+                Role.scope_type == ROLE_SCOPE_PLATFORM,
+                Role.scope_id == 0,
                 Role.status == 1,
                 Role.is_deleted == 0
             ).all()
@@ -189,6 +226,8 @@ class UserService(BaseService):
                 UserFactoryRole.user_id == user.id,
                 UserFactoryRole.factory_id == factory_id,
                 UserFactoryRole.is_deleted == 0,
+                Role.scope_type == ROLE_SCOPE_FACTORY,
+                Role.scope_id == factory_id,
                 Role.status == 1,
                 Role.is_deleted == 0
             ).all()

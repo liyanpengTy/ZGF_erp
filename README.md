@@ -90,97 +90,79 @@ flask --app run.py run
 - `FLASK_PORT`：默认 `5000`
 - `FLASK_DEBUG`：默认 `1`
 
-## 项目初始化
+## 数据初始化
 
-### 初始化分层说明
-当前项目初始化分为两层：
+### 当前方案
+项目内置的 Python 初始化脚本与种子命令已移除，不再通过代码直接注入初始化数据。
 
-- 系统级初始化
-  包括平台账号、菜单、奖励配置、平台角色等基础数据。
+当前初始化改为本地 SQL 方式：
 
-- 演示级初始化
-  包括演示工厂、工厂角色、基础资料、订单演示数据、菲模板规则等。
+- 数据库表结构：通过 Alembic 迁移创建
+- 初始化基础数据：通过根目录下的本地 SQL 文件执行
+- 演示数据：不再默认提供
 
-### 推荐初始化方式
+### 初始化 SQL 目录
+根目录下会生成本地 SQL 目录：
 
-#### 方式一：一键完整初始化
-适用于首次搭建本地环境，或需要快速重建一套标准测试数据的场景。
-
-```bash
-flask init-db
-flask seed-all
+```text
+local_sql_init/
 ```
 
 说明：
 
-- `flask init-db`：初始化数据库表
-- `flask seed-all`：执行完整初始化，先初始化系统数据，再清理并重建演示数据
+- 该目录用于存放可执行的初始化 SQL
+- 该目录已加入 `.gitignore`
+- 该目录不会被 Git 跟踪
 
-#### 方式二：分步骤初始化
-适用于需要单独控制系统数据和演示数据的场景。
+### SQL 文件分类
+建议按文件顺序执行：
 
-```bash
-flask init-db
-flask seed-system
-flask seed-demo-factory
+```text
+00_cleanup_demo_data.sql
+01_sys_user_admin.sql
+02_sys_menu.sql
+03_sys_reward_config.sql
+04_refactor_role_scope_fields.sql
 ```
 
-说明：
+各文件作用如下：
 
-- `flask seed-system`：初始化系统级种子数据
-- `flask seed-demo-factory`：重建演示工厂及其关联业务演示数据
+- `00_cleanup_demo_data.sql`
+  清理历史演示工厂、演示账号及其关联业务数据
 
-### 当前可用初始化命令
-
-```bash
-flask init-db
-flask seed-admin
-flask seed-menus
-flask seed-reward-config
-flask seed-system
-flask seed-demo-factory
-flask seed-all
-flask reset-demo-data
-```
-
-各命令作用如下：
-
-- `flask init-db`
-  初始化数据库表结构
-
-- `flask seed-admin`
+- `01_sys_user_admin.sql`
   初始化平台管理员账号
 
-- `flask seed-menus`
+- `02_sys_menu.sql`
   初始化系统菜单
 
-- `flask seed-reward-config`
+- `03_sys_reward_config.sql`
   初始化奖励配置
 
-- `flask seed-system`
-  初始化系统级种子数据，包括平台账号、菜单、奖励配置、平台角色
+- `04_refactor_role_scope_fields.sql`
+  将角色归属字段从 `factory_id` 迁移为 `scope_type + scope_id`
 
-- `flask seed-demo-factory`
-  重建演示工厂、工厂角色、基础资料和演示业务数据
+### 推荐执行顺序
 
-- `flask seed-all`
-  完整初始化当前项目所需的标准数据，推荐优先使用
+先执行数据库迁移：
 
-- `flask reset-demo-data`
-  显式重置演示数据，当前效果基本等同于 `flask seed-all`
+```bash
+flask db upgrade
+```
 
-### 初始化使用建议
+然后按顺序执行本地 SQL：
 
-- 本地首次启动项目：使用 `flask init-db` + `flask seed-all`
-- 只想补系统基础数据：使用 `flask seed-system`
-- 只想重建演示工厂和测试数据：使用 `flask seed-demo-factory`
-- 演示数据混乱需要重置：使用 `flask reset-demo-data`
+1. `00_cleanup_demo_data.sql`
+2. `01_sys_user_admin.sql`
+3. `02_sys_menu.sql`
+4. `03_sys_reward_config.sql`
+5. `04_refactor_role_scope_fields.sql`
 
-### 初始化设计说明
+### 初始化说明
 
-- 系统级数据和演示数据已经拆分，便于后续维护和扩展
-- 外部用户不会再通过初始化自动获得系统管理模块权限
-- 平台内部用户与工厂外部用户的权限初始化逻辑已按当前身份模型整理
+- 当前默认仅保留平台管理员初始化数据
+- 外部用户、演示工厂、演示订单等演示数据不再自动注入
+- 初始化数据改为 SQL 后，更适合按环境手工控制执行
 
 ## 数据库迁移
 
@@ -239,15 +221,6 @@ python run.py
 flask --app run.py run
 ```
 
-### 数据初始化
-
-```bash
-flask init-db
-flask seed-system
-flask seed-demo-factory
-flask seed-all
-```
-
 ### 数据库迁移
 
 ```bash
@@ -298,7 +271,6 @@ ZGF_erp/
 │  ├─ schemas/             # Marshmallow 入参/出参校验
 │  ├─ services/            # 业务服务层
 │  ├─ utils/               # 通用工具
-│  ├─ bootstrap.py         # 初始化与演示数据
 │  ├─ commands.py          # Flask CLI 命令
 │  ├─ config.py            # 配置读取
 │  ├─ extensions.py        # 扩展初始化
@@ -306,6 +278,7 @@ ZGF_erp/
 ├─ instance/               # 本地 SQLite 等实例文件
 ├─ logs/                   # 日志目录
 ├─ migrations/             # Alembic 迁移脚本
+├─ local_sql_init/         # 本地初始化 SQL（已忽略 Git 跟踪）
 ├─ run.py                  # 启动入口
 ├─ requirements.txt        # 依赖列表
 └─ README.md               # 项目说明
@@ -342,12 +315,14 @@ ZGF_erp/
   - service
   - API
   - Swagger 注释
-  - 初始化权限菜单
+  - 权限菜单 SQL
 
 - 涉及权限码新增时，需同步检查：
-  - 菜单种子数据
+  - 菜单初始化 SQL
   - 角色菜单分配
   - 接口装饰器 `permission_required`
+
+- 项目内置的 Python 初始化脚本与种子命令已移除，初始化改为本地 SQL 执行
 
 ## 当前维护重点
 

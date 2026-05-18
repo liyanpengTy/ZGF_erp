@@ -3,7 +3,12 @@ from functools import wraps
 from flask_jwt_extended import get_jwt, get_jwt_identity, verify_jwt_in_request
 from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 
-from app.constants.identity import is_internal_platform_identity, is_write_permission
+from app.constants.identity import (
+    ROLE_SCOPE_FACTORY,
+    ROLE_SCOPE_PLATFORM,
+    is_internal_platform_identity,
+    is_write_permission,
+)
 from app.extensions import db
 from app.models.auth.user import User
 from app.models.system.factory import Factory
@@ -89,7 +94,8 @@ def _get_platform_role_ids(user_id):
         UserFactoryRole.user_id == user_id,
         UserFactoryRole.factory_id == 0,
         UserFactoryRole.is_deleted == 0,
-        Role.factory_id == 0,
+        Role.scope_type == ROLE_SCOPE_PLATFORM,
+        Role.scope_id == 0,
         Role.status == 1,
         Role.is_deleted == 0
     ).all()
@@ -102,6 +108,8 @@ def _get_factory_role_ids(user_id, factory_id):
         UserFactoryRole.user_id == user_id,
         UserFactoryRole.factory_id == factory_id,
         UserFactoryRole.is_deleted == 0,
+        Role.scope_type == ROLE_SCOPE_FACTORY,
+        Role.scope_id == factory_id,
         Role.status == 1,
         Role.is_deleted == 0
     ).all()
