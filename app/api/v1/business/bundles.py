@@ -1,7 +1,7 @@
 """菲查询、流转与打印预览接口。"""
 
 from flask import request
-from flask_restx import Namespace, Resource, fields, reqparse
+from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
 from app.constants.permissions import (
@@ -14,7 +14,7 @@ from app.constants.permissions import (
 )
 from app.api.common.auth import get_current_claims, get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
-from app.api.common.parsers import page_parser
+from app.api.common.parsers import new_query_parser, page_parser
 from app.schemas.business.bundle import (
     BundleCompleteSchema,
     BundleIssueSchema,
@@ -44,7 +44,7 @@ bundle_query_parser.add_argument('cut_batch_no', type=int, location='args', help
 bundle_query_parser.add_argument('status', type=str, location='args', help='菲状态', choices=['created', 'issued', 'in_progress', 'returned', 'completed', 'rework', 'cancelled'])
 bundle_query_parser.add_argument('priority', type=str, location='args', help='优先级', choices=['normal', 'urgent', 'top'])
 
-bundle_in_hand_stats_parser = reqparse.RequestParser()
+bundle_in_hand_stats_parser = new_query_parser()
 bundle_in_hand_stats_parser.add_argument('holder_user_id', type=int, location='args', help='持有人用户ID')
 bundle_in_hand_stats_parser.add_argument('process_id', type=int, location='args', help='工序ID')
 

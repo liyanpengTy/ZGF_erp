@@ -7,6 +7,7 @@ from app.schemas.system.menu import MenuSchema, MenuCreateSchema, MenuUpdateSche
 from marshmallow import ValidationError
 from app.api.common.auth import get_current_claims, get_current_user
 from app.api.common.models import get_common_models
+from app.api.common.parsers import new_query_parser
 from app.utils.permissions import login_required
 from app.services import MenuService
 
@@ -20,7 +21,7 @@ forbidden_response = common['forbidden_response']
 page_response = common['page_response']
 
 # ========== 请求解析器 ==========
-menu_query_parser = menu_ns.parser()
+menu_query_parser = new_query_parser()
 menu_query_parser.add_argument('type', type=int, location='args', help='菜单类型 (0:目录,1:菜单,2:按钮)',
                                choices=[0, 1, 2])
 menu_query_parser.add_argument('status', type=int, location='args', help='状态 (0:禁用,1:启用)', choices=[0, 1])
