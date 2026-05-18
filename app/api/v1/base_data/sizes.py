@@ -4,11 +4,18 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
+from app.constants.permissions import (
+    PERM_BASE_SIZE_ADD,
+    PERM_BASE_SIZE_DELETE,
+    PERM_BASE_SIZE_EDIT,
+    PERM_BASE_SIZE_QUERY,
+)
 from app.api.common.auth import get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
 from app.schemas.base_data.size import SizeCreateSchema, SizeSchema, SizeUpdateSchema
 from app.services import SizeService
+from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
@@ -65,6 +72,7 @@ size_update_schema = SizeUpdateSchema()
 @size_ns.route('')
 class SizeList(Resource):
     @login_required
+    @button_permission(PERM_BASE_SIZE_QUERY)
     @size_ns.expect(size_query_parser)
     @size_ns.response(200, '成功', size_list_response)
     @size_ns.response(401, '未登录', unauthorized_response)
@@ -87,6 +95,7 @@ class SizeList(Resource):
         })
 
     @login_required
+    @button_permission(PERM_BASE_SIZE_ADD)
     @size_ns.expect(size_create_model)
     @size_ns.response(201, '创建成功', size_item_response)
     @size_ns.response(400, '参数错误', error_response)
@@ -107,7 +116,8 @@ class SizeList(Resource):
 
         size, error = SizeService.create_size(current_user, current_factory_id, data)
         if error:
-            return ApiResponse.error(error, 409 if '已存在' in error else 400)
+            status_code = 409 if '已存在' in error else 403 if '权限' in error or '管理员' in error else 400
+            return ApiResponse.error(error, status_code)
 
         return ApiResponse.success(size_schema.dump(size), '创建成功', 201)
 
@@ -115,6 +125,7 @@ class SizeList(Resource):
 @size_ns.route('/<int:size_id>')
 class SizeDetail(Resource):
     @login_required
+    @button_permission(PERM_BASE_SIZE_QUERY)
     @size_ns.response(200, '成功', size_item_response)
     @size_ns.response(401, '未登录', unauthorized_response)
     @size_ns.response(403, '无权限', forbidden_response)
@@ -135,6 +146,7 @@ class SizeDetail(Resource):
         return ApiResponse.success(size_schema.dump(size))
 
     @login_required
+    @button_permission(PERM_BASE_SIZE_EDIT)
     @size_ns.expect(size_update_model)
     @size_ns.response(200, '更新成功', size_item_response)
     @size_ns.response(400, '参数错误', error_response)
@@ -150,8 +162,9 @@ class SizeDetail(Resource):
         if not size:
             return ApiResponse.error('尺码不存在')
 
-        if not SizeService.check_manage_permission(current_user, current_factory_id, size)[0]:
-            return ApiResponse.error('只能修改自己工厂的尺码', 403)
+        can_manage, error = SizeService.check_manage_permission(current_user, current_factory_id, size)
+        if not can_manage:
+            return ApiResponse.error(error, 403)
 
         try:
             data = size_update_schema.load(request.get_json() or {})
@@ -165,6 +178,7 @@ class SizeDetail(Resource):
         return ApiResponse.success(size_schema.dump(size), '更新成功')
 
     @login_required
+    @button_permission(PERM_BASE_SIZE_DELETE)
     @size_ns.response(200, '删除成功', base_response)
     @size_ns.response(401, '未登录', unauthorized_response)
     @size_ns.response(403, '无权限', forbidden_response)
@@ -176,7 +190,8 @@ class SizeDetail(Resource):
         size = SizeService.get_size_by_id(size_id)
         if not size:
             return ApiResponse.error('尺码不存在')
-        if not SizeService.check_manage_permission(current_user, current_factory_id, size)[0]:
-            return ApiResponse.error('只能删除自己工厂的尺码', 403)
+        can_manage, error = SizeService.check_manage_permission(current_user, current_factory_id, size)
+        if not can_manage:
+            return ApiResponse.error(error, 403)
         SizeService.delete_size(size)
         return ApiResponse.success(message='删除成功')

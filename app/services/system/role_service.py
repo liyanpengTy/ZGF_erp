@@ -14,6 +14,11 @@ from app.models.system.user_factory_role import UserFactoryRole
 from app.services.base.base_service import BaseService
 
 
+FACTORY_ROLE_FORBIDDEN_PERMISSION_PREFIXES = (
+    'system.',
+)
+
+
 class RoleService(BaseService):
     """角色管理服务。"""
 
@@ -204,12 +209,24 @@ class RoleService(BaseService):
         return [menu_id for menu_id, in menu_ids]
 
     @staticmethod
-    def assign_role_menus(role_id, menu_ids):
-        """重建角色菜单权限映射。"""
+    def assign_role_menus(role_id, menu_ids, current_user=None, role=None):
+        """重建角色菜单权限映射；工厂管理员不能给工厂角色绑定平台级权限。"""
+        role = role or RoleService.get_role_by_id(role_id)
+        if not role:
+            return False, '角色不存在'
+
         for menu_id in menu_ids:
             menu = Menu.query.filter_by(id=menu_id, is_deleted=0).first()
             if not menu:
                 return False, f'菜单ID {menu_id} 不存在'
+            if (
+                current_user
+                and not current_user.is_platform_admin
+                and role.is_factory_role
+                and menu.permission
+                and menu.permission.startswith(FACTORY_ROLE_FORBIDDEN_PERMISSION_PREFIXES)
+            ):
+                return False, f'工厂角色不允许绑定平台级权限 {menu.permission}'
 
         db.session.execute(role_menu.delete().where(role_menu.c.role_id == role_id))
 

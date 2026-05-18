@@ -42,14 +42,24 @@ class FactoryService(BaseService):
         """按筛选条件分页查询工厂列表。"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
+        return_all = filters.get('return_all', False)
         name = filters.get('name', '')
         status = filters.get('status')
-
         query = Factory.query.filter_by(is_deleted=0)
         if name:
             query = query.filter(Factory.name.like(f'%{name}%'))
         if status is not None:
-            query = query.filter_by(status=status)
+            query = query.filter_by(status=int(status))
+
+        if return_all:
+            items = query.order_by(Factory.id.desc()).all()
+            return {
+                'items': items,
+                'total': len(items),
+                'page': 1,
+                'page_size': len(items),
+                'pages': 1 if items else 0
+            }
 
         pagination = query.order_by(Factory.id.desc()).paginate(page=page, per_page=page_size, error_out=False)
         return {

@@ -4,7 +4,14 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_claims, get_current_factory_id, get_current_user
+from app.constants.permissions import (
+    PERM_BUSINESS_BUNDLE_RULE_EDIT,
+    PERM_BUSINESS_BUNDLE_TEMPLATE_ADD,
+    PERM_BUSINESS_BUNDLE_TEMPLATE_DELETE,
+    PERM_BUSINESS_BUNDLE_TEMPLATE_EDIT,
+    PERM_BUSINESS_BUNDLE_TEMPLATE_QUERY,
+)
+from app.api.common.auth import get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
 from app.schemas.business.bundle import (
     BundleTemplateCreateSchema,
@@ -14,6 +21,7 @@ from app.schemas.business.bundle import (
     FactoryBundleRuleUpdateSchema,
 )
 from app.services import BundleTemplateService, FactoryService
+from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
@@ -138,18 +146,10 @@ def resolve_factory_context(require_write=False):
     return current_user, current_factory_id, None
 
 
-def check_manage_permission(current_user):
-    """校验当前用户是否可以维护工厂菲模板与菲规则。"""
-    claims = get_current_claims()
-    relation_type = claims.get('relation_type')
-    if current_user.is_internal_user:
-        return True
-    return relation_type == 'owner'
-
-
 @bundle_template_ns.route('/field-options')
 class BundleFieldOptions(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_BUNDLE_TEMPLATE_QUERY)
     @bundle_template_ns.response(200, '成功', bundle_field_option_response)
     @bundle_template_ns.response(401, '未登录', unauthorized_response)
     def get(self):
@@ -167,6 +167,7 @@ class BundleFieldOptions(Resource):
 @bundle_template_ns.route('')
 class BundleTemplateList(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_BUNDLE_TEMPLATE_QUERY)
     @bundle_template_ns.response(200, '成功', bundle_template_list_response)
     @bundle_template_ns.response(401, '未登录', unauthorized_response)
     def get(self):
@@ -178,6 +179,7 @@ class BundleTemplateList(Resource):
         return ApiResponse.success(bundle_templates_schema.dump(templates))
 
     @login_required
+    @button_permission(PERM_BUSINESS_BUNDLE_TEMPLATE_ADD)
     @bundle_template_ns.expect(bundle_template_create_model)
     @bundle_template_ns.response(201, '创建成功', bundle_template_item_response)
     @bundle_template_ns.response(400, '参数错误', error_response)
@@ -188,8 +190,6 @@ class BundleTemplateList(Resource):
         current_user, current_factory_id, error_response_obj = resolve_factory_context(require_write=True)
         if error_response_obj:
             return error_response_obj
-        if not check_manage_permission(current_user):
-            return ApiResponse.error('只有工厂管理员或平台内部人员可以维护菲模板', 403)
         try:
             data = bundle_template_create_schema.load(request.get_json() or {})
         except ValidationError as exc:
@@ -203,6 +203,7 @@ class BundleTemplateList(Resource):
 @bundle_template_ns.route('/<int:template_id>')
 class BundleTemplateDetail(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_BUNDLE_TEMPLATE_QUERY)
     @bundle_template_ns.response(200, '成功', bundle_template_item_response)
     @bundle_template_ns.response(401, '未登录', unauthorized_response)
     @bundle_template_ns.response(404, '模板不存在', error_response)
@@ -217,6 +218,7 @@ class BundleTemplateDetail(Resource):
         return ApiResponse.success(bundle_template_schema.dump(template))
 
     @login_required
+    @button_permission(PERM_BUSINESS_BUNDLE_TEMPLATE_EDIT)
     @bundle_template_ns.expect(bundle_template_update_model)
     @bundle_template_ns.response(200, '更新成功', bundle_template_item_response)
     @bundle_template_ns.response(400, '参数错误', error_response)
@@ -228,8 +230,6 @@ class BundleTemplateDetail(Resource):
         current_user, current_factory_id, error_response_obj = resolve_factory_context(require_write=True)
         if error_response_obj:
             return error_response_obj
-        if not check_manage_permission(current_user):
-            return ApiResponse.error('只有工厂管理员或平台内部人员可以维护菲模板', 403)
         template = BundleTemplateService.get_template_by_id(template_id)
         if not template or template.template_scope != 'factory' or template.factory_id != current_factory_id:
             return ApiResponse.error('模板不存在', 404)
@@ -243,6 +243,7 @@ class BundleTemplateDetail(Resource):
         return ApiResponse.success(bundle_template_schema.dump(template), '更新成功')
 
     @login_required
+    @button_permission(PERM_BUSINESS_BUNDLE_TEMPLATE_DELETE)
     @bundle_template_ns.response(200, '删除成功', base_response)
     @bundle_template_ns.response(401, '未登录', unauthorized_response)
     @bundle_template_ns.response(403, '无权限', forbidden_response)
@@ -252,8 +253,6 @@ class BundleTemplateDetail(Resource):
         current_user, current_factory_id, error_response_obj = resolve_factory_context(require_write=True)
         if error_response_obj:
             return error_response_obj
-        if not check_manage_permission(current_user):
-            return ApiResponse.error('只有工厂管理员或平台内部人员可以维护菲模板', 403)
         template = BundleTemplateService.get_template_by_id(template_id)
         if not template or template.template_scope != 'factory' or template.factory_id != current_factory_id:
             return ApiResponse.error('模板不存在', 404)
@@ -266,6 +265,7 @@ class BundleTemplateDetail(Resource):
 @bundle_template_ns.route('/rule')
 class FactoryBundleRuleDetail(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_BUNDLE_TEMPLATE_QUERY)
     @bundle_template_ns.response(200, '成功', bundle_rule_response)
     @bundle_template_ns.response(401, '未登录', unauthorized_response)
     def get(self):
@@ -277,6 +277,7 @@ class FactoryBundleRuleDetail(Resource):
         return ApiResponse.success(bundle_rule_schema.dump(rule))
 
     @login_required
+    @button_permission(PERM_BUSINESS_BUNDLE_RULE_EDIT)
     @bundle_template_ns.expect(bundle_rule_update_model)
     @bundle_template_ns.response(200, '更新成功', bundle_rule_response)
     @bundle_template_ns.response(400, '参数错误', error_response)
@@ -287,8 +288,6 @@ class FactoryBundleRuleDetail(Resource):
         current_user, current_factory_id, error_response_obj = resolve_factory_context(require_write=True)
         if error_response_obj:
             return error_response_obj
-        if not check_manage_permission(current_user):
-            return ApiResponse.error('只有工厂管理员或平台内部人员可以维护菲规则', 403)
         try:
             data = bundle_rule_update_schema.load(request.get_json() or {})
         except ValidationError as exc:

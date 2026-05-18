@@ -7,8 +7,18 @@ from marshmallow import ValidationError
 from app.api.common.auth import get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
+from app.constants.permissions import (
+    PERM_BUSINESS_PROCESS_ADD,
+    PERM_BUSINESS_PROCESS_DELETE,
+    PERM_BUSINESS_PROCESS_EDIT,
+    PERM_BUSINESS_PROCESS_QUERY,
+    PERM_BUSINESS_STYLE_PROCESS_ADD,
+    PERM_BUSINESS_STYLE_PROCESS_DELETE,
+    PERM_BUSINESS_STYLE_PROCESS_QUERY,
+)
 from app.schemas.business.process import ProcessCreateSchema, ProcessSchema, ProcessUpdateSchema, StyleProcessMappingSchema
 from app.services import ProcessService
+from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
@@ -102,6 +112,7 @@ def check_process_admin_permission(current_user):
 @process_ns.route('')
 class ProcessList(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_PROCESS_QUERY)
     @process_ns.expect(process_query_parser)
     @process_ns.response(200, '成功', process_list_response)
     @process_ns.response(401, '未登录', unauthorized_response)
@@ -120,6 +131,7 @@ class ProcessList(Resource):
         })
 
     @login_required
+    @button_permission(PERM_BUSINESS_PROCESS_ADD)
     @process_ns.expect(process_create_model)
     @process_ns.response(201, '创建成功', process_item_response)
     @process_ns.response(400, '参数错误', error_response)
@@ -147,6 +159,7 @@ class ProcessList(Resource):
 @process_ns.route('/<int:process_id>')
 class ProcessDetail(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_PROCESS_QUERY)
     @process_ns.response(200, '成功', process_item_response)
     @process_ns.response(401, '未登录', unauthorized_response)
     @process_ns.response(404, '工序不存在', error_response)
@@ -160,6 +173,7 @@ class ProcessDetail(Resource):
         return ApiResponse.success(process_schema.dump(process))
 
     @login_required
+    @button_permission(PERM_BUSINESS_PROCESS_EDIT)
     @process_ns.expect(process_update_model)
     @process_ns.response(200, '更新成功', process_item_response)
     @process_ns.response(400, '参数错误', error_response)
@@ -188,6 +202,7 @@ class ProcessDetail(Resource):
         return ApiResponse.success(process_schema.dump(process), '更新成功')
 
     @login_required
+    @button_permission(PERM_BUSINESS_PROCESS_DELETE)
     @process_ns.response(200, '删除成功', base_response)
     @process_ns.response(401, '未登录', unauthorized_response)
     @process_ns.response(403, '无权限', forbidden_response)
@@ -213,6 +228,7 @@ class ProcessDetail(Resource):
 @process_ns.route('/enabled')
 class EnabledProcesses(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_PROCESS_QUERY)
     @process_ns.response(200, '成功', base_response)
     @process_ns.response(401, '未登录', unauthorized_response)
     def get(self):
@@ -226,6 +242,7 @@ class EnabledProcesses(Resource):
 @process_ns.route('/styles/<int:style_id>/processes')
 class StyleProcesses(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_PROCESS_QUERY)
     @process_ns.response(200, '成功', style_process_list_response)
     @process_ns.response(401, '未登录', unauthorized_response)
     @process_ns.response(403, '无权限', forbidden_response)
@@ -245,6 +262,7 @@ class StyleProcesses(Resource):
         return ApiResponse.success(style_process_mapping_schema.dump(mappings, many=True))
 
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_PROCESS_ADD)
     @process_ns.expect(style_process_batch_save_model)
     @process_ns.response(200, '保存成功', style_process_list_response)
     @process_ns.response(401, '未登录', unauthorized_response)
@@ -269,6 +287,7 @@ class StyleProcesses(Resource):
 @process_ns.route('/styles/<int:style_id>/processes/<int:mapping_id>')
 class StyleProcessDetail(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_PROCESS_DELETE)
     @process_ns.response(200, '删除成功', base_response)
     @process_ns.response(401, '未登录', unauthorized_response)
     @process_ns.response(403, '无权限', forbidden_response)

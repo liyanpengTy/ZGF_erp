@@ -7,8 +7,15 @@ from marshmallow import ValidationError
 from app.api.common.auth import get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
+from app.constants.permissions import (
+    PERM_BUSINESS_STYLE_ELASTIC_ADD,
+    PERM_BUSINESS_STYLE_ELASTIC_DELETE,
+    PERM_BUSINESS_STYLE_ELASTIC_EDIT,
+    PERM_BUSINESS_STYLE_ELASTIC_QUERY,
+)
 from app.schemas.business.style_elastic import StyleElasticCreateSchema, StyleElasticSchema, StyleElasticUpdateSchema
 from app.services import StyleElasticService
+from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
@@ -110,6 +117,7 @@ style_elastic_update_schema = StyleElasticUpdateSchema()
 @style_elastic_ns.route('')
 class StyleElasticList(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_ELASTIC_QUERY)
     @style_elastic_ns.expect(style_elastic_query_parser)
     @style_elastic_ns.response(200, '成功', style_elastic_list_response)
     @style_elastic_ns.response(401, '未登录', unauthorized_response)
@@ -150,6 +158,7 @@ class StyleElasticList(Resource):
         })
 
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_ELASTIC_ADD)
     @style_elastic_ns.expect(style_elastic_create_model)
     @style_elastic_ns.response(201, '创建成功', style_elastic_item_response)
     @style_elastic_ns.response(400, '参数错误', error_response)
@@ -187,6 +196,7 @@ class StyleElasticList(Resource):
 @style_elastic_ns.route('/batch')
 class StyleElasticBatch(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_ELASTIC_ADD)
     @style_elastic_ns.expect(style_elastic_batch_create_model)
     @style_elastic_ns.response(200, '保存成功', base_response)
     @style_elastic_ns.response(400, '参数错误', error_response)
@@ -220,6 +230,7 @@ class StyleElasticBatch(Resource):
 @style_elastic_ns.route('/<int:elastic_id>')
 class StyleElasticDetail(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_ELASTIC_QUERY)
     @style_elastic_ns.response(200, '成功', style_elastic_item_response)
     @style_elastic_ns.response(401, '未登录', unauthorized_response)
     @style_elastic_ns.response(403, '无权限', forbidden_response)
@@ -241,6 +252,7 @@ class StyleElasticDetail(Resource):
         return ApiResponse.success(result)
 
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_ELASTIC_EDIT)
     @style_elastic_ns.expect(style_elastic_update_model)
     @style_elastic_ns.response(200, '更新成功', style_elastic_item_response)
     @style_elastic_ns.response(400, '参数错误', error_response)
@@ -276,6 +288,7 @@ class StyleElasticDetail(Resource):
         return ApiResponse.success(result, '更新成功')
 
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_ELASTIC_DELETE)
     @style_elastic_ns.response(200, '删除成功', base_response)
     @style_elastic_ns.response(401, '未登录', unauthorized_response)
     @style_elastic_ns.response(403, '无权限', forbidden_response)

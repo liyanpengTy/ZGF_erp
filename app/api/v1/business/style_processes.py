@@ -7,8 +7,15 @@ from marshmallow import ValidationError
 from app.api.common.auth import get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
+from app.constants.permissions import (
+    PERM_BUSINESS_STYLE_PROCESS_ADD,
+    PERM_BUSINESS_STYLE_PROCESS_DELETE,
+    PERM_BUSINESS_STYLE_PROCESS_EDIT,
+    PERM_BUSINESS_STYLE_PROCESS_QUERY,
+)
 from app.schemas.business.style_process import StyleProcessCreateSchema, StyleProcessSchema, StyleProcessUpdateSchema
 from app.services import StyleProcessService
+from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
@@ -64,6 +71,7 @@ style_process_update_schema = StyleProcessUpdateSchema()
 @style_process_ns.route('')
 class StyleProcessList(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_PROCESS_QUERY)
     @style_process_ns.expect(style_process_query_parser)
     @style_process_ns.response(200, '成功', style_process_list_response)
     @style_process_ns.response(401, '未登录', unauthorized_response)
@@ -95,6 +103,7 @@ class StyleProcessList(Resource):
         })
 
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_PROCESS_ADD)
     @style_process_ns.expect(style_process_create_model)
     @style_process_ns.response(201, '创建成功', style_process_item_response)
     @style_process_ns.response(400, '参数错误', error_response)
@@ -126,6 +135,7 @@ class StyleProcessList(Resource):
 @style_process_ns.route('/<int:process_id>')
 class StyleProcessDetail(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_PROCESS_QUERY)
     @style_process_ns.response(200, '成功', style_process_item_response)
     @style_process_ns.response(401, '未登录', unauthorized_response)
     @style_process_ns.response(403, '无权限', forbidden_response)
@@ -146,6 +156,7 @@ class StyleProcessDetail(Resource):
         return ApiResponse.success(StyleProcessService.enrich_with_label(result, process))
 
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_PROCESS_EDIT)
     @style_process_ns.expect(style_process_update_model)
     @style_process_ns.response(200, '更新成功', style_process_item_response)
     @style_process_ns.response(400, '参数错误', error_response)
@@ -175,6 +186,7 @@ class StyleProcessDetail(Resource):
         return ApiResponse.success(StyleProcessService.enrich_with_label(result, process), '更新成功')
 
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_PROCESS_DELETE)
     @style_process_ns.response(200, '删除成功', base_response)
     @style_process_ns.response(401, '未登录', unauthorized_response)
     @style_process_ns.response(403, '无权限', forbidden_response)

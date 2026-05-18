@@ -4,11 +4,18 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
+from app.constants.permissions import (
+    PERM_BUSINESS_ORDER_ADD,
+    PERM_BUSINESS_ORDER_DELETE,
+    PERM_BUSINESS_ORDER_EDIT,
+    PERM_BUSINESS_ORDER_QUERY,
+)
 from app.api.common.auth import get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_with_date_parser
 from app.schemas.business.order import OrderCreateSchema, OrderSchema, OrderStatusUpdateSchema, OrderUpdateSchema
 from app.services import OrderService
+from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
@@ -491,6 +498,7 @@ def serialize_order_shipment_availability(order):
 @order_ns.route('')
 class OrderList(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_ORDER_QUERY)
     @order_ns.expect(order_query_parser)
     @order_ns.response(200, '成功', order_list_response)
     @order_ns.response(401, '未登录', unauthorized_response)
@@ -514,6 +522,7 @@ class OrderList(Resource):
         })
 
     @login_required
+    @button_permission(PERM_BUSINESS_ORDER_ADD)
     @order_ns.expect(order_create_model)
     @order_ns.response(201, '创建成功', order_item_response)
     @order_ns.response(400, '参数错误', error_response)
@@ -541,6 +550,7 @@ class OrderList(Resource):
 @order_ns.route('/<int:order_id>')
 class OrderDetail(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_ORDER_QUERY)
     @order_ns.response(200, '成功', order_item_response)
     @order_ns.response(401, '未登录', unauthorized_response)
     @order_ns.response(403, '无权限', forbidden_response)
@@ -564,6 +574,7 @@ class OrderDetail(Resource):
         return ApiResponse.success(serialize_order(order))
 
     @login_required
+    @button_permission(PERM_BUSINESS_ORDER_EDIT)
     @order_ns.expect(order_update_model)
     @order_ns.response(200, '更新成功', order_item_response)
     @order_ns.response(400, '参数错误', error_response)
@@ -595,6 +606,7 @@ class OrderDetail(Resource):
         return ApiResponse.success(serialize_order(order), '更新成功')
 
     @login_required
+    @button_permission(PERM_BUSINESS_ORDER_DELETE)
     @order_ns.response(200, '删除成功', base_response)
     @order_ns.response(401, '未登录', unauthorized_response)
     @order_ns.response(403, '无权限', forbidden_response)
@@ -622,6 +634,7 @@ class OrderDetail(Resource):
 @order_ns.route('/<int:order_id>/statistics')
 class OrderStatistics(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_ORDER_QUERY)
     @order_ns.response(200, '成功', order_statistics_response)
     @order_ns.response(401, '未登录', unauthorized_response)
     @order_ns.response(403, '无权限', forbidden_response)
@@ -648,6 +661,7 @@ class OrderStatistics(Resource):
 @order_ns.route('/<int:order_id>/status')
 class OrderStatus(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_ORDER_EDIT)
     @order_ns.expect(order_status_update_model)
     @order_ns.response(200, '更新成功', order_item_response)
     @order_ns.response(400, '参数错误', error_response)
@@ -682,6 +696,7 @@ class OrderStatus(Resource):
 @order_ns.route('/<int:order_id>/production-statistics')
 class OrderProductionStatistics(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_ORDER_QUERY)
     @order_ns.response(200, '成功', order_production_statistics_response)
     @order_ns.response(401, '未登录', unauthorized_response)
     @order_ns.response(403, '无权限', forbidden_response)
@@ -708,6 +723,7 @@ class OrderProductionStatistics(Resource):
 @order_ns.route('/<int:order_id>/shipment-availability')
 class OrderShipmentAvailability(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_ORDER_QUERY)
     @order_ns.response(200, '成功', order_shipment_availability_response)
     @order_ns.response(401, '未登录', unauthorized_response)
     @order_ns.response(403, '无权限', forbidden_response)

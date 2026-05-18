@@ -31,7 +31,7 @@ menu_create_model = menu_ns.model('MenuCreate', {
     'name': fields.String(required=True, description='菜单名称', example='用户管理'),
     'path': fields.String(description='路由路径', example='/system/user'),
     'component': fields.String(description='组件路径', example='system/user/index'),
-    'permission': fields.String(description='权限标识', example='system:user:list'),
+    'permission': fields.String(description='权限标识', example='system.users.browse'),
     'type': fields.Integer(required=True, description='类型', example=1, choices=[0, 1, 2]),
     'icon': fields.String(description='图标', example='user'),
     'sort_order': fields.Integer(description='排序', default=0, example=1)

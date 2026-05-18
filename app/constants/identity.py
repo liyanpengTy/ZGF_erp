@@ -60,13 +60,20 @@ ROLE_SCOPES = {
 }
 
 WRITE_PERMISSION_SUFFIXES = (
-    ':add',
-    ':edit',
-    ':delete',
-    ':assign',
-    ':distribute',
-    ':reset',
-    ':bind',
+    '.create',
+    '.update',
+    '.delete',
+    '.assign',
+    '.distribute',
+    '.reset',
+    '.bind',
+    '.cancel',
+    '.issue',
+    '.return',
+    '.transfer',
+    '.complete',
+    '.print',
+    '.manage-roles',
 )
 
 

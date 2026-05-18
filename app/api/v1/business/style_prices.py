@@ -7,8 +7,14 @@ from marshmallow import ValidationError
 from app.api.common.auth import get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
+from app.constants.permissions import (
+    PERM_BUSINESS_STYLE_PRICE_ADD,
+    PERM_BUSINESS_STYLE_PRICE_DELETE,
+    PERM_BUSINESS_STYLE_PRICE_QUERY,
+)
 from app.schemas.business.style_price import StylePriceCreateSchema, StylePriceSchema
 from app.services import StylePriceService
+from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
@@ -65,6 +71,7 @@ style_price_create_schema = StylePriceCreateSchema()
 @style_price_ns.route('')
 class StylePriceList(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_PRICE_QUERY)
     @style_price_ns.expect(style_price_query_parser)
     @style_price_ns.response(200, '成功', style_price_list_response)
     @style_price_ns.response(401, '未登录', unauthorized_response)
@@ -96,6 +103,7 @@ class StylePriceList(Resource):
         })
 
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_PRICE_ADD)
     @style_price_ns.expect(style_price_create_model)
     @style_price_ns.response(201, '创建成功', style_price_item_response)
     @style_price_ns.response(400, '参数错误', error_response)
@@ -127,6 +135,7 @@ class StylePriceList(Resource):
 @style_price_ns.route('/<int:price_id>')
 class StylePriceDetail(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_PRICE_QUERY)
     @style_price_ns.response(200, '成功', style_price_item_response)
     @style_price_ns.response(401, '未登录', unauthorized_response)
     @style_price_ns.response(403, '无权限', forbidden_response)
@@ -151,6 +160,7 @@ class StylePriceDetail(Resource):
         return ApiResponse.success(StylePriceService.enrich_with_label(result, price))
 
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_PRICE_DELETE)
     @style_price_ns.response(200, '删除成功', base_response)
     @style_price_ns.response(401, '未登录', unauthorized_response)
     @style_price_ns.response(403, '无权限', forbidden_response)

@@ -258,9 +258,9 @@ class RoleMenus(Resource):
         except ValidationError as e:
             return ApiResponse.error(str(e.messages), 400)
 
-        success, error = RoleService.assign_role_menus(role_id, data['menu_ids'])
+        success, error = RoleService.assign_role_menus(role_id, data['menu_ids'], current_user, role)
         if not success:
-            return ApiResponse.error(error, 404)
+            return ApiResponse.error(error, 403 if '不允许' in error else 404)
         return ApiResponse.success(message='权限分配成功')
 
 

@@ -90,7 +90,7 @@ reward_stats_response = reward_ns.clone('RewardStatsResponse', base_response, {
 @reward_ns.route('/configs')
 class RewardConfigList(Resource):
     @login_required
-    @permission_required('system:reward:view')
+    @permission_required('system.rewards.browse')
     @reward_ns.response(200, '成功', reward_config_list_response)
     @reward_ns.response(401, '未登录', unauthorized_response)
     @reward_ns.response(403, '无权限', forbidden_response)
@@ -106,7 +106,7 @@ class RewardConfigList(Resource):
 @reward_ns.route('/pending')
 class PendingRewards(Resource):
     @login_required
-    @permission_required('system:reward:distribute')
+    @permission_required('system.rewards.distribute')
     @reward_ns.expect(reward_query_parser)
     @reward_ns.response(200, '成功', reward_list_response)
     @reward_ns.response(401, '未登录', unauthorized_response)
@@ -129,7 +129,7 @@ class PendingRewards(Resource):
 @reward_ns.route('/<int:reward_id>/distribute')
 class DistributeReward(Resource):
     @login_required
-    @permission_required('system:reward:distribute')
+    @permission_required('system.rewards.distribute')
     @reward_ns.response(200, '发放成功', base_response)
     @reward_ns.response(404, '奖励记录不存在', error_response)
     @reward_ns.response(403, '无权限', forbidden_response)
@@ -148,7 +148,7 @@ class DistributeReward(Resource):
 @reward_ns.route('/statistics')
 class RewardStatistics(Resource):
     @login_required
-    @permission_required('system:reward:view')
+    @permission_required('system.rewards.browse')
     @reward_ns.response(200, '成功', reward_stats_response)
     @reward_ns.response(401, '未登录', unauthorized_response)
     @reward_ns.response(403, '无权限', forbidden_response)

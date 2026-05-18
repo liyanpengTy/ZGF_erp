@@ -51,6 +51,9 @@ class SizeService(BaseService):
     @staticmethod
     def create_size(current_user, current_factory_id, data):
         """在当前工厂上下文中创建尺码。"""
+        can_manage, error = SizeService.check_factory_data_manage_permission(current_user, current_factory_id)
+        if not can_manage:
+            return None, error
         if not current_factory_id:
             return None, '请先切换到工厂上下文'
 
@@ -97,12 +100,25 @@ class SizeService(BaseService):
         if size.factory_id != 0 and size.factory_id != current_factory_id:
             return False, '无权限操作'
         return True, None
+
+    @staticmethod
+    def check_factory_data_manage_permission(current_user, current_factory_id):
+        """校验基础资料写入上下文；按钮权限由接口装饰器统一校验。"""
+        if not current_user:
+            return False, '用户不存在'
+        if current_user.is_platform_admin:
+            return True, None
+        if not current_factory_id:
+            return False, '当前登录态缺少工厂上下文，请先切换工厂'
+        return True, None
+
     @staticmethod
     def check_manage_permission(current_user, current_factory_id, size):
         """校验当前用户是否可以维护尺码，外部用户仅允许维护当前工厂自定义尺码。"""
-        if not current_user:
-            return False, '用户不存在'
-        if current_user.is_internal_user:
+        can_manage, error = SizeService.check_factory_data_manage_permission(current_user, current_factory_id)
+        if not can_manage:
+            return False, error
+        if current_user.is_platform_admin:
             return True, None
         if not current_factory_id:
             return False, '当前登录态缺少工厂上下文，请先切换工厂'

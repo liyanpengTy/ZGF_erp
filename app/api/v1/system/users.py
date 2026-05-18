@@ -7,7 +7,7 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_claims, get_current_user
+from app.api.common.auth import get_current_claims, get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
 from app.extensions import bcrypt
@@ -16,7 +16,7 @@ from app.models.system.factory import Factory
 from app.models.system.user_factory import UserFactory
 from app.schemas.auth.user import UserCreateSchema, UserResetPasswordSchema, UserSchema, UserUpdateSchema
 from app.schemas.system.role import RoleSchema
-from app.services import UserService
+from app.services import RoleService, UserService
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
@@ -54,7 +54,7 @@ user_reset_password_model = user_ns.model('ResetPassword', {
 
 user_assign_roles_model = user_ns.model('AssignRoles', {
     'role_ids': fields.List(fields.Integer, required=True, description='角色ID列表', example=[1, 2]),
-    'factory_id': fields.Integer(description='工厂ID')
+    'factory_id': fields.Integer(description='角色分配上下文：平台角色传0或不传，工厂角色传工厂ID')
 })
 
 user_item_model = user_ns.model('UserItem', {
@@ -104,14 +104,48 @@ user_reset_password_schema = UserResetPasswordSchema()
 role_schema = RoleSchema(many=True)
 
 
-def get_owner_relation(current_user):
-    """获取当前用户作为工厂 owner 的有效绑定关系。"""
-    return UserFactory.query.filter_by(
-        user_id=current_user.id,
-        relation_type='owner',
+def get_active_factory_ids(user):
+    """查询用户当前有效挂靠的工厂ID列表。"""
+    if not user:
+        return []
+    factory_records = UserFactory.query.filter_by(
+        user_id=user.id,
         status=1,
         is_deleted=0
-    ).first()
+    ).all()
+    return [record.factory_id for record in factory_records]
+
+
+def is_target_user_in_factory(target_user, factory_id):
+    """判断目标用户是否属于指定工厂，用于工厂管理员跨用户操作校验。"""
+    if not target_user or not factory_id:
+        return False
+    return UserFactory.query.filter_by(
+        user_id=target_user.id,
+        factory_id=factory_id,
+        status=1,
+        is_deleted=0
+    ).first() is not None
+
+
+def resolve_manage_factory_id(current_user, requested_factory_id=None):
+    """解析当前用户可管理的工厂ID；平台管理员不限制，外部用户必须是本工厂管理员。"""
+    if not current_user:
+        return None, '用户不存在'
+    if current_user.is_platform_admin:
+        return requested_factory_id, None
+    if current_user.is_internal_user:
+        return None, '平台员工仅支持查看用户数据'
+
+    candidate_factory_id = requested_factory_id or get_current_factory_id()
+    if candidate_factory_id and RoleService.has_factory_admin_permission(current_user, candidate_factory_id):
+        return candidate_factory_id, None
+
+    for factory_id in get_active_factory_ids(current_user):
+        if RoleService.has_factory_admin_permission(current_user, factory_id):
+            return factory_id, None
+
+    return None, '只有工厂管理员可以维护本工厂用户'
 
 
 def check_user_permission(current_user, target_user):
@@ -119,21 +153,17 @@ def check_user_permission(current_user, target_user):
     if current_user.is_internal_user:
         return True, None
 
-    owner_relation = get_owner_relation(current_user)
-    if not owner_relation:
-        if target_user.id == current_user.id:
-            return True, None
-        return False, '无权限操作'
+    if target_user.id == current_user.id:
+        return True, None
 
-    target_factory = UserFactory.query.filter_by(
-        user_id=target_user.id,
-        factory_id=owner_relation.factory_id,
-        status=1,
-        is_deleted=0
-    ).first()
-    if not target_factory and target_user.id != current_user.id:
-        return False, '只能操作自己工厂的用户'
-    return True, None
+    for factory_id in get_active_factory_ids(current_user):
+        if (
+            RoleService.has_factory_admin_permission(current_user, factory_id)
+            and is_target_user_in_factory(target_user, factory_id)
+        ):
+            return True, None
+
+    return False, '无权限操作'
 
 
 def check_user_write_permission(current_user, target_user):
@@ -142,6 +172,8 @@ def check_user_write_permission(current_user, target_user):
         return True, None
     if current_user.is_internal_user:
         return False, '平台员工仅支持查看用户数据'
+    if target_user.id == current_user.id:
+        return True, None
     return check_user_permission(current_user, target_user)
 
 
@@ -157,6 +189,9 @@ class UserList(Resource):
         current_user = get_current_user()
         if not current_user:
             return ApiResponse.error('用户不存在')
+
+        if not current_user.is_internal_user and not args.get('factory_id'):
+            args['factory_id'] = get_current_factory_id()
 
         result = UserService.get_user_list(current_user, args)
         return ApiResponse.success({
@@ -190,10 +225,9 @@ class UserList(Resource):
         if current_user.is_platform_admin:
             pass
         else:
-            owner_relation = get_owner_relation(current_user)
-            if not owner_relation:
-                return ApiResponse.error('无权限创建用户', 403)
-            factory_id = owner_relation.factory_id
+            factory_id, error = resolve_manage_factory_id(current_user, factory_id)
+            if error:
+                return ApiResponse.error(error, 403)
             platform_identity = 'external_user'
 
         existing_user = UserService.get_user_by_username(data['username'])
@@ -374,21 +408,23 @@ class UserRoles(Resource):
         if not target_user:
             return ApiResponse.error('用户不存在', 404)
 
-        has_permission, error = check_user_write_permission(current_user, target_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
-
         data = request.get_json() or {}
         role_ids = data.get('role_ids', [])
         factory_id = data.get('factory_id')
 
         if factory_id is None and not current_user.is_internal_user:
-            owner_relation = get_owner_relation(current_user)
-            if owner_relation:
-                factory_id = owner_relation.factory_id
+            factory_id, error = resolve_manage_factory_id(current_user)
+            if error:
+                return ApiResponse.error(error, 403)
 
         if factory_id is None and not target_user.is_internal_user:
             return ApiResponse.error('请指定工厂ID', 400)
+
+        if not current_user.is_platform_admin:
+            if not RoleService.has_factory_admin_permission(current_user, factory_id):
+                return ApiResponse.error('只有平台管理员或本工厂管理员可以分配角色', 403)
+            if not is_target_user_in_factory(target_user, factory_id):
+                return ApiResponse.error('只能给本工厂用户分配角色', 403)
 
         success, error = UserService.assign_roles(user_id, role_ids, factory_id, current_user)
         if not success:

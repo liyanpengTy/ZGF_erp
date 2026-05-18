@@ -4,11 +4,17 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_claims, get_current_factory_id, get_current_user
+from app.constants.permissions import (
+    PERM_BUSINESS_SHIPMENT_ADD,
+    PERM_BUSINESS_SHIPMENT_CANCEL,
+    PERM_BUSINESS_SHIPMENT_QUERY,
+)
+from app.api.common.auth import get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_with_date_parser
 from app.schemas.business.shipment import ShipmentCancelSchema, ShipmentCreateSchema, ShipmentSchema
 from app.services import ShipmentService
+from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
@@ -107,20 +113,10 @@ shipment_create_schema = ShipmentCreateSchema()
 shipment_cancel_schema = ShipmentCancelSchema()
 
 
-def check_shipment_write_permission(current_user):
-    """校验当前用户是否具备出货单写权限。"""
-    if not current_user:
-        return False
-    if current_user.is_internal_user:
-        return True
-    claims = get_current_claims()
-    relation_type = claims.get('relation_type')
-    return relation_type in {'owner', 'employee'}
-
-
 @shipment_ns.route('')
 class ShipmentList(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_SHIPMENT_QUERY)
     @shipment_ns.expect(shipment_query_parser)
     @shipment_ns.response(200, '成功', shipment_list_response)
     @shipment_ns.response(401, '未登录', unauthorized_response)
@@ -145,6 +141,7 @@ class ShipmentList(Resource):
         })
 
     @login_required
+    @button_permission(PERM_BUSINESS_SHIPMENT_ADD)
     @shipment_ns.expect(shipment_create_model)
     @shipment_ns.response(201, '创建成功', shipment_item_response)
     @shipment_ns.response(400, '参数错误', error_response)
@@ -158,9 +155,6 @@ class ShipmentList(Resource):
             return ApiResponse.error('用户不存在', 401)
         if not current_factory_id:
             return ApiResponse.error('当前缺少工厂上下文，请先切换工厂', 400)
-        if not check_shipment_write_permission(current_user):
-            return ApiResponse.error('当前用户没有创建出货单的权限', 403)
-
         try:
             data = shipment_create_schema.load(request.get_json() or {})
         except ValidationError as exc:
@@ -175,6 +169,7 @@ class ShipmentList(Resource):
 @shipment_ns.route('/<int:shipment_id>')
 class ShipmentDetail(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_SHIPMENT_QUERY)
     @shipment_ns.response(200, '成功', shipment_item_response)
     @shipment_ns.response(401, '未登录', unauthorized_response)
     @shipment_ns.response(404, '出货单不存在', error_response)
@@ -196,6 +191,7 @@ class ShipmentDetail(Resource):
 @shipment_ns.route('/<int:shipment_id>/cancel')
 class ShipmentCancel(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_SHIPMENT_CANCEL)
     @shipment_ns.expect(shipment_cancel_model)
     @shipment_ns.response(200, '作废成功', shipment_item_response)
     @shipment_ns.response(400, '参数错误', error_response)
@@ -210,9 +206,6 @@ class ShipmentCancel(Resource):
             return ApiResponse.error('用户不存在', 401)
         if not current_factory_id:
             return ApiResponse.error('当前缺少工厂上下文，请先切换工厂', 400)
-        if not check_shipment_write_permission(current_user):
-            return ApiResponse.error('当前用户没有作废出货单的权限', 403)
-
         shipment = ShipmentService.get_shipment_by_id(shipment_id)
         if not shipment or shipment.factory_id != current_factory_id:
             return ApiResponse.error('出货单不存在', 404)

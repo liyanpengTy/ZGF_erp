@@ -49,7 +49,15 @@ class UserService(BaseService):
                 user_ids = db.session.query(UserFactory.user_id).filter_by(factory_id=factory_id, status=1, is_deleted=0).all()
                 query = query.filter(User.id.in_([user_id for user_id, in user_ids]))
         else:
-            query = query.filter(User.id == current_user.id)
+            if factory_id and RoleService.has_factory_admin_permission(current_user, factory_id):
+                user_ids = db.session.query(UserFactory.user_id).filter_by(
+                    factory_id=factory_id,
+                    status=1,
+                    is_deleted=0
+                ).all()
+                query = query.filter(User.id.in_([user_id for user_id, in user_ids]))
+            else:
+                query = query.filter(User.id == current_user.id)
 
         if username:
             query = query.filter(User.username.like(f'%{username}%'))
@@ -149,6 +157,14 @@ class UserService(BaseService):
                     return False, '工厂角色分配必须指定工厂ID'
                 if role.scope_id != factory_id:
                     return False, f'角色 {role.name} 不属于该工厂'
+                target_factory = UserFactory.query.filter_by(
+                    user_id=user_id,
+                    factory_id=factory_id,
+                    status=1,
+                    is_deleted=0
+                ).first()
+                if not target_factory:
+                    return False, '目标用户不属于该工厂，不能分配工厂角色'
             if role.is_platform_role and not target_user.is_internal_user:
                 return False, f'角色 {role.name} 只能分配给平台内部用户'
 

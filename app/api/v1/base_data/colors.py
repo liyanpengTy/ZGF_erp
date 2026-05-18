@@ -4,11 +4,18 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
+from app.constants.permissions import (
+    PERM_BASE_COLOR_ADD,
+    PERM_BASE_COLOR_DELETE,
+    PERM_BASE_COLOR_EDIT,
+    PERM_BASE_COLOR_QUERY,
+)
 from app.api.common.auth import get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
 from app.schemas.base_data.color import ColorCreateSchema, ColorSchema, ColorUpdateSchema
 from app.services import ColorService
+from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
@@ -72,13 +79,13 @@ color_update_schema = ColorUpdateSchema()
 @color_ns.route('')
 class ColorList(Resource):
     @login_required
+    @button_permission(PERM_BASE_COLOR_QUERY)
     @color_ns.expect(color_query_parser)
     @color_ns.response(200, '成功', color_list_response)
     @color_ns.response(401, '未登录', unauthorized_response)
     def get(self):
         """查询颜色分页列表。"""
         args = color_query_parser.parse_args()
-        current_user = get_current_user()
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
@@ -95,6 +102,7 @@ class ColorList(Resource):
         })
 
     @login_required
+    @button_permission(PERM_BASE_COLOR_ADD)
     @color_ns.expect(color_create_model)
     @color_ns.response(201, '创建成功', color_item_response)
     @color_ns.response(400, '参数错误', error_response)
@@ -115,7 +123,8 @@ class ColorList(Resource):
 
         color, error = ColorService.create_color(current_user, current_factory_id, data)
         if error:
-            return ApiResponse.error(error, 409 if '已存在' in error else 400)
+            status_code = 409 if '已存在' in error else 403 if '权限' in error or '管理员' in error else 400
+            return ApiResponse.error(error, status_code)
 
         return ApiResponse.success(color_schema.dump(color), '创建成功', 201)
 
@@ -123,6 +132,7 @@ class ColorList(Resource):
 @color_ns.route('/<int:color_id>')
 class ColorDetail(Resource):
     @login_required
+    @button_permission(PERM_BASE_COLOR_QUERY)
     @color_ns.response(200, '成功', color_item_response)
     @color_ns.response(401, '未登录', unauthorized_response)
     @color_ns.response(403, '无权限', forbidden_response)
@@ -131,8 +141,6 @@ class ColorDetail(Resource):
         """查询颜色详情。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
-
-        current_user = get_current_user()
         color = ColorService.get_color_by_id(color_id)
         if not color:
             return ApiResponse.error('颜色不存在')
@@ -144,6 +152,7 @@ class ColorDetail(Resource):
         return ApiResponse.success(color_schema.dump(color))
 
     @login_required
+    @button_permission(PERM_BASE_COLOR_EDIT)
     @color_ns.expect(color_update_model)
     @color_ns.response(200, '更新成功', color_item_response)
     @color_ns.response(400, '参数错误', error_response)
@@ -152,12 +161,14 @@ class ColorDetail(Resource):
     @color_ns.response(404, '颜色不存在', error_response)
     def patch(self, color_id):
         """更新颜色。"""
+        current_user = get_current_user()
         current_factory_id = get_current_factory_id()
         color = ColorService.get_color_by_id(color_id)
         if not color:
             return ApiResponse.error('颜色不存在')
-        if not ColorService.check_manage_permission(get_current_user(), current_factory_id, color)[0]:
-            return ApiResponse.error('只能修改自己工厂的颜色', 403)
+        can_manage, error = ColorService.check_manage_permission(current_user, current_factory_id, color)
+        if not can_manage:
+            return ApiResponse.error(error, 403)
 
         try:
             data = color_update_schema.load(request.get_json() or {})
@@ -171,6 +182,7 @@ class ColorDetail(Resource):
         return ApiResponse.success(color_schema.dump(color), '更新成功')
 
     @login_required
+    @button_permission(PERM_BASE_COLOR_DELETE)
     @color_ns.response(200, '删除成功', base_response)
     @color_ns.response(401, '未登录', unauthorized_response)
     @color_ns.response(403, '无权限', forbidden_response)
@@ -182,7 +194,8 @@ class ColorDetail(Resource):
         color = ColorService.get_color_by_id(color_id)
         if not color:
             return ApiResponse.error('颜色不存在')
-        if not ColorService.check_manage_permission(get_current_user(), current_factory_id, color)[0]:
-            return ApiResponse.error('只能删除自己工厂的颜色', 403)
+        can_manage, error = ColorService.check_manage_permission(current_user, current_factory_id, color)
+        if not can_manage:
+            return ApiResponse.error(error, 403)
         ColorService.delete_color(color)
         return ApiResponse.success(message='删除成功')

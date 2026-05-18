@@ -4,11 +4,17 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_claims, get_current_factory_id, get_current_user
+from app.constants.permissions import (
+    PERM_BUSINESS_CUTTING_REPORT_ADD,
+    PERM_BUSINESS_CUTTING_REPORT_DELETE,
+    PERM_BUSINESS_CUTTING_REPORT_QUERY,
+)
+from app.api.common.auth import get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_with_date_parser
 from app.schemas.business.cutting_report import CuttingReportCreateSchema, WorkCuttingReportSchema
 from app.services import CuttingReportService, FactoryService
+from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
@@ -108,18 +114,10 @@ def resolve_factory_context(require_write=False):
     return current_user, current_factory_id, None
 
 
-def check_cutting_write_permission(current_user):
-    """校验当前用户是否具备裁床报工写权限。"""
-    claims = get_current_claims()
-    relation_type = claims.get('relation_type')
-    if current_user.is_internal_user:
-        return True
-    return relation_type in {'owner', 'employee'}
-
-
 @cutting_report_ns.route('')
 class CuttingReportList(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_CUTTING_REPORT_QUERY)
     @cutting_report_ns.expect(cutting_report_query_parser)
     @cutting_report_ns.response(200, '成功', cutting_report_list_response)
     @cutting_report_ns.response(401, '未登录', unauthorized_response)
@@ -139,6 +137,7 @@ class CuttingReportList(Resource):
         })
 
     @login_required
+    @button_permission(PERM_BUSINESS_CUTTING_REPORT_ADD)
     @cutting_report_ns.expect(cutting_report_create_model)
     @cutting_report_ns.response(201, '创建成功', cutting_report_item_response)
     @cutting_report_ns.response(400, '参数错误', error_response)
@@ -149,8 +148,6 @@ class CuttingReportList(Resource):
         current_user, current_factory_id, error_response_obj = resolve_factory_context(require_write=True)
         if error_response_obj:
             return error_response_obj
-        if not check_cutting_write_permission(current_user):
-            return ApiResponse.error('当前用户没有裁床报工权限', 403)
         try:
             data = cutting_report_create_schema.load(request.get_json() or {})
         except ValidationError as exc:
@@ -164,6 +161,7 @@ class CuttingReportList(Resource):
 @cutting_report_ns.route('/<int:report_id>')
 class CuttingReportDetail(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_CUTTING_REPORT_QUERY)
     @cutting_report_ns.response(200, '成功', cutting_report_item_response)
     @cutting_report_ns.response(401, '未登录', unauthorized_response)
     @cutting_report_ns.response(404, '裁床报工不存在', error_response)
@@ -178,6 +176,7 @@ class CuttingReportDetail(Resource):
         return ApiResponse.success(cutting_report_schema.dump(report))
 
     @login_required
+    @button_permission(PERM_BUSINESS_CUTTING_REPORT_DELETE)
     @cutting_report_ns.response(200, '删除成功', base_response)
     @cutting_report_ns.response(401, '未登录', unauthorized_response)
     @cutting_report_ns.response(403, '无权限', forbidden_response)
@@ -187,8 +186,6 @@ class CuttingReportDetail(Resource):
         current_user, current_factory_id, error_response_obj = resolve_factory_context(require_write=True)
         if error_response_obj:
             return error_response_obj
-        if not check_cutting_write_permission(current_user):
-            return ApiResponse.error('当前用户没有裁床报工权限', 403)
         report = CuttingReportService.get_cutting_report_by_id(report_id)
         if not report or report.factory_id != current_factory_id:
             return ApiResponse.error('裁床报工不存在', 404)

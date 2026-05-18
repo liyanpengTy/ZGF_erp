@@ -4,11 +4,18 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
+from app.constants.permissions import (
+    PERM_BASE_CATEGORY_ADD,
+    PERM_BASE_CATEGORY_DELETE,
+    PERM_BASE_CATEGORY_EDIT,
+    PERM_BASE_CATEGORY_QUERY,
+)
 from app.api.common.auth import get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
 from app.schemas.base_data.category import CategoryCreateSchema, CategorySchema, CategoryUpdateSchema
 from app.services import CategoryService
+from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
@@ -80,13 +87,13 @@ category_update_schema = CategoryUpdateSchema()
 @category_ns.route('')
 class CategoryList(Resource):
     @login_required
+    @button_permission(PERM_BASE_CATEGORY_QUERY)
     @category_ns.expect(category_query_parser)
     @category_ns.response(200, '成功', category_list_response)
     @category_ns.response(401, '未登录', unauthorized_response)
     def get(self):
         """查询分类分页列表。"""
         args = category_query_parser.parse_args()
-        current_user = get_current_user()
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
@@ -103,6 +110,7 @@ class CategoryList(Resource):
         })
 
     @login_required
+    @button_permission(PERM_BASE_CATEGORY_ADD)
     @category_ns.expect(category_create_model)
     @category_ns.response(201, '创建成功', category_item_response)
     @category_ns.response(400, '参数错误', error_response)
@@ -123,7 +131,8 @@ class CategoryList(Resource):
 
         category, error = CategoryService.create_category(current_user, current_factory_id, data)
         if error:
-            return ApiResponse.error(error, 409 if '已存在' in error else 400)
+            status_code = 409 if '已存在' in error else 403 if '权限' in error or '管理员' in error else 400
+            return ApiResponse.error(error, status_code)
 
         return ApiResponse.success(category_schema.dump(category), '创建成功', 201)
 
@@ -131,6 +140,7 @@ class CategoryList(Resource):
 @category_ns.route('/tree')
 class CategoryTree(Resource):
     @login_required
+    @button_permission(PERM_BASE_CATEGORY_QUERY)
     @category_ns.response(200, '成功', category_tree_response)
     @category_ns.response(401, '未登录', unauthorized_response)
     def get(self):
@@ -149,6 +159,7 @@ class CategoryTree(Resource):
 @category_ns.route('/<int:category_id>')
 class CategoryDetail(Resource):
     @login_required
+    @button_permission(PERM_BASE_CATEGORY_QUERY)
     @category_ns.response(200, '成功', category_item_response)
     @category_ns.response(401, '未登录', unauthorized_response)
     @category_ns.response(403, '无权限', forbidden_response)
@@ -157,8 +168,6 @@ class CategoryDetail(Resource):
         """查询分类详情。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
-
-        current_user = get_current_user()
         category = CategoryService.get_category_by_id(category_id)
         if not category:
             return ApiResponse.error('分类不存在')
@@ -170,6 +179,7 @@ class CategoryDetail(Resource):
         return ApiResponse.success(category_schema.dump(category))
 
     @login_required
+    @button_permission(PERM_BASE_CATEGORY_EDIT)
     @category_ns.expect(category_update_model)
     @category_ns.response(200, '更新成功', category_item_response)
     @category_ns.response(400, '参数错误', error_response)
@@ -178,12 +188,14 @@ class CategoryDetail(Resource):
     @category_ns.response(404, '分类不存在', error_response)
     def patch(self, category_id):
         """更新分类。"""
+        current_user = get_current_user()
         current_factory_id = get_current_factory_id()
         category = CategoryService.get_category_by_id(category_id)
         if not category:
             return ApiResponse.error('分类不存在')
-        if not CategoryService.check_manage_permission(get_current_user(), current_factory_id, category)[0]:
-            return ApiResponse.error('只能修改自己工厂的分类', 403)
+        can_manage, error = CategoryService.check_manage_permission(current_user, current_factory_id, category)
+        if not can_manage:
+            return ApiResponse.error(error, 403)
 
         try:
             data = category_update_schema.load(request.get_json() or {})
@@ -197,6 +209,7 @@ class CategoryDetail(Resource):
         return ApiResponse.success(category_schema.dump(category), '更新成功')
 
     @login_required
+    @button_permission(PERM_BASE_CATEGORY_DELETE)
     @category_ns.response(200, '删除成功', base_response)
     @category_ns.response(401, '未登录', unauthorized_response)
     @category_ns.response(403, '无权限', forbidden_response)
@@ -209,8 +222,9 @@ class CategoryDetail(Resource):
         category = CategoryService.get_category_by_id(category_id)
         if not category:
             return ApiResponse.error('分类不存在')
-        if not CategoryService.check_manage_permission(get_current_user(), current_factory_id, category)[0]:
-            return ApiResponse.error('只能删除自己工厂的分类', 403)
+        can_manage, error = CategoryService.check_manage_permission(current_user, current_factory_id, category)
+        if not can_manage:
+            return ApiResponse.error(error, 403)
         success, error = CategoryService.delete_category(category)
         if not success:
             return ApiResponse.error(error, 409)

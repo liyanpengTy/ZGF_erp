@@ -130,7 +130,7 @@ def check_wage_write_permission(current_user):
 @employee_wage_ns.route('')
 class EmployeeWageList(Resource):
     @login_required
-    @permission_required('system:employee_wage:view')
+    @permission_required('factory-management.employee-wages.browse')
     @employee_wage_ns.expect(wage_query_parser)
     @employee_wage_ns.response(200, '成功', wage_list_response)
     @employee_wage_ns.response(401, '未登录', unauthorized_response)
@@ -154,7 +154,7 @@ class EmployeeWageList(Resource):
         })
 
     @login_required
-    @permission_required('system:employee_wage:add')
+    @permission_required('factory-management.employee-wages.create')
     @employee_wage_ns.expect(employee_wage_create_model)
     @employee_wage_ns.response(201, '创建成功', wage_item_response)
     @employee_wage_ns.response(400, '参数错误', error_response)
@@ -183,7 +183,7 @@ class EmployeeWageList(Resource):
 @employee_wage_ns.route('/<int:wage_id>')
 class EmployeeWageDetail(Resource):
     @login_required
-    @permission_required('system:employee_wage:view')
+    @permission_required('factory-management.employee-wages.browse')
     @employee_wage_ns.response(200, '成功', wage_item_response)
     @employee_wage_ns.response(401, '未登录', unauthorized_response)
     @employee_wage_ns.response(404, '不存在', error_response)
@@ -202,7 +202,7 @@ class EmployeeWageDetail(Resource):
         return ApiResponse.success(wage_schema.dump(wage))
 
     @login_required
-    @permission_required('system:employee_wage:edit')
+    @permission_required('factory-management.employee-wages.update')
     @employee_wage_ns.expect(employee_wage_update_model)
     @employee_wage_ns.response(200, '更新成功', wage_item_response)
     @employee_wage_ns.response(400, '参数错误', error_response)
@@ -232,7 +232,7 @@ class EmployeeWageDetail(Resource):
         return ApiResponse.success(wage_schema.dump(wage), '更新成功')
 
     @login_required
-    @permission_required('system:employee_wage:delete')
+    @permission_required('factory-management.employee-wages.delete')
     @employee_wage_ns.response(200, '删除成功', base_response)
     @employee_wage_ns.response(401, '未登录', unauthorized_response)
     @employee_wage_ns.response(404, '不存在', error_response)
@@ -255,7 +255,7 @@ class EmployeeWageDetail(Resource):
 @employee_wage_ns.route('/calculate')
 class WageCalculate(Resource):
     @login_required
-    @permission_required('system:employee_wage:view')
+    @permission_required('factory-management.employee-wages.browse')
     @employee_wage_ns.expect(wage_calculate_model)
     @employee_wage_ns.response(200, '成功', wage_calculate_response)
     @employee_wage_ns.response(401, '未登录', unauthorized_response)

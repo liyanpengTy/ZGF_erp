@@ -182,6 +182,47 @@ factory_create_schema = FactoryCreateSchema()
 factory_update_schema = FactoryUpdateSchema()
 
 
+def parse_factory_list_args():
+    """解析工厂列表查询参数；空字符串按未传处理，完全空参数时返回全量工厂。"""
+    raw_args = request.args
+    values = {
+        'page': raw_args.get('page'),
+        'page_size': raw_args.get('page_size'),
+        'name': raw_args.get('name'),
+        'status': raw_args.get('status'),
+    }
+    is_empty_query = all(value in (None, '') for value in values.values())
+
+    try:
+        page = int(values['page'] or 1)
+        page_size = int(values['page_size'] or 10)
+    except ValueError:
+        return None, 'page 和 page_size 必须为整数'
+    if page < 1:
+        return None, 'page 必须大于等于 1'
+    if page_size < 1 or page_size > 100:
+        return None, 'page_size 必须在 1 到 100 之间'
+
+    status = values['status']
+    if status in (None, ''):
+        status = None
+    else:
+        try:
+            status = int(status)
+        except ValueError:
+            return None, 'status 必须为 0 或 1'
+        if status not in (0, 1):
+            return None, 'status 必须为 0 或 1'
+
+    return {
+        'page': page,
+        'page_size': page_size,
+        'name': values['name'] or '',
+        'status': status,
+        'return_all': is_empty_query,
+    }, None
+
+
 def check_factory_module_permission(current_user):
     """校验当前用户是否允许进入工厂管理模块，外部用户不可访问该模块。"""
     if not current_user:
@@ -194,13 +235,16 @@ def check_factory_module_permission(current_user):
 @factory_ns.route('')
 class FactoryList(Resource):
     @login_required
-    @permission_required('system:factory:query')
+    @permission_required('system.factories.browse')
     @factory_ns.expect(factory_query_parser)
     @factory_ns.response(200, '成功', factory_list_response)
     @factory_ns.response(401, '未登录', unauthorized_response)
     def get(self):
         """分页查询工厂列表，仅平台内部人员可访问。"""
-        args = factory_query_parser.parse_args()
+
+        args, parse_error = parse_factory_list_args()
+        if parse_error:
+            return ApiResponse.error(parse_error, 400)
         current_user = get_current_user()
         if not current_user:
             return ApiResponse.error('用户不存在')
@@ -218,7 +262,7 @@ class FactoryList(Resource):
         })
 
     @login_required
-    @permission_required('system:factory:add')
+    @permission_required('system.factories.create')
     @factory_ns.expect(factory_create_model)
     @factory_ns.response(201, '创建成功', factory_create_response)
     @factory_ns.response(400, '参数错误', error_response)
@@ -251,7 +295,7 @@ class FactoryList(Resource):
 @factory_ns.route('/<int:factory_id>')
 class FactoryDetail(Resource):
     @login_required
-    @permission_required('system:factory:query')
+    @permission_required('system.factories.browse')
     @factory_ns.response(200, '成功', factory_item_response)
     @factory_ns.response(404, '工厂不存在', error_response)
     def get(self, factory_id):
@@ -267,7 +311,7 @@ class FactoryDetail(Resource):
         return ApiResponse.success(factory_schema.dump(factory))
 
     @login_required
-    @permission_required('system:factory:edit')
+    @permission_required('system.factories.update')
     @factory_ns.expect(factory_update_model)
     @factory_ns.response(200, '更新成功', factory_item_response)
     @factory_ns.response(404, '工厂不存在', error_response)
@@ -294,7 +338,7 @@ class FactoryDetail(Resource):
     @factory_ns.response(404, '工厂不存在', error_response)
     @factory_ns.response(403, '无权限', forbidden_response)
     @factory_ns.response(409, '存在关联用户无法删除', error_response)
-    @permission_required('system:factory:delete')
+    @permission_required('system.factories.delete')
     def delete(self, factory_id):
         """删除工厂，删除前会校验是否还有关联用户。"""
         current_user = get_current_user()
@@ -315,7 +359,7 @@ class FactoryDetail(Resource):
 @factory_ns.route('/<int:factory_id>/users')
 class FactoryUsers(Resource):
     @login_required
-    @permission_required('system:factory:query')
+    @permission_required('system.factories.browse')
     @factory_ns.expect(factory_user_query_parser)
     @factory_ns.response(200, '成功', user_list_response)
     @factory_ns.response(404, '工厂不存在', error_response)
@@ -340,7 +384,7 @@ class FactoryUsers(Resource):
     @factory_ns.response(403, '无权限', forbidden_response)
     @factory_ns.response(404, '用户不存在', error_response)
     @factory_ns.response(409, '用户已关联', error_response)
-    @permission_required('system:factory:edit')
+    @permission_required('system.factories.update')
     def post(self, factory_id):
         """向工厂新增用户关系，支持 owner、employee、customer、collaborator。"""
         current_user = get_current_user()
@@ -400,7 +444,7 @@ class FactoryUserDetail(Resource):
     @factory_ns.response(200, '移除成功', base_response)
     @factory_ns.response(403, '无权限', forbidden_response)
     @factory_ns.response(404, '关联不存在', error_response)
-    @permission_required('system:factory:delete')
+    @permission_required('system.factories.delete')
     def delete(self, factory_id, user_id):
         """从工厂中移除指定用户关系。"""
         current_user = get_current_user()
@@ -419,7 +463,7 @@ class FactoryOwner(Resource):
     @login_required
     @factory_ns.response(200, '成功', user_item_response)
     @factory_ns.response(404, '工厂不存在', error_response)
-    @permission_required('system:factory:query')
+    @permission_required('system.factories.browse')
     def get(self, factory_id):
         """查询工厂当前管理员账号信息。"""
         current_user = get_current_user()
@@ -460,7 +504,7 @@ class FactoryOwnerResetPassword(Resource):
     @factory_ns.response(200, '重置成功', base_response)
     @factory_ns.response(403, '无权限', forbidden_response)
     @factory_ns.response(404, '工厂不存在', error_response)
-    @permission_required('system:factory:edit')
+    @permission_required('system.factories.update')
     def post(self, factory_id):
         """重置工厂管理员密码为默认值。"""
         current_user = get_current_user()
@@ -484,7 +528,7 @@ class FactoryQRCode(Resource):
     @factory_ns.response(200, '成功', qrcode_response)
     @factory_ns.response(403, '无权限', forbidden_response)
     @factory_ns.response(404, '工厂不存在', error_response)
-    @permission_required('system:factory:edit')
+    @permission_required('system.factories.update')
     def post(self, factory_id):
         """为工厂生成新的绑定二维码。"""
         current_user = get_current_user()

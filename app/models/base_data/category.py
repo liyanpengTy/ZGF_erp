@@ -18,7 +18,7 @@ class Category(BaseModel):
     code = db.Column(db.String(50), nullable=False, comment='分类编码，工厂内唯一')
     # 分类类型
     category_type = db.Column(db.String(20), default='style', comment='分类类型：style-款号，material-物料，order-订单')
-    factory_id = db.Column(db.Integer, db.ForeignKey('sys_factory.id'), default=0, comment='所属工厂ID，0表示系统内置')
+    factory_id = db.Column(db.Integer, default=0, comment='所属工厂ID，0表示系统内置')
     sort_order = db.Column(db.Integer, default=0, comment='排序序号，越小越靠前')
     status = db.Column(db.SmallInteger, default=1, comment='状态：1-启用，0-禁用')
     remark = db.Column(db.String(255), comment='备注')

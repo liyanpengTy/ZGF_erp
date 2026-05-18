@@ -4,11 +4,18 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
+from app.constants.permissions import (
+    PERM_BUSINESS_STYLE_ADD,
+    PERM_BUSINESS_STYLE_DELETE,
+    PERM_BUSINESS_STYLE_EDIT,
+    PERM_BUSINESS_STYLE_QUERY,
+)
 from app.api.common.auth import get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
 from app.schemas.business.style import StyleCreateSchema, StyleSchema, StyleUpdateSchema
 from app.services import StyleService
+from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
@@ -108,13 +115,13 @@ style_update_schema = StyleUpdateSchema()
 @style_ns.route('')
 class StyleList(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_QUERY)
     @style_ns.expect(style_query_parser)
     @style_ns.response(200, '成功', style_list_response)
     @style_ns.response(401, '未登录', unauthorized_response)
     def get(self):
         """查询款号分页列表。"""
         args = style_query_parser.parse_args()
-        current_user = get_current_user()
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
 
@@ -137,6 +144,7 @@ class StyleList(Resource):
         })
 
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_ADD)
     @style_ns.expect(style_create_model)
     @style_ns.response(201, '创建成功', style_item_response)
     @style_ns.response(400, '参数错误', error_response)
@@ -144,8 +152,9 @@ class StyleList(Resource):
     @style_ns.response(409, '款号已存在', error_response)
     def post(self):
         """创建款号。"""
+        current_user = get_current_user()
         current_factory_id = get_current_factory_id()
-        if not get_current_user():
+        if not current_user:
             return ApiResponse.error('用户不存在')
 
         try:
@@ -153,9 +162,10 @@ class StyleList(Resource):
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
 
-        style, error = StyleService.create_style(current_factory_id, data, style_schema)
+        style, error = StyleService.create_style(current_user, current_factory_id, data, style_schema)
         if error:
-            return ApiResponse.error(error, 409 if '已存在' in error else 400)
+            status_code = 409 if '已存在' in error else 403 if '权限' in error or '管理员' in error else 400
+            return ApiResponse.error(error, status_code)
 
         result = style_schema.dump(style)
         result['category_name'] = StyleService.get_category_name(style.category_id)
@@ -165,6 +175,7 @@ class StyleList(Resource):
 @style_ns.route('/<int:style_id>')
 class StyleDetail(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_QUERY)
     @style_ns.response(200, '成功', style_item_response)
     @style_ns.response(401, '未登录', unauthorized_response)
     @style_ns.response(403, '无权限', forbidden_response)
@@ -173,8 +184,6 @@ class StyleDetail(Resource):
         """查询款号详情。"""
         current_user = get_current_user()
         current_factory_id = get_current_factory_id()
-
-        current_user = get_current_user()
         style = StyleService.get_style_by_id(style_id)
         if not style:
             return ApiResponse.error('款号不存在')
@@ -188,6 +197,7 @@ class StyleDetail(Resource):
         return ApiResponse.success(result)
 
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_EDIT)
     @style_ns.expect(style_update_model)
     @style_ns.response(200, '更新成功', style_item_response)
     @style_ns.response(400, '参数错误', error_response)
@@ -197,12 +207,14 @@ class StyleDetail(Resource):
     @style_ns.response(409, '款号冲突', error_response)
     def patch(self, style_id):
         """更新款号。"""
+        current_user = get_current_user()
         current_factory_id = get_current_factory_id()
         style = StyleService.get_style_by_id(style_id)
         if not style:
             return ApiResponse.error('款号不存在')
-        if not StyleService.check_manage_permission(get_current_user(), current_factory_id, style)[0]:
-            return ApiResponse.error('只能修改自己工厂的款号', 403)
+        can_manage, error = StyleService.check_manage_permission(current_user, current_factory_id, style)
+        if not can_manage:
+            return ApiResponse.error(error, 403)
 
         try:
             data = style_update_schema.load(request.get_json() or {})
@@ -218,6 +230,7 @@ class StyleDetail(Resource):
         return ApiResponse.success(result, '更新成功')
 
     @login_required
+    @button_permission(PERM_BUSINESS_STYLE_DELETE)
     @style_ns.response(200, '删除成功', base_response)
     @style_ns.response(401, '未登录', unauthorized_response)
     @style_ns.response(403, '无权限', forbidden_response)
@@ -230,8 +243,9 @@ class StyleDetail(Resource):
         style = StyleService.get_style_by_id(style_id)
         if not style:
             return ApiResponse.error('款号不存在')
-        if not StyleService.check_manage_permission(get_current_user(), current_factory_id, style)[0]:
-            return ApiResponse.error('只能删除自己工厂的款号', 403)
+        can_manage, error = StyleService.check_manage_permission(current_user, current_factory_id, style)
+        if not can_manage:
+            return ApiResponse.error(error, 403)
         success, error = StyleService.delete_style(style)
         if not success:
             return ApiResponse.error(error, 409)

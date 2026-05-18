@@ -4,6 +4,14 @@ from flask import request
 from flask_restx import Namespace, Resource, fields, reqparse
 from marshmallow import ValidationError
 
+from app.constants.permissions import (
+    PERM_BUSINESS_BUNDLE_COMPLETE,
+    PERM_BUSINESS_BUNDLE_ISSUE,
+    PERM_BUSINESS_BUNDLE_PRINT,
+    PERM_BUSINESS_BUNDLE_QUERY,
+    PERM_BUSINESS_BUNDLE_RETURN,
+    PERM_BUSINESS_BUNDLE_TRANSFER,
+)
 from app.api.common.auth import get_current_claims, get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
@@ -15,7 +23,8 @@ from app.schemas.business.bundle import (
     BundleTransferSchema,
     ProductionBundleSchema,
 )
-from app.services import BundleService, FactoryService
+from app.services import BundleService, FactoryService, RoleService
+from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
@@ -199,52 +208,54 @@ def resolve_factory_context(require_write=False):
     return current_user, current_factory_id, None
 
 
-def check_issue_permission(current_user, holder_user_id=None):
+def is_factory_admin_user(current_user, current_factory_id):
+    """判断当前用户是否是平台管理员或当前工厂管理员。"""
+    if current_user.is_platform_admin:
+        return True
+    return RoleService.has_factory_admin_permission(current_user, current_factory_id)
+
+
+def check_issue_permission(current_user, current_factory_id, holder_user_id=None):
     """校验领货权限；工厂管理员和平台内部人员可代他人领货，其余仅允许给自己领货。"""
     claims = get_current_claims()
     relation_type = claims.get('relation_type')
-    if current_user.is_internal_user or relation_type == 'owner':
+    if is_factory_admin_user(current_user, current_factory_id):
         return True
     if holder_user_id and holder_user_id != current_user.id:
         return False
     return relation_type in {'employee', 'collaborator'}
 
 
-def check_return_permission(current_user, bundle):
+def check_return_permission(current_user, current_factory_id, bundle):
     """校验交货权限；工厂管理员和平台内部人员可代交，其余仅允许交回自己在手的菲。"""
-    claims = get_current_claims()
-    relation_type = claims.get('relation_type')
-    if current_user.is_internal_user or relation_type == 'owner':
+    if is_factory_admin_user(current_user, current_factory_id):
         return True
     return bundle.current_holder_user_id == current_user.id
 
 
-def check_transfer_permission(current_user, bundle):
+def check_transfer_permission(current_user, current_factory_id, bundle):
     """校验转交权限；工厂管理员和平台内部人员可代转交，其余仅允许转交自己在手的菲。"""
-    claims = get_current_claims()
-    relation_type = claims.get('relation_type')
-    if current_user.is_internal_user or relation_type == 'owner':
+    if is_factory_admin_user(current_user, current_factory_id):
         return True
     return bundle.current_holder_user_id == current_user.id
 
 
-def check_complete_permission(current_user):
-    """校验完工确认权限；当前仅允许工厂管理员或平台内部人员确认完工。"""
-    claims = get_current_claims()
-    relation_type = claims.get('relation_type')
-    return current_user.is_internal_user or relation_type == 'owner'
+def check_complete_permission(current_user, current_factory_id):
+    """校验完工确认权限；当前仅允许平台管理员或本工厂管理员确认完工。"""
+    return is_factory_admin_user(current_user, current_factory_id)
 
 
 def check_print_permission(current_user):
     """鏍￠獙鎵撳嵃鏉冮檺锛涘厑璁稿伐鍘傜鐞嗗憳銆佸憳宸ャ€佸崗浣滅敤鎴峰拰骞冲彴鍐呴儴浜哄憳鎵撳嵃鑿层€?"""
     claims = get_current_claims()
     relation_type = claims.get('relation_type')
-    return current_user.is_internal_user or relation_type in {'owner', 'employee', 'collaborator'}
+    return current_user.is_platform_admin or relation_type in {'owner', 'employee', 'collaborator'}
 
 
 @bundle_ns.route('/in-hand-statistics')
 class BundleInHandStatistics(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_BUNDLE_QUERY)
     @bundle_ns.expect(bundle_in_hand_stats_parser)
     @bundle_ns.response(200, '成功', bundle_in_hand_statistics_response)
     @bundle_ns.response(401, '未登录', unauthorized_response)
@@ -261,6 +272,7 @@ class BundleInHandStatistics(Resource):
 @bundle_ns.route('')
 class BundleList(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_BUNDLE_QUERY)
     @bundle_ns.expect(bundle_query_parser)
     @bundle_ns.response(200, '成功', bundle_list_response)
     @bundle_ns.response(401, '未登录', unauthorized_response)
@@ -283,6 +295,7 @@ class BundleList(Resource):
 @bundle_ns.route('/<int:bundle_id>')
 class BundleDetail(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_BUNDLE_QUERY)
     @bundle_ns.response(200, '成功', bundle_item_response)
     @bundle_ns.response(401, '未登录', unauthorized_response)
     @bundle_ns.response(404, '菲不存在', error_response)
@@ -300,6 +313,7 @@ class BundleDetail(Resource):
 @bundle_ns.route('/<int:bundle_id>/issue')
 class BundleIssue(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_BUNDLE_ISSUE)
     @bundle_ns.expect(bundle_issue_model)
     @bundle_ns.response(200, '领货成功', bundle_item_response)
     @bundle_ns.response(400, '参数错误', error_response)
@@ -316,8 +330,6 @@ class BundleIssue(Resource):
             data = bundle_issue_schema.load(request.get_json() or {})
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
-        if not check_issue_permission(current_user, data.get('holder_user_id')):
-            return ApiResponse.error('当前用户没有代他人领货权限', 403)
         bundle, error = BundleService.issue_bundle(
             bundle,
             operator_user=current_user,
@@ -333,6 +345,7 @@ class BundleIssue(Resource):
 @bundle_ns.route('/<int:bundle_id>/return')
 class BundleReturn(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_BUNDLE_RETURN)
     @bundle_ns.expect(bundle_return_model)
     @bundle_ns.response(200, '交货成功', bundle_item_response)
     @bundle_ns.response(400, '参数错误', error_response)
@@ -345,8 +358,6 @@ class BundleReturn(Resource):
         bundle = BundleService.get_bundle_by_id(bundle_id)
         if not bundle or bundle.factory_id != current_factory_id:
             return ApiResponse.error('菲不存在', 404)
-        if not check_return_permission(current_user, bundle):
-            return ApiResponse.error('当前用户没有交回这张菲的权限', 403)
         try:
             data = bundle_return_schema.load(request.get_json() or {})
         except ValidationError as exc:
@@ -365,6 +376,7 @@ class BundleReturn(Resource):
 @bundle_ns.route('/<int:bundle_id>/transfer')
 class BundleTransfer(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_BUNDLE_TRANSFER)
     @bundle_ns.expect(bundle_transfer_model)
     @bundle_ns.response(200, '转交成功', bundle_item_response)
     @bundle_ns.response(400, '参数错误', error_response)
@@ -377,8 +389,6 @@ class BundleTransfer(Resource):
         bundle = BundleService.get_bundle_by_id(bundle_id)
         if not bundle or bundle.factory_id != current_factory_id:
             return ApiResponse.error('菲不存在', 404)
-        if not check_transfer_permission(current_user, bundle):
-            return ApiResponse.error('当前用户没有转交这张菲的权限', 403)
         try:
             data = bundle_transfer_schema.load(request.get_json() or {})
         except ValidationError as exc:
@@ -398,6 +408,7 @@ class BundleTransfer(Resource):
 @bundle_ns.route('/<int:bundle_id>/complete')
 class BundleComplete(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_BUNDLE_COMPLETE)
     @bundle_ns.expect(bundle_complete_model)
     @bundle_ns.response(200, '完工确认成功', bundle_item_response)
     @bundle_ns.response(400, '参数错误', error_response)
@@ -410,8 +421,6 @@ class BundleComplete(Resource):
         bundle = BundleService.get_bundle_by_id(bundle_id)
         if not bundle or bundle.factory_id != current_factory_id:
             return ApiResponse.error('菲不存在', 404)
-        if not check_complete_permission(current_user):
-            return ApiResponse.error('当前用户没有完工确认权限', 403)
         try:
             data = bundle_complete_schema.load(request.get_json() or {})
         except ValidationError as exc:
@@ -429,6 +438,7 @@ class BundleComplete(Resource):
 @bundle_ns.route('/<int:bundle_id>/print-preview')
 class BundlePrintPreview(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_BUNDLE_QUERY)
     @bundle_ns.response(200, '成功', bundle_print_preview_response)
     @bundle_ns.response(401, '未登录', unauthorized_response)
     @bundle_ns.response(404, '菲不存在', error_response)
@@ -446,6 +456,7 @@ class BundlePrintPreview(Resource):
 @bundle_ns.route('/<int:bundle_id>/print')
 class BundlePrint(Resource):
     @login_required
+    @button_permission(PERM_BUSINESS_BUNDLE_PRINT)
     @bundle_ns.expect(bundle_print_model)
     @bundle_ns.response(200, '打印登记成功', bundle_item_response)
     @bundle_ns.response(400, '参数错误', error_response)
@@ -457,8 +468,6 @@ class BundlePrint(Resource):
         current_user, current_factory_id, error_response_obj = resolve_factory_context(require_write=True)
         if error_response_obj:
             return error_response_obj
-        if not check_print_permission(current_user):
-            return ApiResponse.error('当前用户没有打印菲的权限', 403)
         bundle = BundleService.get_bundle_by_id(bundle_id)
         if not bundle or bundle.factory_id != current_factory_id:
             return ApiResponse.error('菲不存在', 404)
