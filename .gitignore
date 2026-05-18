@@ -12,6 +12,9 @@ run.py
 # 数据库迁移文件
 migrations/versions
 
+# 手动执行sql
+local_sql_init
+
 # Distribution / packaging
 .Python
 build/
