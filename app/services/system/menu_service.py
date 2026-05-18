@@ -1,5 +1,6 @@
 """菜单管理服务。"""
 
+from app.constants.identity import ROLE_SCOPE_FACTORY, ROLE_SCOPE_PLATFORM
 from app.extensions import db
 from app.models.system.menu import Menu
 from app.models.system.role import Role, role_menu
@@ -152,12 +153,17 @@ class MenuService(BaseService):
         if user.is_platform_staff:
             role_query = role_query.filter(
                 UserFactoryRole.factory_id == 0,
-                Role.factory_id == 0
+                Role.scope_type == ROLE_SCOPE_PLATFORM,
+                Role.scope_id == 0,
             )
         else:
             if not factory_id:
                 return []
-            role_query = role_query.filter(UserFactoryRole.factory_id == factory_id)
+            role_query = role_query.filter(
+                UserFactoryRole.factory_id == factory_id,
+                Role.scope_type == ROLE_SCOPE_FACTORY,
+                Role.scope_id == factory_id,
+            )
 
         role_ids = [record.role_id for record in role_query.all()]
         menu_ids = MenuService.get_role_menu_ids(role_ids)

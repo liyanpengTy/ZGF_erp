@@ -210,6 +210,9 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
+# Local SQL init assets
+local_sql_init/
+
 # Marimo
 marimo/_static/
 marimo/_lsp/

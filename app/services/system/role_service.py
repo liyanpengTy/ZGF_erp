@@ -1,6 +1,11 @@
 """角色管理服务。"""
 
-from app.constants.identity import ROLE_DATA_SCOPE_OWN_RELATED
+from app.constants.identity import (
+    RELATION_TYPE_OWNER,
+    ROLE_DATA_SCOPE_OWN_RELATED,
+    ROLE_SCOPE_FACTORY,
+    ROLE_SCOPE_PLATFORM,
+)
 from app.extensions import db
 from app.models.system.menu import Menu
 from app.models.system.role import Role, role_menu
@@ -13,45 +18,104 @@ class RoleService(BaseService):
     """角色管理服务。"""
 
     @staticmethod
+    def has_factory_admin_permission(user, factory_id):
+        """判断用户是否拥有指定工厂的管理员能力。"""
+        if not user or user.is_internal_user or not factory_id:
+            return False
+
+        owner_relation = UserFactory.query.filter_by(
+            user_id=user.id,
+            factory_id=factory_id,
+            relation_type=RELATION_TYPE_OWNER,
+            status=1,
+            is_deleted=0
+        ).first()
+        if owner_relation:
+            return True
+
+        admin_role = UserFactoryRole.query.join(Role, Role.id == UserFactoryRole.role_id).filter(
+            UserFactoryRole.user_id == user.id,
+            UserFactoryRole.factory_id == factory_id,
+            UserFactoryRole.is_deleted == 0,
+            Role.scope_type == ROLE_SCOPE_FACTORY,
+            Role.scope_id == factory_id,
+            Role.is_factory_admin == 1,
+            Role.status == 1,
+            Role.is_deleted == 0
+        ).first()
+        return admin_role is not None
+
+    @staticmethod
+    def can_manage_role(current_user, role, current_factory_id=None):
+        """校验当前用户是否可以维护目标角色。"""
+        if not current_user or not role:
+            return False
+        if current_user.is_platform_admin:
+            return True
+        if not role.is_factory_role:
+            return False
+        if current_factory_id and role.scope_id != current_factory_id:
+            return False
+        return RoleService.has_factory_admin_permission(current_user, role.scope_id)
+
+    @staticmethod
+    def normalize_scope(scope_type, scope_id):
+        """归一化角色归属范围，避免平台角色误带工厂主键。"""
+        if scope_type == ROLE_SCOPE_PLATFORM:
+            return ROLE_SCOPE_PLATFORM, 0
+        if scope_type == ROLE_SCOPE_FACTORY:
+            if not scope_id:
+                return None, None
+            return ROLE_SCOPE_FACTORY, scope_id
+        return scope_type, scope_id or 0
+
+    @staticmethod
     def get_role_by_id(role_id):
         """按主键查询角色。"""
         return Role.query.filter_by(id=role_id, is_deleted=0).first()
 
     @staticmethod
-    def get_role_by_code(factory_id, code):
-        """按工厂上下文和编码查询角色。"""
-        return Role.query.filter_by(factory_id=factory_id, code=code, is_deleted=0).first()
+    def get_role_by_code(scope_type, scope_id, code):
+        """按角色归属范围和编码查询角色。"""
+        scope_type, scope_id = RoleService.normalize_scope(scope_type, scope_id)
+        return Role.query.filter_by(scope_type=scope_type, scope_id=scope_id, code=code, is_deleted=0).first()
 
     @staticmethod
-    def get_role_by_name(factory_id, name):
-        """按工厂上下文和名称查询角色。"""
-        return Role.query.filter_by(factory_id=factory_id, name=name, is_deleted=0).first()
+    def get_role_by_name(scope_type, scope_id, name):
+        """按角色归属范围和名称查询角色。"""
+        scope_type, scope_id = RoleService.normalize_scope(scope_type, scope_id)
+        return Role.query.filter_by(scope_type=scope_type, scope_id=scope_id, name=name, is_deleted=0).first()
 
     @staticmethod
-    def get_role_list(current_user, filters):
+    def get_role_list(current_user, filters, current_factory_id=None):
         """按当前用户权限范围分页查询角色列表。"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
         name = filters.get('name', '')
         status = filters.get('status')
+        scope_type = filters.get('scope_type')
+        scope_id = filters.get('scope_id')
 
         if current_user.is_internal_user:
-            factory_id = filters.get('factory_id')
-            if not factory_id:
-                return None, '请指定工厂ID'
-            query = Role.query.filter(
-                (Role.factory_id == 0) | (Role.factory_id == factory_id),
-                Role.is_deleted == 0
-            )
+            query = Role.query.filter(Role.is_deleted == 0)
+            if scope_type:
+                normalized_scope_type, normalized_scope_id = RoleService.normalize_scope(scope_type, scope_id)
+                if scope_type == ROLE_SCOPE_FACTORY and not normalized_scope_id:
+                    return None, '工厂角色请指定 scope_id'
+                query = query.filter(
+                    Role.scope_type == normalized_scope_type,
+                    Role.scope_id == normalized_scope_id,
+                )
         else:
-            user_factory = UserFactory.query.filter_by(
-                user_id=current_user.id,
-                status=1,
-                is_deleted=0
-            ).first()
-            if not user_factory:
+            if not current_factory_id:
+                return None, '请先选择工厂上下文'
+            if not RoleService.has_factory_admin_permission(current_user, current_factory_id):
                 return None, '无权限查看角色'
-            query = Role.query.filter_by(factory_id=user_factory.factory_id, is_deleted=0)
+            query = Role.query.filter_by(
+                scope_type=ROLE_SCOPE_FACTORY,
+                scope_id=current_factory_id,
+                is_deleted=0,
+            )
 
         if name:
             query = query.filter(Role.name.like(f'%{name}%'))
@@ -71,18 +135,23 @@ class RoleService(BaseService):
         }, None
 
     @staticmethod
-    def create_role(data, factory_id):
-        """在指定工厂下创建角色，并保存数据范围元信息。"""
-        existing_code = RoleService.get_role_by_code(factory_id, data['code'])
+    def create_role(data):
+        """按归属范围创建角色，并保存数据范围元信息。"""
+        scope_type, scope_id = RoleService.normalize_scope(data['scope_type'], data.get('scope_id'))
+        if scope_type == ROLE_SCOPE_FACTORY and not scope_id:
+            return None, '工厂角色必须指定 scope_id'
+
+        existing_code = RoleService.get_role_by_code(scope_type, scope_id, data['code'])
         if existing_code:
             return None, '角色编码已存在'
 
-        existing_name = RoleService.get_role_by_name(factory_id, data['name'])
+        existing_name = RoleService.get_role_by_name(scope_type, scope_id, data['name'])
         if existing_name:
             return None, '角色名称已存在'
 
         role = Role(
-            factory_id=factory_id,
+            scope_type=scope_type,
+            scope_id=scope_id,
             name=data['name'],
             code=data['code'],
             description=data.get('description', ''),
@@ -98,7 +167,7 @@ class RoleService(BaseService):
     def update_role(role, data):
         """更新角色名称、排序、数据范围等核心配置。"""
         if 'name' in data:
-            existing = RoleService.get_role_by_name(role.factory_id, data['name'])
+            existing = RoleService.get_role_by_name(role.scope_type, role.scope_id, data['name'])
             if existing and existing.id != role.id:
                 return None, '角色名称已存在'
             role.name = data['name']
@@ -161,10 +230,12 @@ class RoleService(BaseService):
         """校验当前用户是否可以访问该角色。"""
         if current_user.is_internal_user:
             return True
+        if not role.is_factory_role:
+            return False
 
         user_factory = UserFactory.query.filter_by(
             user_id=current_user.id,
-            factory_id=role.factory_id,
+            factory_id=role.scope_id,
             status=1,
             is_deleted=0
         ).first()
