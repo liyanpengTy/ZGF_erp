@@ -34,33 +34,33 @@ unauthorized_response = common['unauthorized_response']
 forbidden_response = common['forbidden_response']
 
 bundle_template_item_model = bundle_template_ns.model('BundleTemplateItemView', {
-    'id': fields.Integer(description='模板字段项ID'),
+    'id': fields.Integer(description='模板字段项 ID'),
     'field_code': fields.String(description='字段编码', example='style_no'),
     'field_label': fields.String(description='字段显示名称', example='款号'),
     'sort_order': fields.Integer(description='排序值', example=1),
-    'is_visible': fields.Integer(description='是否显示：1-显示，0-隐藏', example=1),
-    'is_bold': fields.Integer(description='是否加粗：1-是，0-否', example=1),
-    'is_new_line': fields.Integer(description='是否换行：1-换行，0-同行', example=1),
+    'is_visible': fields.Integer(description='是否显示，1-显示，0-隐藏', example=1),
+    'is_bold': fields.Integer(description='是否加粗，1-是，0-否', example=1),
+    'is_new_line': fields.Integer(description='是否换行，1-换行，0-同行', example=1),
 })
 
 bundle_template_item_input_model = bundle_template_ns.model('BundleTemplateItemInput', {
     'field_code': fields.String(required=True, description='字段编码', example='style_no'),
     'field_label': fields.String(required=True, description='字段显示名称', example='款号'),
     'sort_order': fields.Integer(description='排序值', example=1, default=1),
-    'is_visible': fields.Integer(description='是否显示：1-显示，0-隐藏', example=1, default=1),
-    'is_bold': fields.Integer(description='是否加粗：1-是，0-否', example=1, default=0),
-    'is_new_line': fields.Integer(description='是否换行：1-换行，0-同行', example=1, default=1),
+    'is_visible': fields.Integer(description='是否显示，1-显示，0-隐藏', example=1, default=1),
+    'is_bold': fields.Integer(description='是否加粗，1-是，0-否', example=1, default=0),
+    'is_new_line': fields.Integer(description='是否换行，1-换行，0-同行', example=1, default=1),
 })
 
 bundle_template_model = bundle_template_ns.model('BundleTemplateView', {
-    'id': fields.Integer(description='模板ID'),
-    'factory_id': fields.Integer(description='工厂ID，系统模板为空', allow_null=True),
+    'id': fields.Integer(description='模板 ID'),
+    'factory_id': fields.Integer(description='工厂 ID，系统模板为空', allow_null=True),
     'name': fields.String(description='模板名称', example='系统默认菲模板'),
-    'template_scope': fields.String(description='模板范围：system/factory', example='system'),
+    'template_scope': fields.String(description='模板范围，system/factory', example='system'),
     'scope_label': fields.String(description='模板范围名称', example='系统模板'),
     'version': fields.Integer(description='模板版本号', example=1),
-    'is_default': fields.Integer(description='是否默认模板：1-是，0-否', example=1),
-    'status': fields.Integer(description='状态：1-启用，0-停用', example=1),
+    'is_default': fields.Integer(description='是否默认模板，1-是，0-否', example=1),
+    'status': fields.Integer(description='状态，1-启用，0-停用', example=1),
     'remark': fields.String(description='备注', allow_null=True),
     'create_time': fields.String(description='创建时间'),
     'update_time': fields.String(description='更新时间'),
@@ -69,15 +69,15 @@ bundle_template_model = bundle_template_ns.model('BundleTemplateView', {
 
 bundle_template_create_model = bundle_template_ns.model('BundleTemplateCreate', {
     'name': fields.String(required=True, description='模板名称', example='工厂默认菲模板'),
-    'is_default': fields.Integer(description='是否设为默认模板：1-是，0-否', example=1, default=0),
+    'is_default': fields.Integer(description='是否设为默认模板，1-是，0-否', example=1, default=0),
     'remark': fields.String(description='备注', example='适用于裁床打印'),
     'items': fields.List(fields.Nested(bundle_template_item_input_model), required=True, description='模板字段项列表'),
 })
 
 bundle_template_update_model = bundle_template_ns.model('BundleTemplateUpdate', {
     'name': fields.String(description='模板名称', example='工厂新版菲模板'),
-    'is_default': fields.Integer(description='是否设为默认模板：1-是，0-否', example=0),
-    'status': fields.Integer(description='状态：1-启用，0-停用', example=1),
+    'is_default': fields.Integer(description='是否设为默认模板，1-是，0-否', example=0),
+    'status': fields.Integer(description='状态，1-启用，0-停用', example=1),
     'remark': fields.String(description='备注', example='移除尺码字段'),
     'items': fields.List(fields.Nested(bundle_template_item_input_model), description='完整模板字段项列表'),
 })
@@ -100,23 +100,23 @@ bundle_field_option_response = bundle_template_ns.clone('BundleFieldOptionRespon
 })
 
 bundle_rule_model = bundle_template_ns.model('FactoryBundleRuleView', {
-    'id': fields.Integer(description='规则ID'),
-    'factory_id': fields.Integer(description='工厂ID'),
-    'reset_cycle': fields.String(description='床次重置周期：yearly/monthly', example='yearly'),
+    'id': fields.Integer(description='规则 ID'),
+    'factory_id': fields.Integer(description='工厂 ID'),
+    'reset_cycle': fields.String(description='床次重置周期，yearly/monthly', example='yearly'),
     'reset_cycle_label': fields.String(description='床次重置周期名称', example='按年重置'),
-    'default_template_id': fields.Integer(description='默认模板ID', allow_null=True),
+    'default_template_id': fields.Integer(description='默认模板 ID', allow_null=True),
     'bundle_code_prefix': fields.String(description='菲号前缀', example='FEI'),
-    'status': fields.Integer(description='状态：1-启用，0-停用', example=1),
+    'status': fields.Integer(description='状态，1-启用，0-停用', example=1),
     'remark': fields.String(description='备注', allow_null=True),
     'create_time': fields.String(description='创建时间'),
     'update_time': fields.String(description='更新时间'),
 })
 
 bundle_rule_update_model = bundle_template_ns.model('FactoryBundleRuleUpdate', {
-    'reset_cycle': fields.String(description='床次重置周期：yearly/monthly', example='monthly'),
-    'default_template_id': fields.Integer(description='默认模板ID', example=2),
+    'reset_cycle': fields.String(description='床次重置周期，yearly/monthly', example='monthly'),
+    'default_template_id': fields.Integer(description='默认模板 ID', example=2),
     'bundle_code_prefix': fields.String(description='菲号前缀', example='CUT'),
-    'status': fields.Integer(description='状态：1-启用，0-停用', example=1),
+    'status': fields.Integer(description='状态，1-启用，0-停用', example=1),
     'remark': fields.String(description='备注', example='每月重置床次'),
 })
 
@@ -133,14 +133,18 @@ bundle_rule_update_schema = FactoryBundleRuleUpdateSchema()
 
 
 def resolve_factory_context(require_write=False):
-    """解析当前工厂上下文，并按读写场景校验工厂访问权限。"""
+    """解析当前工厂上下文，并校验当前用户对工厂的读写权限。"""
     current_user = get_current_user()
     current_factory_id = get_current_factory_id()
     if not current_user:
         return None, None, ApiResponse.error('用户不存在', 401)
     if not current_factory_id:
         return None, None, ApiResponse.error('当前登录态缺少工厂上下文，请先切换工厂', 400)
-    has_permission, error = FactoryService.check_factory_permission(current_user, current_factory_id, require_write=require_write)
+    has_permission, error = FactoryService.check_factory_permission(
+        current_user,
+        current_factory_id,
+        require_write=require_write,
+    )
     if not has_permission:
         return None, None, ApiResponse.error(error, 403 if '无权限' in error or '续期' in error else 404)
     return current_user, current_factory_id, None
@@ -154,7 +158,7 @@ class BundleFieldOptions(Resource):
     @bundle_template_ns.response(401, '未登录', unauthorized_response)
     def get(self):
         """查询系统支持的菲模板字段池。"""
-        current_user, _, error_response_obj = resolve_factory_context(require_write=False)
+        _, _, error_response_obj = resolve_factory_context(require_write=False)
         if error_response_obj:
             return error_response_obj
         options = [
@@ -187,7 +191,7 @@ class BundleTemplateList(Resource):
     @bundle_template_ns.response(403, '无权限', forbidden_response)
     def post(self):
         """创建当前工厂的自定义菲模板。"""
-        current_user, current_factory_id, error_response_obj = resolve_factory_context(require_write=True)
+        _, current_factory_id, error_response_obj = resolve_factory_context(require_write=True)
         if error_response_obj:
             return error_response_obj
         try:
@@ -227,7 +231,7 @@ class BundleTemplateDetail(Resource):
     @bundle_template_ns.response(404, '模板不存在', error_response)
     def patch(self, template_id):
         """更新当前工厂的自定义菲模板。"""
-        current_user, current_factory_id, error_response_obj = resolve_factory_context(require_write=True)
+        _, current_factory_id, error_response_obj = resolve_factory_context(require_write=True)
         if error_response_obj:
             return error_response_obj
         template = BundleTemplateService.get_template_by_id(template_id)
@@ -250,7 +254,7 @@ class BundleTemplateDetail(Resource):
     @bundle_template_ns.response(404, '模板不存在', error_response)
     def delete(self, template_id):
         """删除当前工厂的自定义菲模板。"""
-        current_user, current_factory_id, error_response_obj = resolve_factory_context(require_write=True)
+        _, current_factory_id, error_response_obj = resolve_factory_context(require_write=True)
         if error_response_obj:
             return error_response_obj
         template = BundleTemplateService.get_template_by_id(template_id)
@@ -284,8 +288,8 @@ class FactoryBundleRuleDetail(Resource):
     @bundle_template_ns.response(401, '未登录', unauthorized_response)
     @bundle_template_ns.response(403, '无权限', forbidden_response)
     def patch(self):
-        """更新当前工厂的菲规则配置，如床次重置周期和默认模板。"""
-        current_user, current_factory_id, error_response_obj = resolve_factory_context(require_write=True)
+        """更新当前工厂的菲规则配置，如床次重置周期与默认模板。"""
+        _, current_factory_id, error_response_obj = resolve_factory_context(require_write=True)
         if error_response_obj:
             return error_response_obj
         try:

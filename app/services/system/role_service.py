@@ -24,7 +24,7 @@ class RoleService(BaseService):
 
     @staticmethod
     def has_factory_admin_permission(user, factory_id):
-        """判断用户是否拥有指定工厂的管理员能力。"""
+        """判断用户是否具备指定工厂的管理员能力。"""
         if not user or user.is_internal_user or not factory_id:
             return False
 
@@ -33,7 +33,7 @@ class RoleService(BaseService):
             factory_id=factory_id,
             relation_type=RELATION_TYPE_OWNER,
             status=1,
-            is_deleted=0
+            is_deleted=0,
         ).first()
         if owner_relation:
             return True
@@ -46,7 +46,7 @@ class RoleService(BaseService):
             Role.scope_id == factory_id,
             Role.is_factory_admin == 1,
             Role.status == 1,
-            Role.is_deleted == 0
+            Role.is_deleted == 0,
         ).first()
         return admin_role is not None
 
@@ -83,13 +83,50 @@ class RoleService(BaseService):
     def get_role_by_code(scope_type, scope_id, code):
         """按角色归属范围和编码查询角色。"""
         scope_type, scope_id = RoleService.normalize_scope(scope_type, scope_id)
-        return Role.query.filter_by(scope_type=scope_type, scope_id=scope_id, code=code, is_deleted=0).first()
+        return Role.query.filter_by(
+            scope_type=scope_type,
+            scope_id=scope_id,
+            code=code,
+            is_deleted=0,
+        ).first()
 
     @staticmethod
     def get_role_by_name(scope_type, scope_id, name):
         """按角色归属范围和名称查询角色。"""
         scope_type, scope_id = RoleService.normalize_scope(scope_type, scope_id)
-        return Role.query.filter_by(scope_type=scope_type, scope_id=scope_id, name=name, is_deleted=0).first()
+        return Role.query.filter_by(
+            scope_type=scope_type,
+            scope_id=scope_id,
+            name=name,
+            is_deleted=0,
+        ).first()
+
+    @staticmethod
+    def _build_role_query(current_user, current_factory_id=None, scope_type=None, scope_id=None):
+        """按当前用户权限构造角色查询。"""
+        if current_user.is_internal_user:
+            query = Role.query.filter(Role.is_deleted == 0)
+            if scope_type:
+                normalized_scope_type, normalized_scope_id = RoleService.normalize_scope(scope_type, scope_id)
+                if scope_type == ROLE_SCOPE_FACTORY and not normalized_scope_id:
+                    return None, '工厂角色请指定 scope_id'
+                query = query.filter(
+                    Role.scope_type == normalized_scope_type,
+                    Role.scope_id == normalized_scope_id,
+                )
+            return query, None
+
+        if not current_factory_id:
+            return None, '请先选择工厂上下文'
+        if not RoleService.has_factory_admin_permission(current_user, current_factory_id):
+            return None, '无权限查看角色'
+
+        query = Role.query.filter_by(
+            scope_type=ROLE_SCOPE_FACTORY,
+            scope_id=current_factory_id,
+            is_deleted=0,
+        )
+        return query, None
 
     @staticmethod
     def get_role_list(current_user, filters, current_factory_id=None):
@@ -101,43 +138,46 @@ class RoleService(BaseService):
         scope_type = filters.get('scope_type')
         scope_id = filters.get('scope_id')
 
-        if current_user.is_internal_user:
-            query = Role.query.filter(Role.is_deleted == 0)
-            if scope_type:
-                normalized_scope_type, normalized_scope_id = RoleService.normalize_scope(scope_type, scope_id)
-                if scope_type == ROLE_SCOPE_FACTORY and not normalized_scope_id:
-                    return None, '工厂角色请指定 scope_id'
-                query = query.filter(
-                    Role.scope_type == normalized_scope_type,
-                    Role.scope_id == normalized_scope_id,
-                )
-        else:
-            if not current_factory_id:
-                return None, '请先选择工厂上下文'
-            if not RoleService.has_factory_admin_permission(current_user, current_factory_id):
-                return None, '无权限查看角色'
-            query = Role.query.filter_by(
-                scope_type=ROLE_SCOPE_FACTORY,
-                scope_id=current_factory_id,
-                is_deleted=0,
-            )
+        query, error = RoleService._build_role_query(current_user, current_factory_id, scope_type, scope_id)
+        if error:
+            return None, error
 
         if name:
             query = query.filter(Role.name.like(f'%{name}%'))
         if status is not None:
             query = query.filter_by(status=status)
 
-        pagination = query.order_by(Role.sort_order).paginate(
-            page=page, per_page=page_size, error_out=False
+        pagination = query.order_by(Role.sort_order.asc(), Role.id.asc()).paginate(
+            page=page,
+            per_page=page_size,
+            error_out=False,
         )
-
         return {
             'items': pagination.items,
             'total': pagination.total,
             'page': page,
             'page_size': page_size,
-            'pages': pagination.pages
+            'pages': pagination.pages,
         }, None
+
+    @staticmethod
+    def get_role_options(current_user, filters, current_factory_id=None):
+        """查询轻量角色选项列表，供下拉选择器使用。"""
+        name = filters.get('name', '')
+        status = filters.get('status')
+        scope_type = filters.get('scope_type')
+        scope_id = filters.get('scope_id')
+
+        query, error = RoleService._build_role_query(current_user, current_factory_id, scope_type, scope_id)
+        if error:
+            return None, error
+
+        if name:
+            query = query.filter(Role.name.like(f'%{name}%'))
+        if status is not None:
+            query = query.filter_by(status=status)
+
+        return query.order_by(Role.sort_order.asc(), Role.id.asc()).all(), None
 
     @staticmethod
     def create_role(data):
@@ -163,7 +203,7 @@ class RoleService(BaseService):
             sort_order=data.get('sort_order', 0),
             data_scope=data.get('data_scope', ROLE_DATA_SCOPE_OWN_RELATED),
             is_factory_admin=data.get('is_factory_admin', 0),
-            status=1
+            status=1,
         )
         role.save()
         return role, None
@@ -204,13 +244,13 @@ class RoleService(BaseService):
 
     @staticmethod
     def get_role_menu_ids(role_id):
-        """查询角色已绑定的菜单 ID。"""
+        """查询角色已绑定的菜单 ID 列表。"""
         menu_ids = db.session.query(role_menu.c.menu_id).filter_by(role_id=role_id).all()
         return [menu_id for menu_id, in menu_ids]
 
     @staticmethod
     def assign_role_menus(role_id, menu_ids, current_user=None, role=None):
-        """重建角色菜单权限映射；工厂管理员不能给工厂角色绑定平台级权限。"""
+        """重建角色菜单权限映射；工厂角色不允许绑定平台级权限。"""
         role = role or RoleService.get_role_by_id(role_id)
         if not role:
             return False, '角色不存在'
@@ -229,10 +269,8 @@ class RoleService(BaseService):
                 return False, f'工厂角色不允许绑定平台级权限 {menu.permission}'
 
         db.session.execute(role_menu.delete().where(role_menu.c.role_id == role_id))
-
         for menu_id in menu_ids:
             db.session.execute(role_menu.insert().values(role_id=role_id, menu_id=menu_id))
-
         db.session.commit()
         return True, None
 
@@ -254,6 +292,6 @@ class RoleService(BaseService):
             user_id=current_user.id,
             factory_id=role.scope_id,
             status=1,
-            is_deleted=0
+            is_deleted=0,
         ).first()
         return user_factory is not None

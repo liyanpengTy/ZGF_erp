@@ -4,6 +4,9 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
+from app.api.common.auth import get_current_factory_id, get_current_user
+from app.api.common.models import get_common_models
+from app.api.common.parsers import new_query_parser, page_parser
 from app.constants.permissions import (
     PERM_BUSINESS_BUNDLE_COMPLETE,
     PERM_BUSINESS_BUNDLE_ISSUE,
@@ -12,9 +15,6 @@ from app.constants.permissions import (
     PERM_BUSINESS_BUNDLE_RETURN,
     PERM_BUSINESS_BUNDLE_TRANSFER,
 )
-from app.api.common.auth import get_current_claims, get_current_factory_id, get_current_user
-from app.api.common.models import get_common_models
-from app.api.common.parsers import new_query_parser, page_parser
 from app.schemas.business.bundle import (
     BundleCompleteSchema,
     BundleIssueSchema,
@@ -23,7 +23,7 @@ from app.schemas.business.bundle import (
     BundleTransferSchema,
     ProductionBundleSchema,
 )
-from app.services import BundleService, FactoryService, RoleService
+from app.services import BundleService, FactoryService
 from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
@@ -41,8 +41,20 @@ bundle_query_parser = page_parser.copy()
 bundle_query_parser.add_argument('order_no', type=str, location='args', help='订单号')
 bundle_query_parser.add_argument('style_no', type=str, location='args', help='款号')
 bundle_query_parser.add_argument('cut_batch_no', type=int, location='args', help='床次')
-bundle_query_parser.add_argument('status', type=str, location='args', help='菲状态', choices=['created', 'issued', 'in_progress', 'returned', 'completed', 'rework', 'cancelled'])
-bundle_query_parser.add_argument('priority', type=str, location='args', help='优先级', choices=['normal', 'urgent', 'top'])
+bundle_query_parser.add_argument(
+    'status',
+    type=str,
+    location='args',
+    help='菲状态',
+    choices=['created', 'issued', 'in_progress', 'returned', 'completed', 'rework', 'cancelled'],
+)
+bundle_query_parser.add_argument(
+    'priority',
+    type=str,
+    location='args',
+    help='优先级',
+    choices=['normal', 'urgent', 'top'],
+)
 
 bundle_in_hand_stats_parser = new_query_parser()
 bundle_in_hand_stats_parser.add_argument('holder_user_id', type=int, location='args', help='持有人用户ID')
@@ -146,7 +158,7 @@ bundle_complete_model = bundle_ns.model('BundleCompleteRequest', {
 })
 
 bundle_print_model = bundle_ns.model('BundlePrintRequest', {
-    'remark': fields.String(description='澶囨敞', example='琛ュ墦涓€寮犵粰杞︿綅'),
+    'remark': fields.String(description='备注', example='补打一张'),
 })
 
 bundle_holder_total_model = bundle_ns.model('BundleHolderTotal', {
@@ -165,9 +177,9 @@ bundle_process_total_model = bundle_ns.model('BundleProcessTotal', {
 
 bundle_status_total_model = bundle_ns.model('BundleStatusTotal', {
     'status': fields.String(description='菲状态编码', example='issued'),
-    'status_label': fields.String(description='菲状态名称', example='已领出'),
-    'bundle_count': fields.Integer(description='在手菲数量', example=2),
-    'quantity': fields.Integer(description='在手件数', example=40),
+    'status_label': fields.String(description='菲状态名称', example='已领货'),
+    'bundle_count': fields.Integer(description='菲数量', example=2),
+    'quantity': fields.Integer(description='件数', example=40),
 })
 
 bundle_in_hand_statistics_model = bundle_ns.model('BundleInHandStatistics', {
@@ -202,54 +214,11 @@ def resolve_factory_context(require_write=False):
         return None, None, ApiResponse.error('用户不存在', 401)
     if not current_factory_id:
         return None, None, ApiResponse.error('当前登录态缺少工厂上下文，请先切换工厂', 400)
+
     has_permission, error = FactoryService.check_factory_permission(current_user, current_factory_id, require_write=require_write)
     if not has_permission:
         return None, None, ApiResponse.error(error, 403 if '无权限' in error or '续期' in error else 404)
     return current_user, current_factory_id, None
-
-
-def is_factory_admin_user(current_user, current_factory_id):
-    """判断当前用户是否是平台管理员或当前工厂管理员。"""
-    if current_user.is_platform_admin:
-        return True
-    return RoleService.has_factory_admin_permission(current_user, current_factory_id)
-
-
-def check_issue_permission(current_user, current_factory_id, holder_user_id=None):
-    """校验领货权限；工厂管理员和平台内部人员可代他人领货，其余仅允许给自己领货。"""
-    claims = get_current_claims()
-    relation_type = claims.get('relation_type')
-    if is_factory_admin_user(current_user, current_factory_id):
-        return True
-    if holder_user_id and holder_user_id != current_user.id:
-        return False
-    return relation_type in {'employee', 'collaborator'}
-
-
-def check_return_permission(current_user, current_factory_id, bundle):
-    """校验交货权限；工厂管理员和平台内部人员可代交，其余仅允许交回自己在手的菲。"""
-    if is_factory_admin_user(current_user, current_factory_id):
-        return True
-    return bundle.current_holder_user_id == current_user.id
-
-
-def check_transfer_permission(current_user, current_factory_id, bundle):
-    """校验转交权限；工厂管理员和平台内部人员可代转交，其余仅允许转交自己在手的菲。"""
-    if is_factory_admin_user(current_user, current_factory_id):
-        return True
-    return bundle.current_holder_user_id == current_user.id
-
-
-def check_complete_permission(current_user, current_factory_id):
-    """校验完工确认权限；当前仅允许平台管理员或本工厂管理员确认完工。"""
-    return is_factory_admin_user(current_user, current_factory_id)
-
-
-def check_print_permission(current_user):
-    """鏍￠獙鎵撳嵃鏉冮檺锛涘厑璁稿伐鍘傜鐞嗗憳銆佸憳宸ャ€佸崗浣滅敤鎴峰拰骞冲彴鍐呴儴浜哄憳鎵撳嵃鑿层€?"""
-    claims = get_current_claims()
-    relation_type = claims.get('relation_type')
-    return current_user.is_platform_admin or relation_type in {'owner', 'employee', 'collaborator'}
 
 
 @bundle_ns.route('/in-hand-statistics')
@@ -264,8 +233,8 @@ class BundleInHandStatistics(Resource):
         _, current_factory_id, error_response_obj = resolve_factory_context()
         if error_response_obj:
             return error_response_obj
-        args = bundle_in_hand_stats_parser.parse_args()
-        result = BundleService.get_in_hand_statistics(current_factory_id, args)
+
+        result = BundleService.get_in_hand_statistics(current_factory_id, bundle_in_hand_stats_parser.parse_args())
         return ApiResponse.success(result)
 
 
@@ -281,8 +250,8 @@ class BundleList(Resource):
         _, current_factory_id, error_response_obj = resolve_factory_context()
         if error_response_obj:
             return error_response_obj
-        args = bundle_query_parser.parse_args()
-        result = BundleService.get_bundle_list(current_factory_id, args)
+
+        result = BundleService.get_bundle_list(current_factory_id, bundle_query_parser.parse_args())
         return ApiResponse.success({
             'items': bundles_schema.dump(result['items']),
             'total': result['total'],
@@ -304,6 +273,7 @@ class BundleDetail(Resource):
         _, current_factory_id, error_response_obj = resolve_factory_context()
         if error_response_obj:
             return error_response_obj
+
         bundle = BundleService.get_bundle_by_id(bundle_id)
         if not bundle or bundle.factory_id != current_factory_id:
             return ApiResponse.error('菲不存在', 404)
@@ -323,13 +293,16 @@ class BundleIssue(Resource):
         current_user, current_factory_id, error_response_obj = resolve_factory_context(require_write=True)
         if error_response_obj:
             return error_response_obj
+
         bundle = BundleService.get_bundle_by_id(bundle_id)
         if not bundle or bundle.factory_id != current_factory_id:
             return ApiResponse.error('菲不存在', 404)
+
         try:
             data = bundle_issue_schema.load(request.get_json() or {})
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
+
         bundle, error = BundleService.issue_bundle(
             bundle,
             operator_user=current_user,
@@ -355,13 +328,16 @@ class BundleReturn(Resource):
         current_user, current_factory_id, error_response_obj = resolve_factory_context(require_write=True)
         if error_response_obj:
             return error_response_obj
+
         bundle = BundleService.get_bundle_by_id(bundle_id)
         if not bundle or bundle.factory_id != current_factory_id:
             return ApiResponse.error('菲不存在', 404)
+
         try:
             data = bundle_return_schema.load(request.get_json() or {})
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
+
         bundle, error = BundleService.return_bundle(
             bundle,
             operator_user=current_user,
@@ -386,13 +362,16 @@ class BundleTransfer(Resource):
         current_user, current_factory_id, error_response_obj = resolve_factory_context(require_write=True)
         if error_response_obj:
             return error_response_obj
+
         bundle = BundleService.get_bundle_by_id(bundle_id)
         if not bundle or bundle.factory_id != current_factory_id:
             return ApiResponse.error('菲不存在', 404)
+
         try:
             data = bundle_transfer_schema.load(request.get_json() or {})
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
+
         bundle, error = BundleService.transfer_bundle(
             bundle,
             operator_user=current_user,
@@ -418,13 +397,16 @@ class BundleComplete(Resource):
         current_user, current_factory_id, error_response_obj = resolve_factory_context(require_write=True)
         if error_response_obj:
             return error_response_obj
+
         bundle = BundleService.get_bundle_by_id(bundle_id)
         if not bundle or bundle.factory_id != current_factory_id:
             return ApiResponse.error('菲不存在', 404)
+
         try:
             data = bundle_complete_schema.load(request.get_json() or {})
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
+
         bundle, error = BundleService.complete_bundle(
             bundle,
             operator_user=current_user,
@@ -447,6 +429,7 @@ class BundlePrintPreview(Resource):
         _, current_factory_id, error_response_obj = resolve_factory_context()
         if error_response_obj:
             return error_response_obj
+
         bundle = BundleService.get_bundle_by_id(bundle_id)
         if not bundle or bundle.factory_id != current_factory_id:
             return ApiResponse.error('菲不存在', 404)
@@ -468,13 +451,16 @@ class BundlePrint(Resource):
         current_user, current_factory_id, error_response_obj = resolve_factory_context(require_write=True)
         if error_response_obj:
             return error_response_obj
+
         bundle = BundleService.get_bundle_by_id(bundle_id)
         if not bundle or bundle.factory_id != current_factory_id:
             return ApiResponse.error('菲不存在', 404)
+
         try:
             data = bundle_print_schema.load(request.get_json() or {})
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
+
         bundle, error = BundleService.print_bundle(
             bundle,
             operator_user=current_user,

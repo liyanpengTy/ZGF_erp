@@ -9,7 +9,7 @@ from marshmallow import ValidationError
 
 from app.api.common.auth import get_current_claims, get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
-from app.api.common.parsers import page_parser
+from app.api.common.parsers import new_query_parser, page_parser
 from app.extensions import bcrypt
 from app.models.auth.user import User
 from app.models.system.factory import Factory
@@ -32,6 +32,39 @@ user_query_parser = page_parser.copy()
 user_query_parser.add_argument('username', type=str, location='args', help='用户名（模糊查询）')
 user_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
 user_query_parser.add_argument('factory_id', type=int, location='args', help='工厂ID')
+user_query_parser.add_argument(
+    'relation_type',
+    type=str,
+    location='args',
+    help='工厂关系类型',
+    choices=['owner', 'employee', 'customer', 'collaborator'],
+)
+user_query_parser.add_argument(
+    'platform_identity',
+    type=str,
+    location='args',
+    help='平台身份',
+    choices=['platform_admin', 'platform_staff', 'external_user'],
+)
+
+user_option_query_parser = new_query_parser()
+user_option_query_parser.add_argument('username', type=str, location='args', help='用户名（模糊查询）')
+user_option_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
+user_option_query_parser.add_argument('factory_id', type=int, location='args', help='工厂ID')
+user_option_query_parser.add_argument(
+    'relation_type',
+    type=str,
+    location='args',
+    help='工厂关系类型',
+    choices=['owner', 'employee', 'customer', 'collaborator'],
+)
+user_option_query_parser.add_argument(
+    'platform_identity',
+    type=str,
+    location='args',
+    help='平台身份',
+    choices=['platform_admin', 'platform_staff', 'external_user'],
+)
 
 user_create_model = user_ns.model('UserCreate', {
     'username': fields.String(required=True, description='用户名', example='testuser'),
@@ -43,7 +76,7 @@ user_create_model = user_ns.model('UserCreate', {
         example='external_user',
         choices=['platform_admin', 'platform_staff', 'external_user'],
     ),
-    'factory_id': fields.Integer(description='工厂ID，创建外部人员时可同时挂靠到指定工厂', example=1),
+    'factory_id': fields.Integer(description='工厂ID；创建外部用户时可同时挂靠到指定工厂', example=1),
 })
 
 user_update_model = user_ns.model('UserUpdate', {
@@ -80,7 +113,7 @@ user_role_binding_model = user_ns.model('UserRoleBinding', {
     'scope_type': fields.String(description='角色归属范围', example='factory'),
     'scope_type_label': fields.String(description='角色归属范围名称', example='工厂角色'),
     'scope_id': fields.Integer(description='角色归属主键', example=1),
-    'factory_id': fields.Integer(description='角色分配上下文工厂ID，平台角色固定为 0', example=1),
+    'factory_id': fields.Integer(description='角色分配上下文工厂ID；平台角色固定为 0', example=1),
     'is_factory_admin': fields.Integer(description='是否工厂管理员角色', example=1),
 })
 
@@ -101,12 +134,21 @@ user_item_model = user_ns.model('UserItem', {
     'created_by': fields.Integer(description='创建人ID', example=1),
     'create_time': fields.String(description='创建时间', example='2026-04-21 01:17:24'),
     'last_login_time': fields.String(description='最后登录时间', example='2026-05-15 12:35:13'),
-    'factory_id': fields.Integer(description='主工厂ID，便于前端直接回填，多个工厂时取第一条有效挂靠关系', example=1),
-    'factory_name': fields.String(description='主工厂名称，多个工厂时取第一条有效挂靠关系', example='测试工厂'),
+    'factory_id': fields.Integer(description='主工厂ID；多工厂时取第一条有效挂靠关系', example=1),
+    'factory_name': fields.String(description='主工厂名称；多工厂时取第一条有效挂靠关系', example='测试工厂'),
     'factory_ids': fields.List(fields.Integer, description='用户当前绑定的全部工厂ID列表', example=[1, 2]),
     'factory_relations': fields.List(fields.Nested(user_factory_relation_model), description='用户工厂挂靠关系列表'),
     'role_ids': fields.List(fields.Integer, description='用户当前绑定的全部角色ID列表', example=[1, 2]),
     'role_bindings': fields.List(fields.Nested(user_role_binding_model), description='用户角色绑定列表'),
+})
+
+user_option_model = user_ns.model('UserOptionItem', {
+    'id': fields.Integer(description='用户ID', example=2),
+    'username': fields.String(description='用户名', example='factory_employee'),
+    'nickname': fields.String(description='昵称', example='工厂员工'),
+    'phone': fields.String(description='手机号', example='18370601281'),
+    'platform_identity': fields.String(description='平台身份', example='external_user'),
+    'platform_identity_label': fields.String(description='平台身份名称', example='外部人员'),
 })
 
 user_list_data = user_ns.model('SystemUserListData', {
@@ -125,8 +167,12 @@ user_item_response = user_ns.clone('SystemUserItemResponse', base_response, {
     'data': fields.Nested(user_item_model, description='用户详情数据'),
 })
 
+user_options_response = user_ns.clone('SystemUserOptionsResponse', base_response, {
+    'data': fields.List(fields.Nested(user_option_model), description='用户下拉选项列表'),
+})
+
 permission_summary_model = user_ns.model('UserPermissionSummary', {
-    'current_factory_id': fields.Integer(description='当前 JWT 上下文中的工厂ID，平台账号通常为空', example=1),
+    'current_factory_id': fields.Integer(description='当前 JWT 上下文中的工厂ID；平台账号通常为空', example=1),
     'current_permissions': fields.List(fields.String, description='当前上下文下生效的权限并集', example=['business.orders.browse']),
     'all_permissions': fields.List(fields.String, description='当前账号绑定的全部角色权限并集', example=['business.orders.browse', 'business.orders.create']),
     'role_bindings': fields.List(fields.Nested(user_role_binding_model), description='当前账号绑定的角色列表'),
@@ -147,19 +193,15 @@ role_schema = RoleSchema(many=True)
 
 
 def get_active_factory_ids(user):
-    """查询用户当前有效挂靠的工厂ID列表。"""
+    """查询用户当前有效挂靠的工厂 ID 列表。"""
     if not user:
         return []
-    factory_records = UserFactory.query.filter_by(
-        user_id=user.id,
-        status=1,
-        is_deleted=0,
-    ).all()
+    factory_records = UserFactory.query.filter_by(user_id=user.id, status=1, is_deleted=0).all()
     return [record.factory_id for record in factory_records]
 
 
 def is_target_user_in_factory(target_user, factory_id):
-    """判断目标用户是否属于指定工厂，用于工厂管理员跨用户操作校验。"""
+    """判断目标用户是否属于指定工厂。"""
     if not target_user or not factory_id:
         return False
     return UserFactory.query.filter_by(
@@ -194,14 +236,12 @@ def check_user_permission(current_user, target_user):
     """校验当前用户是否可以读取目标用户数据。"""
     if current_user.is_internal_user:
         return True, None
-
     if target_user.id == current_user.id:
         return True, None
 
     for factory_id in get_active_factory_ids(current_user):
         if RoleService.has_factory_admin_permission(current_user, factory_id) and is_target_user_in_factory(target_user, factory_id):
             return True, None
-
     return False, '无权限操作'
 
 
@@ -232,8 +272,7 @@ class UserList(Resource):
         if not current_user.is_internal_user and not args.get('factory_id'):
             args['factory_id'] = get_current_factory_id()
 
-        result = UserService.get_user_list(current_user, args)
-        return ApiResponse.success(result)
+        return ApiResponse.success(UserService.get_user_list(current_user, args))
 
     @login_required
     @user_ns.expect(user_create_model)
@@ -242,7 +281,7 @@ class UserList(Resource):
     @user_ns.response(403, '无权限', forbidden_response)
     @user_ns.response(409, '用户名已存在', error_response)
     def post(self):
-        """创建用户账号，必要时同时挂靠到工厂，并返回完整用户视图。"""
+        """创建用户账号；必要时同时挂靠到工厂，并返回完整用户视图。"""
         current_user = get_current_user()
         if not current_user:
             return ApiResponse.error('用户不存在')
@@ -255,9 +294,7 @@ class UserList(Resource):
         factory_id = data.get('factory_id')
         platform_identity = data.get('platform_identity') or 'external_user'
 
-        if current_user.is_platform_admin:
-            pass
-        else:
+        if not current_user.is_platform_admin:
             factory_id, error = resolve_manage_factory_id(current_user, factory_id)
             if error:
                 return ApiResponse.error(error, 403)
@@ -304,6 +341,25 @@ class UserList(Resource):
         return ApiResponse.success(UserService.build_user_view(user), '创建成功', 201)
 
 
+@user_ns.route('/options')
+class UserOptions(Resource):
+    @login_required
+    @user_ns.expect(user_option_query_parser)
+    @user_ns.response(200, '成功', user_options_response)
+    @user_ns.response(401, '未登录', unauthorized_response)
+    def get(self):
+        """查询轻量用户选项列表，供客户、员工、协作用户等选择器直接使用。"""
+        current_user = get_current_user()
+        if not current_user:
+            return ApiResponse.error('用户不存在')
+
+        args = user_option_query_parser.parse_args()
+        if not current_user.is_internal_user and not args.get('factory_id'):
+            args['factory_id'] = get_current_factory_id()
+
+        return ApiResponse.success(UserService.get_user_options(current_user, args))
+
+
 @user_ns.route('/<int:user_id>')
 class UserDetail(Resource):
     @login_required
@@ -322,7 +378,6 @@ class UserDetail(Resource):
         has_permission, error = check_user_permission(current_user, target_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
-
         return ApiResponse.success(UserService.build_user_view(target_user))
 
     @login_required
@@ -356,7 +411,7 @@ class UserDetail(Resource):
     @user_ns.response(404, '用户不存在', error_response)
     @user_ns.response(403, '不能删除自己', forbidden_response)
     def delete(self, user_id):
-        """删除用户，当前登录用户不允许删除自己。"""
+        """删除用户；当前登录用户不允许删除自己。"""
         current_user = get_current_user()
         if not current_user:
             return ApiResponse.error('用户不存在')
@@ -368,7 +423,6 @@ class UserDetail(Resource):
         has_permission, error = check_user_write_permission(current_user, target_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
-
         if target_user.id == current_user.id:
             return ApiResponse.error('不能删除当前登录用户', 403)
 
@@ -476,8 +530,7 @@ class UserPermissions(Resource):
         if not current_user:
             return ApiResponse.error('用户不存在')
 
-        permission_summary = UserService.get_permission_summary(current_user.id)
-        return ApiResponse.success(permission_summary)
+        return ApiResponse.success(UserService.get_permission_summary(current_user.id))
 
 
 @user_ns.route('/test')

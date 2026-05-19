@@ -471,6 +471,17 @@ class OrderService(BaseService):
         ]
 
     @staticmethod
+    def _build_order_query(current_factory_id, include_details=True):
+        """构建订单查询对象，统一处理工厂范围与关联预加载。"""
+        if not current_factory_id:
+            return None
+
+        query = Order.query.filter_by(factory_id=current_factory_id, is_deleted=0)
+        if include_details:
+            query = query.options(*OrderService.get_order_query_options())
+        return query
+
+    @staticmethod
     def get_order_by_id(order_id):
         """根据 ID 获取订单及其明细。"""
         return Order.query.options(*OrderService.get_order_query_options()).filter_by(id=order_id, is_deleted=0).first()
@@ -491,12 +502,9 @@ class OrderService(BaseService):
         start_date = filters.get('start_date')
         end_date = filters.get('end_date')
 
-        if not current_factory_id:
+        query = OrderService._build_order_query(current_factory_id, include_details=True)
+        if query is None:
             return {'items': [], 'total': 0, 'page': page, 'page_size': page_size, 'pages': 0}
-
-        query = Order.query.filter_by(factory_id=current_factory_id, is_deleted=0).options(
-            *OrderService.get_order_query_options()
-        )
 
         if order_no:
             query = query.filter(Order.order_no.like(f'%{order_no}%'))
@@ -517,6 +525,26 @@ class OrderService(BaseService):
             'page_size': page_size,
             'pages': pagination.pages,
         }
+
+    @staticmethod
+    def get_order_options(current_factory_id, filters):
+        """查询订单轻量选项列表，供下拉选择器直接使用。"""
+        order_no = filters.get('order_no', '')
+        customer_name = filters.get('customer_name', '')
+        status = filters.get('status')
+
+        query = OrderService._build_order_query(current_factory_id, include_details=False)
+        if query is None:
+            return []
+
+        if order_no:
+            query = query.filter(Order.order_no.like(f'%{order_no}%'))
+        if customer_name:
+            query = query.filter(Order.customer_name.like(f'%{customer_name}%'))
+        if status:
+            query = query.filter_by(status=status)
+
+        return query.order_by(Order.id.desc()).all()
 
     @staticmethod
     def validate_splice_items(splice_items):

@@ -1,15 +1,17 @@
-"""菜单管理接口"""
-from flask_restx import Namespace, Resource, fields
+"""菜单管理接口。"""
+
 from flask import request
-from app.models.system.menu import Menu
-from app.utils.response import ApiResponse
-from app.schemas.system.menu import MenuSchema, MenuCreateSchema, MenuUpdateSchema
+from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
+
 from app.api.common.auth import get_current_claims, get_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser
-from app.utils.permissions import login_required
+from app.models.system.menu import Menu
+from app.schemas.system.menu import MenuCreateSchema, MenuSchema, MenuUpdateSchema
 from app.services import MenuService
+from app.utils.permissions import login_required
+from app.utils.response import ApiResponse
 
 menu_ns = Namespace('菜单管理-menus', description='菜单管理')
 
@@ -18,42 +20,37 @@ base_response = common['base_response']
 error_response = common['error_response']
 unauthorized_response = common['unauthorized_response']
 forbidden_response = common['forbidden_response']
-page_response = common['page_response']
 
-# ========== 请求解析器 ==========
 menu_query_parser = new_query_parser()
-menu_query_parser.add_argument('type', type=int, location='args', help='菜单类型 (0:目录,1:菜单,2:按钮)',
-                               choices=[0, 1, 2])
-menu_query_parser.add_argument('status', type=int, location='args', help='状态 (0:禁用,1:启用)', choices=[0, 1])
+menu_query_parser.add_argument('type', type=int, location='args', help='菜单类型，0-目录，1-菜单，2-按钮', choices=[0, 1, 2])
+menu_query_parser.add_argument('status', type=int, location='args', help='状态，0-禁用，1-启用', choices=[0, 1])
 
-# ========== 请求模型 ==========
 menu_create_model = menu_ns.model('MenuCreate', {
-    'parent_id': fields.Integer(description='父菜单ID', default=0, example=0),
+    'parent_id': fields.Integer(description='父级菜单 ID', default=0, example=0),
     'name': fields.String(required=True, description='菜单名称', example='用户管理'),
     'path': fields.String(description='路由路径', example='/system/user'),
     'component': fields.String(description='组件路径', example='system/user/index'),
     'permission': fields.String(description='权限标识', example='system.users.browse'),
-    'type': fields.Integer(required=True, description='类型', example=1, choices=[0, 1, 2]),
+    'type': fields.Integer(required=True, description='菜单类型', example=1, choices=[0, 1, 2]),
     'icon': fields.String(description='图标', example='user'),
-    'sort_order': fields.Integer(description='排序', default=0, example=1)
+    'sort_order': fields.Integer(description='排序', default=0, example=1),
 })
 
 menu_update_model = menu_ns.model('MenuUpdate', {
-    'parent_id': fields.Integer(description='父菜单ID'),
+    'parent_id': fields.Integer(description='父级菜单 ID'),
     'name': fields.String(description='菜单名称'),
     'path': fields.String(description='路由路径'),
     'component': fields.String(description='组件路径'),
     'permission': fields.String(description='权限标识'),
-    'type': fields.Integer(description='类型', choices=[0, 1, 2]),
+    'type': fields.Integer(description='菜单类型', choices=[0, 1, 2]),
     'icon': fields.String(description='图标'),
     'sort_order': fields.Integer(description='排序'),
-    'status': fields.Integer(description='状态', choices=[0, 1])
+    'status': fields.Integer(description='状态', choices=[0, 1]),
 })
 
-# ========== 响应模型 ==========
 menu_item_model = menu_ns.model('MenuItem', {
-    'id': fields.Integer(description='菜单ID'),
-    'parent_id': fields.Integer(description='父菜单ID'),
+    'id': fields.Integer(description='菜单 ID'),
+    'parent_id': fields.Integer(description='父级菜单 ID'),
     'name': fields.String(description='菜单名称'),
     'path': fields.String(description='路由路径'),
     'component': fields.String(description='组件路径'),
@@ -64,18 +61,17 @@ menu_item_model = menu_ns.model('MenuItem', {
     'status': fields.Integer(description='状态'),
     'create_time': fields.String(description='创建时间'),
     'update_time': fields.String(description='更新时间'),
-    'children': fields.List(fields.Raw, description='递归子菜单列表；每个子节点结构与当前菜单节点一致')
+    'children': fields.List(fields.Raw, description='递归子菜单列表，结构与当前节点一致'),
 })
 
 menu_list_response = menu_ns.clone('MenuListResponse', base_response, {
-    'data': fields.List(fields.Nested(menu_item_model), description='菜单树列表')
+    'data': fields.List(fields.Nested(menu_item_model), description='菜单树列表'),
 })
 
 menu_item_response = menu_ns.clone('MenuItemResponse', base_response, {
-    'data': fields.Nested(menu_item_model, description='菜单详情数据')
+    'data': fields.Nested(menu_item_model, description='菜单详情数据'),
 })
 
-# ========== Schema 初始化 ==========
 menu_schema = MenuSchema()
 menus_schema = MenuSchema(many=True)
 menu_create_schema = MenuCreateSchema()
@@ -89,30 +85,28 @@ class MenuList(Resource):
     @menu_ns.response(200, '成功', menu_list_response)
     @menu_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """菜单列表（树型）"""
+        """查询菜单树列表。"""
         args = menu_query_parser.parse_args()
         current_user = get_current_user()
 
         if not current_user:
             return ApiResponse.error('用户不存在')
 
-        # 只有公司内部人员可以查看菜单管理
         has_permission, error = MenuService.check_admin_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
 
         menus = MenuService.get_menu_list(args)
         menu_tree = MenuService.build_menu_tree(menus, menu_schema=menu_schema)
-
         return ApiResponse.success(menu_tree)
 
     @login_required
     @menu_ns.expect(menu_create_model)
     @menu_ns.response(201, '创建成功', menu_item_response)
     @menu_ns.response(400, '参数错误', error_response)
-    @menu_ns.response(403, '只有管理员可以创建', forbidden_response)
+    @menu_ns.response(403, '无权限', forbidden_response)
     def post(self):
-        """创建菜单"""
+        """创建菜单。"""
         current_user = get_current_user()
 
         has_permission, error = MenuService.check_admin_permission(current_user)
@@ -120,9 +114,9 @@ class MenuList(Resource):
             return ApiResponse.error(error, 403)
 
         try:
-            data = menu_create_schema.load(request.get_json())
-        except ValidationError as e:
-            return ApiResponse.error(str(e.messages), 400)
+            data = menu_create_schema.load(request.get_json() or {})
+        except ValidationError as exc:
+            return ApiResponse.error(str(exc.messages), 400)
 
         menu, error = MenuService.create_menu(data)
         if error:
@@ -137,7 +131,7 @@ class MenuDetail(Resource):
     @menu_ns.response(200, '成功', menu_item_response)
     @menu_ns.response(404, '菜单不存在', error_response)
     def get(self, menu_id):
-        """菜单详情"""
+        """查询菜单详情。"""
         current_user = get_current_user()
 
         has_permission, error = MenuService.check_admin_permission(current_user)
@@ -154,9 +148,9 @@ class MenuDetail(Resource):
     @menu_ns.expect(menu_update_model)
     @menu_ns.response(200, '更新成功', menu_item_response)
     @menu_ns.response(404, '菜单不存在', error_response)
-    @menu_ns.response(403, '只有管理员可以更新', forbidden_response)
+    @menu_ns.response(403, '无权限', forbidden_response)
     def patch(self, menu_id):
-        """更新菜单"""
+        """更新菜单。"""
         current_user = get_current_user()
 
         has_permission, error = MenuService.check_admin_permission(current_user)
@@ -168,9 +162,9 @@ class MenuDetail(Resource):
             return ApiResponse.error('菜单不存在')
 
         try:
-            data = menu_update_schema.load(request.get_json())
-        except ValidationError as e:
-            return ApiResponse.error(str(e.messages), 400)
+            data = menu_update_schema.load(request.get_json() or {})
+        except ValidationError as exc:
+            return ApiResponse.error(str(exc.messages), 400)
 
         menu, error = MenuService.update_menu(menu, data)
         if error:
@@ -181,10 +175,10 @@ class MenuDetail(Resource):
     @login_required
     @menu_ns.response(200, '删除成功', base_response)
     @menu_ns.response(404, '菜单不存在', error_response)
-    @menu_ns.response(403, '只有管理员可以删除', forbidden_response)
+    @menu_ns.response(403, '无权限', forbidden_response)
     @menu_ns.response(409, '存在子菜单或关联角色', error_response)
     def delete(self, menu_id):
-        """删除菜单"""
+        """删除菜单。"""
         current_user = get_current_user()
 
         has_permission, error = MenuService.check_admin_permission(current_user)
@@ -208,7 +202,7 @@ class MenuTree(Resource):
     @menu_ns.response(200, '成功', menu_list_response)
     @menu_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """菜单树（分配权限使用）"""
+        """查询启用中的完整菜单树，供角色分配权限使用。"""
         current_user = get_current_user()
 
         has_permission, error = MenuService.check_admin_permission(current_user)
@@ -217,7 +211,6 @@ class MenuTree(Resource):
 
         menus = Menu.query.filter_by(status=1, is_deleted=0).order_by(Menu.sort_order).all()
         menu_tree = MenuService.build_menu_tree(menus, menu_schema=menu_schema)
-
         return ApiResponse.success(menu_tree)
 
 
@@ -227,7 +220,7 @@ class UserMenus(Resource):
     @menu_ns.response(200, '成功', menu_list_response)
     @menu_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """当前用户菜单"""
+        """查询当前登录账号的可见菜单树。"""
         current_user = get_current_user()
 
         if not current_user:
@@ -235,7 +228,5 @@ class UserMenus(Resource):
 
         claims = get_current_claims()
         factory_id = claims.get('factory_id')
-
         menu_tree = MenuService.get_user_menus(current_user, factory_id)
-
         return ApiResponse.success(menu_tree)

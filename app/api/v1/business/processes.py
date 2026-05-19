@@ -6,7 +6,7 @@ from marshmallow import ValidationError
 
 from app.api.common.auth import get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
-from app.api.common.parsers import page_parser
+from app.api.common.parsers import new_query_parser, page_parser
 from app.constants.permissions import (
     PERM_BUSINESS_PROCESS_ADD,
     PERM_BUSINESS_PROCESS_DELETE,
@@ -36,8 +36,12 @@ process_query_parser = page_parser.copy()
 process_query_parser.add_argument('name', type=str, location='args', help='工序名称')
 process_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
 
+process_option_query_parser = new_query_parser()
+process_option_query_parser.add_argument('name', type=str, location='args', help='工序名称')
+process_option_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
+
 process_item_model = process_ns.model('ProcessItem', {
-    'id': fields.Integer(description='工序ID'),
+    'id': fields.Integer(description='工序 ID'),
     'name': fields.String(description='工序名称'),
     'code': fields.String(description='工序编码'),
     'description': fields.String(description='工序描述'),
@@ -47,16 +51,26 @@ process_item_model = process_ns.model('ProcessItem', {
     'update_time': fields.String(description='更新时间'),
 })
 
+process_option_model = process_ns.model('ProcessOptionItem', {
+    'id': fields.Integer(description='工序 ID', example=1),
+    'name': fields.String(description='工序名称', example='裁床'),
+    'code': fields.String(description='工序编码', example='CUT'),
+    'status': fields.Integer(description='状态', example=1),
+})
+
 process_list_data = build_page_data_model(process_ns, 'ProcessListData', process_item_model, items_description='工序列表')
 process_list_response = build_page_response_model(process_ns, 'ProcessListResponse', base_response, process_list_data, '工序分页数据')
 process_item_response = process_ns.clone('ProcessItemResponse', base_response, {
     'data': fields.Nested(process_item_model, description='工序详情数据')
 })
+process_options_response = process_ns.clone('ProcessOptionsResponse', base_response, {
+    'data': fields.List(fields.Nested(process_option_model), description='工序下拉选项列表')
+})
 
 style_process_item_model = process_ns.model('ProcessStyleProcessItem', {
-    'id': fields.Integer(description='映射ID'),
-    'style_id': fields.Integer(description='款号ID'),
-    'process_id': fields.Integer(description='工序ID'),
+    'id': fields.Integer(description='映射 ID'),
+    'style_id': fields.Integer(description='款号 ID'),
+    'process_id': fields.Integer(description='工序 ID'),
     'process_name': fields.String(description='工序名称'),
     'process_code': fields.String(description='工序编码'),
     'sequence': fields.Integer(description='工序顺序'),
@@ -70,7 +84,7 @@ style_process_list_response = process_ns.clone(
 )
 
 style_process_item_create_model = process_ns.model('StyleProcessItemCreate', {
-    'process_id': fields.Integer(required=True, description='工序ID'),
+    'process_id': fields.Integer(required=True, description='工序 ID'),
     'sequence': fields.Integer(description='工序顺序', default=1),
     'remark': fields.String(description='备注'),
 })
@@ -101,7 +115,7 @@ style_process_mapping_schema = StyleProcessMappingSchema()
 
 
 def check_process_admin_permission(current_user):
-    """校验平台管理员权限，用于工序主数据维护。"""
+    """校验工序主数据维护权限，仅允许平台管理员维护。"""
     if not current_user:
         return False, '用户不存在'
     if not current_user.is_platform_admin:
@@ -154,6 +168,30 @@ class ProcessList(Resource):
         if service_error:
             return ApiResponse.error(service_error, 409)
         return ApiResponse.success(process_schema.dump(process), '创建成功', 201)
+
+
+@process_ns.route('/options')
+class ProcessOptions(Resource):
+    @login_required
+    @button_permission(PERM_BUSINESS_PROCESS_QUERY)
+    @process_ns.expect(process_option_query_parser)
+    @process_ns.response(200, '成功', process_options_response)
+    @process_ns.response(401, '未登录', unauthorized_response)
+    def get(self):
+        """查询工序下拉选项列表，供工序选择器直接使用。"""
+        if not get_current_user():
+            return ApiResponse.error('用户不存在')
+
+        processes = ProcessService.get_process_options(process_option_query_parser.parse_args())
+        return ApiResponse.success([
+            {
+                'id': process.id,
+                'name': process.name,
+                'code': process.code,
+                'status': process.status,
+            }
+            for process in processes
+        ])
 
 
 @process_ns.route('/<int:process_id>')
@@ -232,7 +270,7 @@ class EnabledProcesses(Resource):
     @process_ns.response(200, '成功', base_response)
     @process_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """查询启用工序列表。"""
+        """查询启用中的工序列表。"""
         if not get_current_user():
             return ApiResponse.error('用户不存在')
         processes = ProcessService.get_all_enabled_processes()

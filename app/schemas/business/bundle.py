@@ -1,4 +1,4 @@
-"""菲模板、菲规则与菲查询序列化器。"""
+"""菲模板、菲规则与菲查询序列化定义。"""
 
 from marshmallow import Schema, fields, validate
 

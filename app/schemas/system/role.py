@@ -1,3 +1,5 @@
+"""角色相关序列化定义。"""
+
 from marshmallow import Schema, fields, validate
 
 from app.constants.identity import ROLE_SCOPE_FACTORY, ROLE_SCOPES
@@ -30,7 +32,7 @@ class RoleCreateSchema(Schema):
     name = fields.Str(required=True, validate=validate.Length(min=2, max=50))
     code = fields.Str(required=True, validate=validate.Length(min=2, max=50))
     description = fields.Str(validate=validate.Length(max=255))
-    sort_order = fields.Int(default=0)
+    sort_order = fields.Int(load_default=0)
     data_scope = fields.Str(validate=validate.OneOf(['all_factory', 'assigned', 'own_related', 'self_only']))
     is_factory_admin = fields.Int(validate=validate.OneOf([0, 1]))
 

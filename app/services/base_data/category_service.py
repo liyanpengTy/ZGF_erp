@@ -18,6 +18,21 @@ class CategoryService(BaseService):
         return Category.query.filter_by(factory_id=factory_id, code=code, is_deleted=0).first()
 
     @staticmethod
+    def _build_category_query(current_factory_id, factory_only=0, category_type=None):
+        """按当前工厂上下文构造分类查询。"""
+        query = Category.query.filter_by(is_deleted=0)
+        if factory_only:
+            query = query.filter(Category.factory_id == (current_factory_id or -1))
+        elif current_factory_id:
+            query = query.filter((Category.factory_id == 0) | (Category.factory_id == current_factory_id))
+        else:
+            query = query.filter(Category.factory_id == 0)
+
+        if category_type:
+            query = query.filter_by(category_type=category_type)
+        return query
+
+    @staticmethod
     def get_category_list(current_user, current_factory_id, filters):
         """分页查询分类列表。"""
         page = filters.get('page', 1)
@@ -28,13 +43,7 @@ class CategoryService(BaseService):
         factory_only = filters.get('factory_only', 0)
         category_type = filters.get('category_type')
 
-        query = Category.query.filter_by(is_deleted=0)
-        if factory_only:
-            query = query.filter(Category.factory_id == (current_factory_id or -1))
-        elif current_factory_id:
-            query = query.filter((Category.factory_id == 0) | (Category.factory_id == current_factory_id))
-        else:
-            query = query.filter(Category.factory_id == 0)
+        query = CategoryService._build_category_query(current_factory_id, factory_only, category_type)
 
         if name:
             query = query.filter(Category.name.like(f'%{name}%'))
@@ -42,10 +51,12 @@ class CategoryService(BaseService):
             query = query.filter_by(parent_id=parent_id)
         if status is not None:
             query = query.filter_by(status=status)
-        if category_type:
-            query = query.filter_by(category_type=category_type)
 
-        pagination = query.order_by(Category.sort_order).paginate(page=page, per_page=page_size, error_out=False)
+        pagination = query.order_by(Category.sort_order.asc(), Category.id.asc()).paginate(
+            page=page,
+            per_page=page_size,
+            error_out=False,
+        )
         return {
             'items': pagination.items,
             'total': pagination.total,
@@ -55,18 +66,29 @@ class CategoryService(BaseService):
         }
 
     @staticmethod
+    def get_category_options(current_factory_id, filters):
+        """查询轻量分类选项列表，供下拉选择器使用。"""
+        name = filters.get('name', '')
+        parent_id = filters.get('parent_id')
+        status = filters.get('status')
+        factory_only = filters.get('factory_only', 0)
+        category_type = filters.get('category_type')
+
+        query = CategoryService._build_category_query(current_factory_id, factory_only, category_type)
+        if name:
+            query = query.filter(Category.name.like(f'%{name}%'))
+        if parent_id is not None:
+            query = query.filter_by(parent_id=parent_id)
+        if status is not None:
+            query = query.filter_by(status=status)
+
+        return query.order_by(Category.sort_order.asc(), Category.id.asc()).all()
+
+    @staticmethod
     def get_category_tree(current_user, current_factory_id, category_type=None):
         """查询分类树。"""
-        query = Category.query.filter_by(is_deleted=0)
-        if current_factory_id:
-            query = query.filter((Category.factory_id == 0) | (Category.factory_id == current_factory_id))
-        else:
-            query = query.filter(Category.factory_id == 0)
-
-        if category_type:
-            query = query.filter_by(category_type=category_type)
-
-        categories = query.order_by(Category.sort_order).all()
+        query = CategoryService._build_category_query(current_factory_id, factory_only=0, category_type=category_type)
+        categories = query.order_by(Category.sort_order.asc(), Category.id.asc()).all()
         return CategoryService.build_tree(categories)
 
     @staticmethod
@@ -168,7 +190,7 @@ class CategoryService(BaseService):
 
     @staticmethod
     def check_factory_data_manage_permission(current_user, current_factory_id):
-        """校验基础资料写入上下文；按钮权限由接口装饰器统一校验。"""
+        """校验基础资料写入上下文；按钮权限由接口装饰器统一控制。"""
         if not current_user:
             return False, '用户不存在'
         if current_user.is_platform_admin:
@@ -179,7 +201,7 @@ class CategoryService(BaseService):
 
     @staticmethod
     def check_manage_permission(current_user, current_factory_id, category):
-        """校验当前用户是否可以维护分类，外部用户仅允许维护当前工厂自定义分类。"""
+        """校验当前用户是否可以维护分类。"""
         can_manage, error = CategoryService.check_factory_data_manage_permission(current_user, current_factory_id)
         if not can_manage:
             return False, error

@@ -1,3 +1,5 @@
+"""用户-工厂关联模型。"""
+
 from datetime import datetime
 
 from app.constants.identity import (
@@ -15,12 +17,12 @@ from app.models.base import BaseModel
 
 
 class UserFactory(BaseModel):
-    """用户-工厂关联表。"""
+    """用户-工厂关联表，记录用户与工厂的关系类型。"""
 
     __tablename__ = 'sys_user_factory'
     __table_args__ = (
         db.UniqueConstraint('user_id', 'factory_id', 'relation_type', name='uk_user_factory_relation'),
-        {'comment': '用户-工厂关联表，记录用户与工厂的关系类型'}
+        {'comment': '用户-工厂关联表，记录用户与工厂的关系类型'},
     )
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -29,15 +31,15 @@ class UserFactory(BaseModel):
     relation_type = db.Column(
         db.String(20),
         nullable=False,
-        comment='关系类型：owner-工厂管理员，employee-员工，customer-客户，collaborator-协作用户'
+        comment='关系类型：owner-工厂管理员，employee-员工，customer-客户，collaborator-协作用户',
     )
     collaborator_type = db.Column(
         db.String(30),
-        comment='协作类型：button_partner/shrink_partner/print_partner/other_partner'
+        comment='协作类型：button_partner/shrink_partner/print_partner/other_partner',
     )
     status = db.Column(db.SmallInteger, default=1, comment='关联状态：1-有效，0-无效')
-    entry_date = db.Column(db.Date, comment='入职日期/关联日期')
-    leave_date = db.Column(db.Date, comment='离职日期/解除日期')
+    entry_date = db.Column(db.Date, comment='入职日期或关联日期')
+    leave_date = db.Column(db.Date, comment='离职日期或解除日期')
     is_deleted = db.Column(db.SmallInteger, default=0, comment='逻辑删除')
     remark = db.Column(db.String(255), comment='备注')
     create_time = db.Column(db.DateTime, default=datetime.now, comment='创建时间')
@@ -53,7 +55,7 @@ class UserFactory(BaseModel):
             RELATION_TYPE_OWNER: '工厂管理员',
             RELATION_TYPE_EMPLOYEE: '工厂员工',
             RELATION_TYPE_CUSTOMER: '订单客户',
-            RELATION_TYPE_COLLABORATOR: '协作用户'
+            RELATION_TYPE_COLLABORATOR: '协作用户',
         }
         return labels.get(self.relation_type, self.relation_type)
 
@@ -64,6 +66,6 @@ class UserFactory(BaseModel):
             COLLABORATOR_TYPE_BUTTON: '专机钉扣',
             COLLABORATOR_TYPE_SHRINK: '缩水厂',
             COLLABORATOR_TYPE_PRINT: '印花厂',
-            COLLABORATOR_TYPE_OTHER: '其他协作方'
+            COLLABORATOR_TYPE_OTHER: '其他协作方',
         }
         return labels.get(self.collaborator_type, self.collaborator_type)

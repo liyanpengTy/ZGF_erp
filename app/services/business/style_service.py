@@ -13,11 +13,11 @@ from app.services.base.base_service import BaseService
 
 
 class StyleService(BaseService):
-    """款号管理服务。"""
+    """封装款号管理相关的查询与维护逻辑。"""
 
     @staticmethod
     def get_style_by_id(style_id):
-        """根据 ID 获取款号。"""
+        """根据款号 ID 查询款号详情。"""
         return Style.query.options(
             joinedload(Style.category),
             selectinload(Style.image_items),
@@ -27,7 +27,7 @@ class StyleService(BaseService):
 
     @staticmethod
     def get_style_by_no(factory_id, style_no):
-        """根据工厂和款号编码获取款号。"""
+        """根据工厂和款号编码查询款号。"""
         return Style.query.filter_by(factory_id=factory_id, style_no=style_no, is_deleted=0).first()
 
     @staticmethod
@@ -37,6 +37,18 @@ class StyleService(BaseService):
             return None
         category = Category.query.filter_by(id=category_id, is_deleted=0).first()
         return category.name if category else None
+
+    @staticmethod
+    def _build_style_query(current_factory_id):
+        """构建款号查询对象，统一处理工厂范围与关联预加载。"""
+        if not current_factory_id:
+            return None
+        return Style.query.filter_by(factory_id=current_factory_id, is_deleted=0).options(
+            joinedload(Style.category),
+            selectinload(Style.image_items),
+            selectinload(Style.splice_items),
+            selectinload(Style.attribute_items),
+        )
 
     @staticmethod
     def validate_splice_data(splice_data):
@@ -54,7 +66,7 @@ class StyleService(BaseService):
 
     @staticmethod
     def validate_custom_attributes(custom_attributes):
-        """校验自定义属性结构是否为键值对。"""
+        """校验自定义属性是否为标量键值对。"""
         if custom_attributes is None:
             return True
         if not isinstance(custom_attributes, dict):
@@ -109,15 +121,10 @@ class StyleService(BaseService):
         season = filters.get('season', '')
         status = filters.get('status')
 
-        if not current_factory_id:
+        query = StyleService._build_style_query(current_factory_id)
+        if query is None:
             return {'items': [], 'total': 0, 'page': page, 'page_size': page_size, 'pages': 0}
 
-        query = Style.query.filter_by(factory_id=current_factory_id, is_deleted=0).options(
-            joinedload(Style.category),
-            selectinload(Style.image_items),
-            selectinload(Style.splice_items),
-            selectinload(Style.attribute_items),
-        )
         if style_no:
             query = query.filter(Style.style_no.like(f'%{style_no}%'))
         if name:
@@ -139,6 +146,29 @@ class StyleService(BaseService):
             'page_size': page_size,
             'pages': pagination.pages,
         }
+
+    @staticmethod
+    def get_style_options(current_factory_id, filters):
+        """查询款号轻量选项列表，供下拉选择器直接使用。"""
+        style_no = filters.get('style_no', '')
+        name = filters.get('name', '')
+        category_id = filters.get('category_id')
+        status = filters.get('status')
+
+        query = StyleService._build_style_query(current_factory_id)
+        if query is None:
+            return []
+
+        if style_no:
+            query = query.filter(Style.style_no.like(f'%{style_no}%'))
+        if name:
+            query = query.filter(Style.name.like(f'%{name}%'))
+        if category_id:
+            query = query.filter_by(category_id=category_id)
+        if status is not None:
+            query = query.filter_by(status=status)
+
+        return query.order_by(Style.id.desc()).all()
 
     @staticmethod
     def create_style(current_user, current_factory_id, data, schema=None):
@@ -260,7 +290,7 @@ class StyleService(BaseService):
 
     @staticmethod
     def delete_style(style):
-        """删除款号前校验关联价格、工艺和松紧数据。"""
+        """删除款号前，校验是否仍被价格、工序或松紧配置引用。"""
         price_count = StylePrice.query.filter_by(style_id=style.id, is_deleted=0).count()
         process_count = StyleProcess.query.filter_by(style_id=style.id, is_deleted=0).count()
         elastic_count = StyleElastic.query.filter_by(style_id=style.id, is_deleted=0).count()
@@ -274,7 +304,7 @@ class StyleService(BaseService):
 
     @staticmethod
     def check_permission(current_user, current_factory_id, style):
-        """校验款号数据是否属于当前访问范围。"""
+        """校验当前用户是否可以查看该款号。"""
         if not current_user:
             return False, '用户不存在'
         if current_user.is_internal_user:
@@ -285,7 +315,7 @@ class StyleService(BaseService):
 
     @staticmethod
     def check_factory_business_manage_permission(current_user, current_factory_id):
-        """校验业务主数据写入上下文；按钮权限由接口装饰器统一校验。"""
+        """校验业务主数据写入上下文。"""
         if not current_user:
             return False, '用户不存在'
         if current_user.is_platform_admin:
@@ -296,7 +326,7 @@ class StyleService(BaseService):
 
     @staticmethod
     def check_manage_permission(current_user, current_factory_id, style):
-        """校验当前用户是否可以维护款号，写操作必须处于明确的工厂上下文中。"""
+        """校验当前用户是否可以维护该款号。"""
         can_manage, error = StyleService.check_factory_business_manage_permission(current_user, current_factory_id)
         if not can_manage:
             return False, error

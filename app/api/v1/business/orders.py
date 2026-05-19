@@ -12,7 +12,7 @@ from app.constants.permissions import (
 )
 from app.api.common.auth import get_current_factory_id, get_current_user
 from app.api.common.models import get_common_models
-from app.api.common.parsers import page_with_date_parser
+from app.api.common.parsers import new_query_parser, page_with_date_parser
 from app.schemas.business.order import OrderCreateSchema, OrderSchema, OrderStatusUpdateSchema, OrderUpdateSchema
 from app.services import OrderService
 from app.utils.business_permissions import button_permission
@@ -33,6 +33,17 @@ order_query_parser = page_with_date_parser.copy()
 order_query_parser.add_argument('order_no', type=str, location='args', help='订单号')
 order_query_parser.add_argument('customer_name', type=str, location='args', help='客户名称')
 order_query_parser.add_argument(
+    'status',
+    type=str,
+    location='args',
+    help='订单状态',
+    choices=['pending', 'confirmed', 'processing', 'completed', 'cancelled'],
+)
+
+order_option_query_parser = new_query_parser()
+order_option_query_parser.add_argument('order_no', type=str, location='args', help='订单号')
+order_option_query_parser.add_argument('customer_name', type=str, location='args', help='客户名称')
+order_option_query_parser.add_argument(
     'status',
     type=str,
     location='args',
@@ -261,6 +272,18 @@ order_list_data = build_page_data_model(order_ns, 'OrderListData', order_item_mo
 order_list_response = build_page_response_model(order_ns, 'OrderListResponse', base_response, order_list_data, '订单分页数据')
 order_item_response = order_ns.clone('OrderItemResponse', base_response, {
     'data': fields.Nested(order_item_model, description='订单详情数据')
+})
+order_option_model = order_ns.model('OrderOptionItem', {
+    'id': fields.Integer(description='订单 ID', example=1),
+    'order_no': fields.String(description='订单号', example='ORD1202605140002'),
+    'customer_id': fields.Integer(description='客户 ID', example=2),
+    'customer_name': fields.String(description='客户名称', example='工厂客户'),
+    'status': fields.String(description='订单状态', example='pending'),
+    'order_date': fields.String(description='订单日期', example='2026-05-14'),
+    'delivery_date': fields.String(description='交期', example='2026-05-22'),
+})
+order_options_response = order_ns.clone('OrderOptionsResponse', base_response, {
+    'data': fields.List(fields.Nested(order_option_model), description='订单下拉选项列表')
 })
 order_statistics_response = order_ns.clone('OrderStatisticsResponse', base_response, {
     'data': fields.Nested(order_statistics_data_model, description='订单统计数据')
@@ -545,6 +568,36 @@ class OrderList(Resource):
             return ApiResponse.error(error, 400)
 
         return ApiResponse.success(serialize_order(order), '创建成功', 201)
+
+
+@order_ns.route('/options')
+class OrderOptions(Resource):
+    @login_required
+    @button_permission(PERM_BUSINESS_ORDER_QUERY)
+    @order_ns.expect(order_option_query_parser)
+    @order_ns.response(200, '成功', order_options_response)
+    @order_ns.response(401, '未登录', unauthorized_response)
+    def get(self):
+        """查询订单下拉选项列表，供订单选择器直接使用。"""
+        current_user = get_current_user()
+        current_factory_id = get_current_factory_id()
+
+        if not current_user:
+            return ApiResponse.error('用户不存在')
+
+        orders = OrderService.get_order_options(current_factory_id, order_option_query_parser.parse_args())
+        return ApiResponse.success([
+            {
+                'id': order.id,
+                'order_no': order.order_no,
+                'customer_id': order.customer_id,
+                'customer_name': order.customer_name,
+                'status': order.status,
+                'order_date': order.order_date.isoformat() if order.order_date else None,
+                'delivery_date': order.delivery_date.isoformat() if order.delivery_date else None,
+            }
+            for order in orders
+        ])
 
 
 @order_ns.route('/<int:order_id>')

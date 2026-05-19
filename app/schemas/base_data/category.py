@@ -1,8 +1,11 @@
+"""分类相关序列化定义。"""
+
 from marshmallow import Schema, fields, validate
 
 
 class CategorySchema(Schema):
-    """分类序列化器"""
+    """分类序列化器。"""
+
     id = fields.Int()
     parent_id = fields.Int()
     name = fields.Str()
@@ -14,21 +17,23 @@ class CategorySchema(Schema):
     remark = fields.Str()
     create_time = fields.DateTime(format='%Y-%m-%d %H:%M:%S')
     update_time = fields.DateTime(format='%Y-%m-%d %H:%M:%S')
-    children = fields.List(fields.Nested(lambda: CategorySchema()), default=[])
+    children = fields.List(fields.Nested(lambda: CategorySchema()), load_default=[])
 
 
 class CategoryCreateSchema(Schema):
-    """创建分类参数"""
-    parent_id = fields.Int(default=0)
+    """创建分类参数。"""
+
+    parent_id = fields.Int(load_default=0)
     name = fields.Str(required=True, validate=validate.Length(min=1, max=50))
     code = fields.Str(required=True, validate=validate.Length(min=1, max=50))
-    category_type = fields.Str(default='style', validate=validate.OneOf(['style', 'material', 'order']))
-    sort_order = fields.Int(default=0)
+    category_type = fields.Str(load_default='style', validate=validate.OneOf(['style', 'material', 'order']))
+    sort_order = fields.Int(load_default=0)
     remark = fields.Str(validate=validate.Length(max=255))
 
 
 class CategoryUpdateSchema(Schema):
-    """更新分类参数"""
+    """更新分类参数。"""
+
     parent_id = fields.Int()
     name = fields.Str(validate=validate.Length(min=1, max=50))
     sort_order = fields.Int()

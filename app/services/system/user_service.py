@@ -225,39 +225,65 @@ class UserService(BaseService):
         }
 
     @staticmethod
-    def get_user_list(current_user, filters):
-        """按当前登录人权限范围分页查询用户列表。"""
-        page = filters.get('page', 1)
-        page_size = filters.get('page_size', 10)
-        username = filters.get('username', '')
-        status = filters.get('status')
-        factory_id = filters.get('factory_id')
-
+    def _build_user_query(current_user, factory_id=None, relation_type=None):
+        """按当前登录人权限范围构造用户查询。"""
         query = User.query.filter_by(is_deleted=0)
 
         if current_user.is_internal_user:
             if factory_id:
-                user_ids = db.session.query(UserFactory.user_id).filter_by(
+                user_ids_query = db.session.query(UserFactory.user_id).filter_by(
                     factory_id=factory_id,
                     status=1,
                     is_deleted=0,
-                ).all()
+                )
+                if relation_type:
+                    user_ids_query = user_ids_query.filter_by(relation_type=relation_type)
+                user_ids = user_ids_query.all()
                 query = query.filter(User.id.in_([user_id for user_id, in user_ids]))
-        else:
-            if factory_id and RoleService.has_factory_admin_permission(current_user, factory_id):
-                user_ids = db.session.query(UserFactory.user_id).filter_by(
-                    factory_id=factory_id,
-                    status=1,
-                    is_deleted=0,
-                ).all()
-                query = query.filter(User.id.in_([user_id for user_id, in user_ids]))
-            else:
-                query = query.filter(User.id == current_user.id)
+            return query
 
+        if factory_id and RoleService.has_factory_admin_permission(current_user, factory_id):
+            user_ids_query = db.session.query(UserFactory.user_id).filter_by(
+                factory_id=factory_id,
+                status=1,
+                is_deleted=0,
+            )
+            if relation_type:
+                user_ids_query = user_ids_query.filter_by(relation_type=relation_type)
+            user_ids = user_ids_query.all()
+            return query.filter(User.id.in_([user_id for user_id, in user_ids]))
+
+        return query.filter(User.id == current_user.id)
+
+    @staticmethod
+    def _apply_user_basic_filters(query, username='', status=None, platform_identity=None):
+        """统一叠加用户名、状态和平台身份筛选。"""
         if username:
             query = query.filter(User.username.like(f'%{username}%'))
         if status is not None:
             query = query.filter_by(status=status)
+        if platform_identity:
+            query = query.filter_by(platform_identity=platform_identity)
+        return query
+
+    @staticmethod
+    def get_user_list(current_user, filters):
+        """按当前登录人权限范围分页查询用户列表。"""
+        page = filters.get('page', 1)
+        page_size = filters.get('page_size', 10)
+        factory_id = filters.get('factory_id')
+
+        query = UserService._build_user_query(
+            current_user=current_user,
+            factory_id=factory_id,
+            relation_type=filters.get('relation_type'),
+        )
+        query = UserService._apply_user_basic_filters(
+            query=query,
+            username=filters.get('username', ''),
+            status=filters.get('status'),
+            platform_identity=filters.get('platform_identity'),
+        )
 
         pagination = query.order_by(User.id.desc()).paginate(page=page, per_page=page_size, error_out=False)
         return {
@@ -267,6 +293,34 @@ class UserService(BaseService):
             'page_size': page_size,
             'pages': pagination.pages,
         }
+
+    @staticmethod
+    def get_user_options(current_user, filters):
+        """查询轻量用户选项列表，供客户、员工、协作用户选择器使用。"""
+        query = UserService._build_user_query(
+            current_user=current_user,
+            factory_id=filters.get('factory_id'),
+            relation_type=filters.get('relation_type'),
+        )
+        query = UserService._apply_user_basic_filters(
+            query=query,
+            username=filters.get('username', ''),
+            status=filters.get('status'),
+            platform_identity=filters.get('platform_identity'),
+        )
+        users = query.order_by(User.id.desc()).all()
+
+        return [
+            {
+                'id': user.id,
+                'username': user.username,
+                'nickname': user.nickname,
+                'phone': user.phone,
+                'platform_identity': user.platform_identity,
+                'platform_identity_label': user.platform_identity_label,
+            }
+            for user in users
+        ]
 
     @staticmethod
     def create_user(data, current_user_id=None):
