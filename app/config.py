@@ -32,6 +32,24 @@ def _build_database_uri():
     return f'sqlite:///{sqlite_path}'
 
 
+def _parse_cors_origins():
+    """解析 CORS_ORIGINS，支持 *、普通来源和 regex: 前缀的正则来源。"""
+    raw_value = os.getenv('CORS_ORIGINS', '*').strip()
+    if raw_value == '*':
+        return '*'
+
+    origins = []
+    for item in raw_value.split(','):
+        current = item.strip()
+        if not current:
+            continue
+        if current.startswith('regex:'):
+            current = current[len('regex:'):].strip()
+        if current:
+            origins.append(current)
+    return origins
+
+
 class BaseConfig:
     """基础配置。"""
 
@@ -55,7 +73,7 @@ class BaseConfig:
     LOG_MAX_BYTES = int(os.getenv('LOG_MAX_BYTES', 10485760))
     LOG_BACKUP_COUNT = int(os.getenv('LOG_BACKUP_COUNT', 5))
 
-    CORS_ORIGINS = os.getenv('CORS_ORIGINS', '*')
+    CORS_ORIGINS = _parse_cors_origins()
     CORS_SUPPORTS_CREDENTIALS = os.getenv('CORS_SUPPORTS_CREDENTIALS', '1') == '1'
 
 
