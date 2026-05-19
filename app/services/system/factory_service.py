@@ -71,6 +71,16 @@ class FactoryService(BaseService):
         }
 
     @staticmethod
+    def get_factory_options(name=None, status=None):
+        """查询工厂选项列表，供前端选择框直接使用。"""
+        query = Factory.query.filter_by(is_deleted=0)
+        if name:
+            query = query.filter(Factory.name.like(f'%{name}%'))
+        if status is not None:
+            query = query.filter_by(status=int(status))
+        return query.order_by(Factory.id.desc()).all()
+
+    @staticmethod
     def create_factory(data, current_user_id=None):
         """创建工厂、默认工厂管理员账号以及 owner 关系。"""
         existing = FactoryService.get_factory_by_code(data['code'])

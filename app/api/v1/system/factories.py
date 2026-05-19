@@ -117,6 +117,12 @@ factory_list_data = factory_ns.model('FactoryListData', {
     'pages': fields.Integer(description='总页数')
 })
 
+factory_option_model = factory_ns.model('FactoryOptionItem', {
+    'id': fields.Integer(description='工厂ID', example=1),
+    'name': fields.String(description='工厂名称', example='测试工厂'),
+    'code': fields.String(description='工厂编码', example='TEST001')
+})
+
 factory_create_response_data = factory_ns.model('FactoryCreateResponseData', {
     'id': fields.Integer(description='工厂ID', example=1),
     'name': fields.String(description='工厂名称', example='测试工厂'),
@@ -174,6 +180,10 @@ user_list_response = factory_ns.clone('FactoryUserListResponse', base_response, 
 })
 user_item_response = factory_ns.clone('FactoryUserItemResponse', base_response, {
     'data': fields.Nested(user_item_model, description='工厂用户详情数据')
+})
+
+factory_options_response = factory_ns.clone('FactoryOptionsResponse', base_response, {
+    'data': fields.List(fields.Nested(factory_option_model), description='工厂下拉选项列表')
 })
 
 factory_schema = FactorySchema()
@@ -290,6 +300,46 @@ class FactoryList(Resource):
         result['admin_username'] = factory_admin.username
         result['admin_password'] = '123456'
         return ApiResponse.success(result, '创建成功', 201)
+
+
+@factory_ns.route('/options')
+class FactoryOptions(Resource):
+    @login_required
+    @permission_required('system.factories.browse')
+    @factory_ns.expect(factory_query_parser)
+    @factory_ns.response(200, '成功', factory_options_response)
+    @factory_ns.response(401, '未登录', unauthorized_response)
+    def get(self):
+        """查询工厂下拉选项列表，仅返回工厂ID、名称和编码。"""
+        current_user = get_current_user()
+        if not current_user:
+            return ApiResponse.error('用户不存在')
+
+        has_permission, error = check_factory_module_permission(current_user)
+        if not has_permission:
+            return ApiResponse.error(error, 403)
+
+        name = (request.args.get('name') or '').strip()
+        raw_status = request.args.get('status')
+        if raw_status in (None, ''):
+            status = None
+        else:
+            try:
+                status = int(raw_status)
+            except ValueError:
+                return ApiResponse.error('status 必须为 0 或 1', 400)
+            if status not in (0, 1):
+                return ApiResponse.error('status 必须为 0 或 1', 400)
+
+        factories = FactoryService.get_factory_options(name=name, status=status)
+        return ApiResponse.success([
+            {
+                'id': factory.id,
+                'name': factory.name,
+                'code': factory.code,
+            }
+            for factory in factories
+        ])
 
 
 @factory_ns.route('/<int:factory_id>')
