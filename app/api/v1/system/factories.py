@@ -8,7 +8,7 @@ from marshmallow import ValidationError
 
 from app.api.common.auth import get_current_user
 from app.api.common.models import get_common_models
-from app.api.common.parsers import page_parser
+from app.api.common.parsers import new_query_parser, page_parser
 from app.schemas.system.factory import FactoryCreateSchema, FactorySchema, FactoryUpdateSchema
 from app.services import FactoryService
 from app.utils.permissions import login_required, permission_required
@@ -26,6 +26,10 @@ factory_query_parser = page_parser.copy()
 factory_query_parser.add_argument('name', type=str, location='args', help='工厂名称（模糊查询）')
 factory_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
 
+factory_filter_parser = new_query_parser()
+factory_filter_parser.add_argument('name', type=str, location='args', help='工厂名称（模糊查询）')
+factory_filter_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
+
 factory_user_query_parser = page_parser.copy()
 factory_user_query_parser.add_argument('username', type=str, location='args', help='用户名（模糊查询）')
 factory_user_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
@@ -33,15 +37,15 @@ factory_user_query_parser.add_argument(
     'relation_type',
     type=str,
     location='args',
-    help='关系类型',
-    choices=['owner', 'employee', 'customer', 'collaborator']
+    help='关联关系类型',
+    choices=['owner', 'employee', 'customer', 'collaborator'],
 )
 factory_user_query_parser.add_argument(
     'collaborator_type',
     type=str,
     location='args',
-    help='协作类型',
-    choices=['button_partner', 'shrink_partner', 'print_partner', 'other_partner']
+    help='协作方类型',
+    choices=['button_partner', 'shrink_partner', 'print_partner', 'other_partner'],
 )
 
 factory_create_model = factory_ns.model('FactoryCreate', {
@@ -51,7 +55,7 @@ factory_create_model = factory_ns.model('FactoryCreate', {
     'contact_phone': fields.String(description='联系电话', example='13800138000'),
     'address': fields.String(description='地址', example='广东省深圳市南山区'),
     'service_expire_date': fields.String(description='服务到期日期', example='2026-12-31'),
-    'remark': fields.String(description='备注')
+    'remark': fields.String(description='备注'),
 })
 
 factory_update_model = factory_ns.model('FactoryUpdate', {
@@ -61,36 +65,43 @@ factory_update_model = factory_ns.model('FactoryUpdate', {
     'address': fields.String(description='地址'),
     'service_expire_date': fields.String(description='服务到期日期', example='2026-12-31'),
     'status': fields.Integer(description='状态', choices=[0, 1]),
-    'remark': fields.String(description='备注')
+    'remark': fields.String(description='备注'),
 })
 
 add_user_model = factory_ns.model('AddUser', {
     'user_id': fields.Integer(required=True, description='用户ID', example=1),
-    'relation_type': fields.String(required=True, description='关系类型', choices=['owner', 'employee', 'customer', 'collaborator']),
-    'collaborator_type': fields.String(description='协作类型，仅 relation_type=collaborator 时使用', choices=['button_partner', 'shrink_partner', 'print_partner', 'other_partner'])
+    'relation_type': fields.String(
+        required=True,
+        description='关联关系类型',
+        choices=['owner', 'employee', 'customer', 'collaborator'],
+    ),
+    'collaborator_type': fields.String(
+        description='协作方类型，仅 relation_type=collaborator 时使用',
+        choices=['button_partner', 'shrink_partner', 'print_partner', 'other_partner'],
+    ),
 })
 
 qrcode_response_data = factory_ns.model('QRCodeResponseData', {
     'qrcode': fields.String(description='二维码内容或地址', example='factory-bind://TEST001?key=abc123'),
-    'qrcode_key': fields.String(description='二维码绑定键值', example='abc123')
+    'qrcode_key': fields.String(description='二维码绑定键值', example='abc123'),
 })
 
 qrcode_response = factory_ns.clone('QRCodeResponse', base_response, {
-    'data': fields.Nested(qrcode_response_data, description='二维码数据')
+    'data': fields.Nested(qrcode_response_data, description='二维码数据'),
 })
 
 bind_factory_model = factory_ns.model('BindFactory', {
-    'key': fields.String(required=True, description='二维码标识')
+    'key': fields.String(required=True, description='二维码标识'),
 })
 
 bind_response_data = factory_ns.model('BindResponseData', {
     'factory_id': fields.Integer(description='工厂ID', example=1),
     'factory_name': fields.String(description='工厂名称', example='测试工厂'),
-    'factory_code': fields.String(description='工厂编码', example='TEST001')
+    'factory_code': fields.String(description='工厂编码', example='TEST001'),
 })
 
 bind_response = factory_ns.clone('BindResponse', base_response, {
-    'data': fields.Nested(bind_response_data, description='绑定结果数据')
+    'data': fields.Nested(bind_response_data, description='绑定结果数据'),
 })
 
 factory_item_model = factory_ns.model('FactoryItem', {
@@ -106,7 +117,7 @@ factory_item_model = factory_ns.model('FactoryItem', {
     'service_expire_date': fields.String(description='服务到期日期', example=None),
     'service_status': fields.String(description='服务状态', example='active'),
     'create_time': fields.String(description='创建时间', example='2026-04-21 01:17:24'),
-    'update_time': fields.String(description='更新时间', example='2026-04-21 01:17:24')
+    'update_time': fields.String(description='更新时间', example='2026-04-21 01:17:24'),
 })
 
 factory_list_data = factory_ns.model('FactoryListData', {
@@ -114,13 +125,13 @@ factory_list_data = factory_ns.model('FactoryListData', {
     'total': fields.Integer(description='总条数'),
     'page': fields.Integer(description='当前页码'),
     'page_size': fields.Integer(description='每页条数'),
-    'pages': fields.Integer(description='总页数')
+    'pages': fields.Integer(description='总页数'),
 })
 
 factory_option_model = factory_ns.model('FactoryOptionItem', {
     'id': fields.Integer(description='工厂ID', example=1),
     'name': fields.String(description='工厂名称', example='测试工厂'),
-    'code': fields.String(description='工厂编码', example='TEST001')
+    'code': fields.String(description='工厂编码', example='TEST001'),
 })
 
 factory_create_response_data = factory_ns.model('FactoryCreateResponseData', {
@@ -137,7 +148,7 @@ factory_create_response_data = factory_ns.model('FactoryCreateResponseData', {
     'create_time': fields.String(description='创建时间', example='2026-04-21 01:17:24'),
     'update_time': fields.String(description='更新时间', example='2026-04-21 01:17:24'),
     'admin_username': fields.String(description='默认管理员账号', example='factory_admin'),
-    'admin_password': fields.String(description='默认管理员密码', example='123456')
+    'admin_password': fields.String(description='默认管理员密码', example='123456'),
 })
 
 user_item_model = factory_ns.model('FactoryUserItem', {
@@ -155,7 +166,7 @@ user_item_model = factory_ns.model('FactoryUserItem', {
     'collaborator_type': fields.String(description='协作方类型', example=None),
     'collaborator_type_label': fields.String(description='协作方类型名称', example=None),
     'entry_date': fields.String(description='入厂日期', example='2026-04-21'),
-    'leave_date': fields.String(description='离厂日期', example=None)
+    'leave_date': fields.String(description='离厂日期', example=None),
 })
 
 user_list_data = factory_ns.model('FactoryUserListData', {
@@ -163,27 +174,26 @@ user_list_data = factory_ns.model('FactoryUserListData', {
     'total': fields.Integer(description='总条数'),
     'page': fields.Integer(description='当前页码'),
     'page_size': fields.Integer(description='每页条数'),
-    'pages': fields.Integer(description='总页数')
+    'pages': fields.Integer(description='总页数'),
 })
 
 factory_list_response = factory_ns.clone('FactoryListResponse', base_response, {
-    'data': fields.Nested(factory_list_data, description='工厂分页数据')
+    'data': fields.Nested(factory_list_data, description='工厂分页数据'),
 })
 factory_item_response = factory_ns.clone('FactoryItemResponse', base_response, {
-    'data': fields.Nested(factory_item_model, description='工厂详情数据')
+    'data': fields.Nested(factory_item_model, description='工厂详情数据'),
 })
 factory_create_response = factory_ns.clone('FactoryCreateResponse', base_response, {
-    'data': fields.Nested(factory_create_response_data, description='工厂创建结果数据')
+    'data': fields.Nested(factory_create_response_data, description='工厂创建结果数据'),
 })
 user_list_response = factory_ns.clone('FactoryUserListResponse', base_response, {
-    'data': fields.Nested(user_list_data, description='工厂用户分页数据')
+    'data': fields.Nested(user_list_data, description='工厂用户分页数据'),
 })
 user_item_response = factory_ns.clone('FactoryUserItemResponse', base_response, {
-    'data': fields.Nested(user_item_model, description='工厂用户详情数据')
+    'data': fields.Nested(user_item_model, description='工厂用户详情数据'),
 })
-
 factory_options_response = factory_ns.clone('FactoryOptionsResponse', base_response, {
-    'data': fields.List(fields.Nested(factory_option_model), description='工厂下拉选项列表')
+    'data': fields.List(fields.Nested(factory_option_model), description='工厂下拉选项列表'),
 })
 
 factory_schema = FactorySchema()
@@ -192,54 +202,85 @@ factory_create_schema = FactoryCreateSchema()
 factory_update_schema = FactoryUpdateSchema()
 
 
-def parse_factory_list_args():
-    """解析工厂列表查询参数；空字符串按未传处理，完全空参数时返回全量工厂。"""
-    raw_args = request.args
-    values = {
-        'page': raw_args.get('page'),
-        'page_size': raw_args.get('page_size'),
-        'name': raw_args.get('name'),
-        'status': raw_args.get('status'),
-    }
-    is_empty_query = all(value in (None, '') for value in values.values())
+def parse_factory_filter_args():
+    """解析工厂筛选参数，空字符串按未传处理。"""
+    name = (request.args.get('name') or '').strip()
+    raw_status = request.args.get('status')
 
-    try:
-        page = int(values['page'] or 1)
-        page_size = int(values['page_size'] or 10)
-    except ValueError:
-        return None, 'page 和 page_size 必须为整数'
-    if page < 1:
-        return None, 'page 必须大于等于 1'
-    if page_size < 1 or page_size > 100:
-        return None, 'page_size 必须在 1 到 100 之间'
-
-    status = values['status']
-    if status in (None, ''):
+    if raw_status in (None, ''):
         status = None
     else:
         try:
-            status = int(status)
+            status = int(raw_status)
         except ValueError:
             return None, 'status 必须为 0 或 1'
         if status not in (0, 1):
             return None, 'status 必须为 0 或 1'
 
     return {
-        'page': page,
-        'page_size': page_size,
-        'name': values['name'] or '',
+        'name': name,
         'status': status,
-        'return_all': is_empty_query,
     }, None
 
 
+def parse_factory_list_args():
+    """解析工厂列表查询参数，全部为空时返回全量工厂。"""
+    filters, error = parse_factory_filter_args()
+    if error:
+        return None, error
+
+    raw_page = request.args.get('page')
+    raw_page_size = request.args.get('page_size')
+
+    try:
+        page = int(raw_page or 1)
+        page_size = int(raw_page_size or 10)
+    except ValueError:
+        return None, 'page 和 page_size 必须为整数'
+
+    if page < 1:
+        return None, 'page 必须大于等于 1'
+    if page_size < 1 or page_size > 100:
+        return None, 'page_size 必须在 1 到 100 之间'
+
+    is_empty_query = all(value in (None, '') for value in [raw_page, raw_page_size, request.args.get('name'), request.args.get('status')])
+
+    filters.update({
+        'page': page,
+        'page_size': page_size,
+        'return_all': is_empty_query,
+    })
+    return filters, None
+
+
 def check_factory_module_permission(current_user):
-    """校验当前用户是否允许进入工厂管理模块，外部用户不可访问该模块。"""
+    """校验当前用户是否允许访问工厂管理模块。"""
     if not current_user:
         return False, '用户不存在'
     if not current_user.is_internal_user:
         return False, '外部用户无权访问工厂管理模块'
     return True, None
+
+
+def build_factory_user_view(user, relation_type, relation_type_label, collaborator_type=None, collaborator_type_label=None, entry_date=None, leave_date=None):
+    """构造工厂用户展示数据。"""
+    return {
+        'id': user.id,
+        'username': user.username,
+        'nickname': user.nickname,
+        'phone': user.phone,
+        'status': user.status,
+        'platform_identity': user.platform_identity,
+        'platform_identity_label': user.platform_identity_label,
+        'subject_type': user.get_subject_type([relation_type]),
+        'subject_type_label': user.get_subject_type_label([relation_type]),
+        'relation_type': relation_type,
+        'relation_type_label': relation_type_label,
+        'collaborator_type': collaborator_type,
+        'collaborator_type_label': collaborator_type_label,
+        'entry_date': entry_date.isoformat() if entry_date else None,
+        'leave_date': leave_date.isoformat() if leave_date else None,
+    }
 
 
 @factory_ns.route('')
@@ -250,17 +291,15 @@ class FactoryList(Resource):
     @factory_ns.response(200, '成功', factory_list_response)
     @factory_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """分页查询工厂列表，仅平台内部人员可访问。"""
-
+        """分页查询工厂列表；当筛选参数全部为空时返回所有工厂。"""
         args, parse_error = parse_factory_list_args()
         if parse_error:
             return ApiResponse.error(parse_error, 400)
+
         current_user = get_current_user()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
         has_permission, error = check_factory_module_permission(current_user)
         if not has_permission:
-            return ApiResponse.error('无权限查看工厂列表', 403)
+            return ApiResponse.error(error, 403)
 
         result = FactoryService.get_factory_list(args)
         return ApiResponse.success({
@@ -268,7 +307,7 @@ class FactoryList(Resource):
             'total': result['total'],
             'page': result['page'],
             'page_size': result['page_size'],
-            'pages': result['pages']
+            'pages': result['pages'],
         })
 
     @login_required
@@ -281,20 +320,18 @@ class FactoryList(Resource):
     def post(self):
         """创建工厂及其默认管理员账号。"""
         current_user = get_current_user()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
         has_permission, error = check_factory_module_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
 
         try:
-            data = factory_create_schema.load(request.get_json())
-        except ValidationError as e:
-            return ApiResponse.error(str(e.messages), 400)
+            data = factory_create_schema.load(request.get_json() or {})
+        except ValidationError as exc:
+            return ApiResponse.error(str(exc.messages), 400)
 
-        factory, factory_admin, error = FactoryService.create_factory(data, current_user.id)
-        if error:
-            return ApiResponse.error(error, 409)
+        factory, factory_admin, create_error = FactoryService.create_factory(data, current_user.id)
+        if create_error:
+            return ApiResponse.error(create_error, 409)
 
         result = factory_schema.dump(factory)
         result['admin_username'] = factory_admin.username
@@ -306,37 +343,28 @@ class FactoryList(Resource):
 class FactoryOptions(Resource):
     @login_required
     @permission_required('system.factories.browse')
-    @factory_ns.expect(factory_query_parser)
+    @factory_ns.expect(factory_filter_parser)
     @factory_ns.response(200, '成功', factory_options_response)
     @factory_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """查询工厂下拉选项列表，仅返回工厂ID、名称和编码。"""
+        """查询工厂下拉选项，仅返回工厂ID、名称和编码。"""
         current_user = get_current_user()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
-
         has_permission, error = check_factory_module_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
 
-        name = (request.args.get('name') or '').strip()
-        raw_status = request.args.get('status')
-        if raw_status in (None, ''):
-            status = None
-        else:
-            try:
-                status = int(raw_status)
-            except ValueError:
-                return ApiResponse.error('status 必须为 0 或 1', 400)
-            if status not in (0, 1):
-                return ApiResponse.error('status 必须为 0 或 1', 400)
+        filters, parse_error = parse_factory_filter_args()
+        if parse_error:
+            return ApiResponse.error(parse_error, 400)
 
-        factories = FactoryService.get_factory_options(name=name, status=status)
+        factories = FactoryService.get_factory_options(
+            name=filters['name'],
+            status=filters['status'],
+        )
         return ApiResponse.success([
             {
                 'id': factory.id,
                 'name': factory.name,
-                'code': factory.code,
             }
             for factory in factories
         ])
@@ -351,13 +379,13 @@ class FactoryDetail(Resource):
     def get(self, factory_id):
         """查看单个工厂详情。"""
         current_user = get_current_user()
-        factory = FactoryService.get_factory_by_id(factory_id)
-        if not factory:
-            return ApiResponse.error('工厂不存在')
-
         has_permission, error = check_factory_module_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
+
+        factory = FactoryService.get_factory_by_id(factory_id)
+        if not factory:
+            return ApiResponse.error('工厂不存在', 404)
         return ApiResponse.success(factory_schema.dump(factory))
 
     @login_required
@@ -368,29 +396,30 @@ class FactoryDetail(Resource):
     def patch(self, factory_id):
         """更新工厂基础信息和服务到期信息。"""
         current_user = get_current_user()
-        factory = FactoryService.get_factory_by_id(factory_id)
-        if not factory:
-            return ApiResponse.error('工厂不存在')
         has_permission, error = check_factory_module_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
 
+        factory = FactoryService.get_factory_by_id(factory_id)
+        if not factory:
+            return ApiResponse.error('工厂不存在', 404)
+
         try:
-            data = factory_update_schema.load(request.get_json())
-        except ValidationError as e:
-            return ApiResponse.error(str(e.messages), 400)
+            data = factory_update_schema.load(request.get_json() or {})
+        except ValidationError as exc:
+            return ApiResponse.error(str(exc.messages), 400)
 
         factory = FactoryService.update_factory(factory, data)
         return ApiResponse.success(factory_schema.dump(factory), '更新成功')
 
     @login_required
-    @factory_ns.response(200, '删除成功', base_response)
-    @factory_ns.response(404, '工厂不存在', error_response)
-    @factory_ns.response(403, '无权限', forbidden_response)
-    @factory_ns.response(409, '存在关联用户无法删除', error_response)
     @permission_required('system.factories.delete')
+    @factory_ns.response(200, '删除成功', base_response)
+    @factory_ns.response(403, '无权限', forbidden_response)
+    @factory_ns.response(404, '工厂不存在', error_response)
+    @factory_ns.response(409, '存在关联用户无法删除', error_response)
     def delete(self, factory_id):
-        """删除工厂，删除前会校验是否还有关联用户。"""
+        """删除工厂；删除前会校验是否仍存在关联用户。"""
         current_user = get_current_user()
         has_permission, error = check_factory_module_permission(current_user)
         if not has_permission:
@@ -398,11 +427,11 @@ class FactoryDetail(Resource):
 
         factory = FactoryService.get_factory_by_id(factory_id)
         if not factory:
-            return ApiResponse.error('工厂不存在')
+            return ApiResponse.error('工厂不存在', 404)
 
-        success, error = FactoryService.delete_factory(factory)
+        success, delete_error = FactoryService.delete_factory(factory)
         if not success:
-            return ApiResponse.error(error, 409)
+            return ApiResponse.error(delete_error, 409)
         return ApiResponse.success(message='删除成功')
 
 
@@ -414,27 +443,27 @@ class FactoryUsers(Resource):
     @factory_ns.response(200, '成功', user_list_response)
     @factory_ns.response(404, '工厂不存在', error_response)
     def get(self, factory_id):
-        """查询工厂下的用户列表，并支持关系类型和协作类型过滤。"""
-        args = factory_user_query_parser.parse_args()
+        """查询工厂下的用户列表，支持关系类型和协作方类型过滤。"""
         current_user = get_current_user()
-        factory = FactoryService.get_factory_by_id(factory_id)
-        if not factory:
-            return ApiResponse.error('工厂不存在')
-
         has_permission, error = check_factory_module_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
 
+        factory = FactoryService.get_factory_by_id(factory_id)
+        if not factory:
+            return ApiResponse.error('工厂不存在', 404)
+
+        args = factory_user_query_parser.parse_args()
         result = FactoryService.get_factory_users(factory_id, args)
         return ApiResponse.success(result)
 
     @login_required
+    @permission_required('system.factories.update')
     @factory_ns.expect(add_user_model)
     @factory_ns.response(200, '添加成功', user_item_response)
     @factory_ns.response(403, '无权限', forbidden_response)
     @factory_ns.response(404, '用户不存在', error_response)
     @factory_ns.response(409, '用户已关联', error_response)
-    @permission_required('system.factories.update')
     def post(self, factory_id):
         """向工厂新增用户关系，支持 owner、employee、customer、collaborator。"""
         current_user = get_current_user()
@@ -444,57 +473,51 @@ class FactoryUsers(Resource):
 
         factory = FactoryService.get_factory_by_id(factory_id)
         if not factory:
-            return ApiResponse.error('工厂不存在')
+            return ApiResponse.error('工厂不存在', 404)
 
         data = request.get_json() or {}
         user_id = data.get('user_id')
         relation_type = data.get('relation_type')
         collaborator_type = data.get('collaborator_type')
-
         if not user_id or not relation_type:
             return ApiResponse.error('请指定用户ID和关系类型', 400)
 
         if relation_type == 'owner':
-            user_factory, error = FactoryService.update_factory_owner(factory_id, user_id)
+            user_factory, add_error = FactoryService.update_factory_owner(factory_id, user_id)
         else:
-            user_factory, error = FactoryService.add_user_to_factory(
+            user_factory, add_error = FactoryService.add_user_to_factory(
                 factory_id,
                 user_id,
                 relation_type,
-                collaborator_type=collaborator_type
+                collaborator_type=collaborator_type,
             )
 
-        if error:
-            status_code = 409 if '已关联' in error or '已经是' in error else 404
-            return ApiResponse.error(error, status_code)
+        if add_error:
+            status_code = 409 if '已关联' in add_error or '已经是' in add_error else 404
+            return ApiResponse.error(add_error, status_code)
 
         user = user_factory.user
-        return ApiResponse.success({
-            'id': user.id,
-            'username': user.username,
-            'nickname': user.nickname,
-            'phone': user.phone,
-            'status': user.status,
-            'platform_identity': user.platform_identity,
-            'platform_identity_label': user.platform_identity_label,
-            'subject_type': user.get_subject_type([user_factory.relation_type]),
-            'subject_type_label': user.get_subject_type_label([user_factory.relation_type]),
-            'relation_type': user_factory.relation_type,
-            'relation_type_label': user_factory.relation_type_label,
-            'collaborator_type': user_factory.collaborator_type,
-            'collaborator_type_label': user_factory.collaborator_type_label,
-            'entry_date': datetime.now().date().isoformat(),
-            'leave_date': None
-        }, '添加成功')
+        return ApiResponse.success(
+            build_factory_user_view(
+                user=user,
+                relation_type=user_factory.relation_type,
+                relation_type_label=user_factory.relation_type_label,
+                collaborator_type=user_factory.collaborator_type,
+                collaborator_type_label=user_factory.collaborator_type_label,
+                entry_date=user_factory.entry_date or datetime.now().date(),
+                leave_date=user_factory.leave_date,
+            ),
+            '添加成功',
+        )
 
 
 @factory_ns.route('/<int:factory_id>/users/<int:user_id>')
 class FactoryUserDetail(Resource):
     @login_required
+    @permission_required('system.factories.delete')
     @factory_ns.response(200, '移除成功', base_response)
     @factory_ns.response(403, '无权限', forbidden_response)
     @factory_ns.response(404, '关联不存在', error_response)
-    @permission_required('system.factories.delete')
     def delete(self, factory_id, user_id):
         """从工厂中移除指定用户关系。"""
         current_user = get_current_user()
@@ -502,59 +525,49 @@ class FactoryUserDetail(Resource):
         if not has_permission:
             return ApiResponse.error(error, 403)
 
-        success, error = FactoryService.remove_user_from_factory(factory_id, user_id)
+        success, delete_error = FactoryService.remove_user_from_factory(factory_id, user_id)
         if not success:
-            return ApiResponse.error(error, 404)
+            return ApiResponse.error(delete_error, 404)
         return ApiResponse.success(message='移除成功')
 
 
 @factory_ns.route('/<int:factory_id>/owner')
 class FactoryOwner(Resource):
     @login_required
+    @permission_required('system.factories.browse')
     @factory_ns.response(200, '成功', user_item_response)
     @factory_ns.response(404, '工厂不存在', error_response)
-    @permission_required('system.factories.browse')
     def get(self, factory_id):
         """查询工厂当前管理员账号信息。"""
         current_user = get_current_user()
-        factory = FactoryService.get_factory_by_id(factory_id)
-        if not factory:
-            return ApiResponse.error('工厂不存在')
-
         has_permission, error = check_factory_module_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
+
+        factory = FactoryService.get_factory_by_id(factory_id)
+        if not factory:
+            return ApiResponse.error('工厂不存在', 404)
 
         owner = FactoryService.get_factory_owner(factory_id)
         if not owner:
             return ApiResponse.error('工厂管理员账号不存在', 404)
 
-        return ApiResponse.success({
-            'id': owner.id,
-            'username': owner.username,
-            'nickname': owner.nickname,
-            'phone': owner.phone,
-            'status': owner.status,
-            'platform_identity': owner.platform_identity,
-            'platform_identity_label': owner.platform_identity_label,
-            'subject_type': owner.get_subject_type(['owner']),
-            'subject_type_label': owner.get_subject_type_label(['owner']),
-            'relation_type': 'owner',
-            'relation_type_label': '工厂管理员',
-            'collaborator_type': None,
-            'collaborator_type_label': None,
-            'entry_date': None,
-            'leave_date': None
-        })
+        return ApiResponse.success(
+            build_factory_user_view(
+                user=owner,
+                relation_type='owner',
+                relation_type_label='工厂管理员',
+            )
+        )
 
 
 @factory_ns.route('/<int:factory_id>/owner/reset-password')
 class FactoryOwnerResetPassword(Resource):
     @login_required
+    @permission_required('system.factories.update')
     @factory_ns.response(200, '重置成功', base_response)
     @factory_ns.response(403, '无权限', forbidden_response)
     @factory_ns.response(404, '工厂不存在', error_response)
-    @permission_required('system.factories.update')
     def post(self, factory_id):
         """重置工厂管理员密码为默认值。"""
         current_user = get_current_user()
@@ -564,21 +577,21 @@ class FactoryOwnerResetPassword(Resource):
 
         factory = FactoryService.get_factory_by_id(factory_id)
         if not factory:
-            return ApiResponse.error('工厂不存在')
+            return ApiResponse.error('工厂不存在', 404)
 
-        success, error = FactoryService.reset_owner_password(factory_id)
+        success, reset_error = FactoryService.reset_owner_password(factory_id)
         if not success:
-            return ApiResponse.error(error, 404)
+            return ApiResponse.error(reset_error, 404)
         return ApiResponse.success(message='密码已重置为 123456')
 
 
 @factory_ns.route('/<int:factory_id>/qrcode')
 class FactoryQRCode(Resource):
     @login_required
+    @permission_required('system.factories.update')
     @factory_ns.response(200, '成功', qrcode_response)
     @factory_ns.response(403, '无权限', forbidden_response)
     @factory_ns.response(404, '工厂不存在', error_response)
-    @permission_required('system.factories.update')
     def post(self, factory_id):
         """为工厂生成新的绑定二维码。"""
         current_user = get_current_user()
@@ -588,7 +601,7 @@ class FactoryQRCode(Resource):
 
         factory = FactoryService.get_factory_by_id(factory_id)
         if not factory:
-            return ApiResponse.error('工厂不存在')
+            return ApiResponse.error('工厂不存在', 404)
 
         result = FactoryService.generate_qrcode(factory)
         return ApiResponse.success(result, '二维码生成成功')
@@ -612,7 +625,7 @@ class BindFactory(Resource):
         if not current_user:
             return ApiResponse.error('请先登录', 401)
 
-        result, error = FactoryService.bind_user_to_factory(current_user.id, qrcode_key)
-        if error:
-            return ApiResponse.error(error, 404)
+        result, bind_error = FactoryService.bind_user_to_factory(current_user.id, qrcode_key)
+        if bind_error:
+            return ApiResponse.error(bind_error, 404)
         return ApiResponse.success(result, '绑定成功')

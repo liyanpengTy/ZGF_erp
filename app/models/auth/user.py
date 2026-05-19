@@ -16,6 +16,7 @@ from app.models.base import BaseModel
 
 class User(BaseModel):
     __tablename__ = 'sys_user'
+    __table_args__ = {'comment': '用户表'}
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     username = db.Column(db.String(50), unique=True, nullable=False, comment='用户名')
