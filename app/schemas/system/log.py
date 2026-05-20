@@ -1,8 +1,11 @@
+"""日志相关序列化定义。"""
+
 from marshmallow import Schema, fields
 
 
 class OperationLogSchema(Schema):
-    """操作日志序列化器"""
+    """操作日志序列化器。"""
+
     id = fields.Int()
     user_id = fields.Int()
     username = fields.Str()
@@ -19,12 +22,13 @@ class OperationLogSchema(Schema):
 
 
 class LoginLogSchema(Schema):
-    """登录日志序列化器"""
+    """登录日志序列化器。"""
+
     id = fields.Int()
     user_id = fields.Int()
     username = fields.Str()
-    login_type = fields.Str()  # pc/miniapp
+    login_type = fields.Str()
     ip = fields.Str()
-    status = fields.Int()  # 1-成功 0-失败
+    status = fields.Int()
     error_msg = fields.Str()
     create_time = fields.DateTime(format='%Y-%m-%d %H:%M:%S')

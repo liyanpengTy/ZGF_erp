@@ -1,6 +1,6 @@
 """日志管理服务。"""
 
-from sqlalchemy import func
+from datetime import datetime, timedelta
 
 from app.extensions import db
 from app.models.system.log import LoginLog, OperationLog
@@ -9,17 +9,17 @@ from app.services.base.base_service import BaseService
 
 
 class LogService(BaseService):
-    """日志管理服务。"""
+    """封装操作日志、登录日志与日志统计相关逻辑。"""
 
     @staticmethod
     def get_user_factory_ids(user_id):
-        """获取用户有效关联的工厂 ID 列表。"""
+        """查询用户当前有效关联的工厂 ID 列表。"""
         user_factories = UserFactory.query.filter_by(user_id=user_id, status=1, is_deleted=0).all()
         return [user_factory.factory_id for user_factory in user_factories]
 
     @staticmethod
     def get_operation_log_list(current_user, filters):
-        """按当前用户数据范围分页查询操作日志。"""
+        """按当前用户可见范围分页查询操作日志。"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
         username = filters.get('username', '')
@@ -54,24 +54,24 @@ class LogService(BaseService):
         pagination = query.order_by(OperationLog.id.desc()).paginate(
             page=page,
             per_page=page_size,
-            error_out=False
+            error_out=False,
         )
         return {
             'items': pagination.items,
             'total': pagination.total,
             'page': page,
             'page_size': page_size,
-            'pages': pagination.pages
+            'pages': pagination.pages,
         }
 
     @staticmethod
     def get_operation_log_by_id(log_id):
-        """根据 ID 获取操作日志。"""
+        """根据日志 ID 查询操作日志。"""
         return OperationLog.query.get(log_id)
 
     @staticmethod
     def check_operation_log_permission(current_user, log):
-        """校验当前用户是否可查看指定操作日志。"""
+        """校验当前用户是否可以查看指定操作日志。"""
         if current_user.is_internal_user:
             return True, None
 
@@ -82,7 +82,7 @@ class LogService(BaseService):
 
     @staticmethod
     def get_login_log_list(current_user, filters):
-        """按当前用户数据范围分页查询登录日志。"""
+        """按当前用户可见范围分页查询登录日志。"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
         username = filters.get('username', '')
@@ -98,7 +98,7 @@ class LogService(BaseService):
                 user_ids = db.session.query(UserFactory.user_id).filter_by(
                     factory_id=factory_id,
                     status=1,
-                    is_deleted=0
+                    is_deleted=0,
                 ).all()
                 user_ids = [user_id for user_id, in user_ids]
                 if user_ids:
@@ -120,24 +120,24 @@ class LogService(BaseService):
         pagination = query.order_by(LoginLog.id.desc()).paginate(
             page=page,
             per_page=page_size,
-            error_out=False
+            error_out=False,
         )
         return {
             'items': pagination.items,
             'total': pagination.total,
             'page': page,
             'page_size': page_size,
-            'pages': pagination.pages
+            'pages': pagination.pages,
         }
 
     @staticmethod
     def get_login_log_by_id(log_id):
-        """根据 ID 获取登录日志。"""
+        """根据日志 ID 查询登录日志。"""
         return LoginLog.query.get(log_id)
 
     @staticmethod
     def check_login_log_permission(current_user, log):
-        """校验当前用户是否可查看指定登录日志。"""
+        """校验当前用户是否可以查看指定登录日志。"""
         if current_user.is_internal_user:
             return True, None
         if log.user_id == current_user.id:
@@ -146,7 +146,7 @@ class LogService(BaseService):
 
     @staticmethod
     def get_log_stats(current_user):
-        """汇总当前用户可见范围内的日志统计数据。"""
+        """汇总当前用户可见范围内的今日日志统计数据。"""
         query_op = OperationLog.query
         query_login = LoginLog.query
 
@@ -159,15 +159,31 @@ class LogService(BaseService):
                 query_op = query_op.filter_by(user_id=current_user.id)
                 query_login = query_login.filter_by(user_id=current_user.id)
 
-        today = func.date(OperationLog.create_time) == func.current_date()
-        today_op_count = query_op.filter(today).count()
-        today_login_count = query_login.filter(today).count()
-        today_success_login = query_login.filter(today, LoginLog.status == 1).count()
-        today_fail_login = query_login.filter(today, LoginLog.status == 0).count()
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = today_start + timedelta(days=1)
+
+        today_op_count = query_op.filter(
+            OperationLog.create_time >= today_start,
+            OperationLog.create_time < today_end,
+        ).count()
+        today_login_count = query_login.filter(
+            LoginLog.create_time >= today_start,
+            LoginLog.create_time < today_end,
+        ).count()
+        today_success_login = query_login.filter(
+            LoginLog.create_time >= today_start,
+            LoginLog.create_time < today_end,
+            LoginLog.status == 1,
+        ).count()
+        today_fail_login = query_login.filter(
+            LoginLog.create_time >= today_start,
+            LoginLog.create_time < today_end,
+            LoginLog.status == 0,
+        ).count()
 
         return {
             'today_operation_count': today_op_count,
             'today_login_count': today_login_count,
             'today_success_login': today_success_login,
-            'today_fail_login': today_fail_login
+            'today_fail_login': today_fail_login,
         }
