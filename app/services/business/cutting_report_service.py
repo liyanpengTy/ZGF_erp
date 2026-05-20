@@ -38,18 +38,34 @@ class CuttingReportService(BaseService):
         ).first()
 
     @staticmethod
-    def get_cutting_report_list(factory_id, filters):
-        """分页查询当前工厂的裁床报工记录。"""
-        page = filters.get('page', 1)
-        page_size = filters.get('page_size', 10)
-        cut_batch_no = filters.get('cut_batch_no')
-        order_detail_sku_id = filters.get('order_detail_sku_id')
-        start_date = filters.get('start_date')
-        end_date = filters.get('end_date')
-
+    def _build_cutting_report_query(current_user, current_factory_id=None, factory_id=None):
+        """构建裁床报工查询对象。"""
         query = WorkCuttingReport.query.options(*CuttingReportService.get_cutting_report_query_options()).filter_by(
-            factory_id=factory_id,
             is_deleted=0,
+        )
+        if current_user and current_user.is_internal_user:
+            if factory_id:
+                query = query.filter_by(factory_id=factory_id)
+            return query
+        if not current_factory_id:
+            return query.filter(WorkCuttingReport.id == 0)
+        return query.filter_by(factory_id=current_factory_id)
+
+    @staticmethod
+    def get_cutting_report_list(current_user, current_factory_id, filters):
+        """分页查询裁床报工列表。"""
+        page = filters.get("page", 1)
+        page_size = filters.get("page_size", 10)
+        factory_id = filters.get("factory_id")
+        cut_batch_no = filters.get("cut_batch_no")
+        order_detail_sku_id = filters.get("order_detail_sku_id")
+        start_date = filters.get("start_date")
+        end_date = filters.get("end_date")
+
+        query = CuttingReportService._build_cutting_report_query(
+            current_user,
+            current_factory_id=current_factory_id,
+            factory_id=factory_id,
         )
         if cut_batch_no is not None:
             query = query.filter_by(cut_batch_no=cut_batch_no)
@@ -62,12 +78,25 @@ class CuttingReportService(BaseService):
 
         pagination = query.order_by(WorkCuttingReport.id.desc()).paginate(page=page, per_page=page_size, error_out=False)
         return {
-            'items': pagination.items,
-            'total': pagination.total,
-            'page': page,
-            'page_size': page_size,
-            'pages': pagination.pages,
+            "items": pagination.items,
+            "total": pagination.total,
+            "page": page,
+            "page_size": page_size,
+            "pages": pagination.pages,
         }
+
+    @staticmethod
+    def check_permission(current_user, current_factory_id, report):
+        """校验当前用户是否可以查看指定裁床报工。"""
+        if not current_user:
+            return False, "用户不存在"
+        if current_user.is_internal_user:
+            return True, None
+        if not current_factory_id:
+            return False, "当前缺少工厂上下文，请先切换工厂"
+        if report.factory_id != current_factory_id:
+            return False, "无权查看当前裁床报工数据"
+        return True, None
 
     @staticmethod
     def get_order_sku(order_detail_sku_id, factory_id):
@@ -86,31 +115,31 @@ class CuttingReportService(BaseService):
     @staticmethod
     def normalize_bundles(data):
         """标准化裁床报工中的菲拆分列表。"""
-        bundles = data.get('bundles') or []
+        bundles = data.get("bundles") or []
         if not bundles:
-            return [{'bed_no': 1, 'bundle_quantity': data['cut_quantity'], 'priority': 'normal', 'remark': ''}], None
+            return [{"bed_no": 1, "bundle_quantity": data["cut_quantity"], "priority": "normal", "remark": ""}], None
 
-        total_quantity = sum(item['bundle_quantity'] for item in bundles)
-        if total_quantity != data['cut_quantity']:
-            return None, '菲拆分数量合计必须等于实裁数量'
+        total_quantity = sum(item["bundle_quantity"] for item in bundles)
+        if total_quantity != data["cut_quantity"]:
+            return None, "菲拆分数量合计必须等于实裁数量"
         return bundles, None
 
     @staticmethod
     def create_cutting_report(factory_id, current_user_id, data):
         """创建裁床报工，并按模板自动生成对应的菲。"""
-        order_sku = CuttingReportService.get_order_sku(data['order_detail_sku_id'], factory_id)
+        order_sku = CuttingReportService.get_order_sku(data["order_detail_sku_id"], factory_id)
         if not order_sku:
-            return None, '订单 SKU 不存在或不属于当前工厂'
+            return None, "订单 SKU 不存在或不属于当前工厂"
 
         bundles, error = CuttingReportService.normalize_bundles(data)
         if error:
             return None, error
 
-        template, error = BundleTemplateService.resolve_template(factory_id, data.get('template_id'))
+        template, error = BundleTemplateService.resolve_template(factory_id, data.get("template_id"))
         if error:
             return None, error
 
-        cut_date = datetime.strptime(data['cut_date'], '%Y-%m-%d').date()
+        cut_date = datetime.strptime(data["cut_date"], "%Y-%m-%d").date()
         cut_batch_no = BundleTemplateService.next_cut_batch_no(factory_id, datetime.combine(cut_date, datetime.min.time()))
         rule = BundleTemplateService.ensure_factory_rule(factory_id)
 
@@ -126,10 +155,10 @@ class CuttingReportService(BaseService):
             report_user_id=current_user_id,
             cut_batch_no=cut_batch_no,
             cut_date=cut_date,
-            cut_quantity=data['cut_quantity'],
+            cut_quantity=data["cut_quantity"],
             bundle_count=len(bundles),
-            status='active',
-            remark=data.get('remark', ''),
+            status="active",
+            remark=data.get("remark", ""),
         )
         db.session.add(report)
         db.session.flush()
@@ -140,7 +169,7 @@ class CuttingReportService(BaseService):
                 cutting_report_id=report.id,
                 template_id=template.id,
                 template_version=template.version,
-                bundle_no='',
+                bundle_no="",
                 order_id=order_sku.detail.order_id,
                 order_detail_id=order_sku.detail_id,
                 order_detail_sku_id=order_sku.id,
@@ -148,11 +177,11 @@ class CuttingReportService(BaseService):
                 color_id=order_sku.color_id,
                 size_id=order_sku.size_id,
                 cut_batch_no=cut_batch_no,
-                bed_no=item.get('bed_no', 1),
-                bundle_quantity=item['bundle_quantity'],
-                priority=item.get('priority', 'normal'),
-                status='created',
-                remark=item.get('remark', ''),
+                bed_no=item.get("bed_no", 1),
+                bundle_quantity=item["bundle_quantity"],
+                priority=item.get("priority", "normal"),
+                status="created",
+                remark=item.get("remark", ""),
             )
             db.session.add(bundle)
             db.session.flush()
@@ -160,10 +189,10 @@ class CuttingReportService(BaseService):
             bundle.printed_content = BundleService.render_bundle_content(bundle, template)
             BundleService.append_flow(
                 bundle,
-                action_type='create',
+                action_type="create",
                 quantity=bundle.bundle_quantity,
                 user_id=current_user_id,
-                remark='裁床报工自动生成菲',
+                remark="裁床报工自动生成菲",
             )
 
         db.session.add(report)
@@ -175,14 +204,14 @@ class CuttingReportService(BaseService):
         """撤销裁床报工；仅允许撤销尚未发生后续流转的菲。"""
         for bundle in report.bundles:
             active_flows = [flow for flow in bundle.flows if flow.is_deleted == 0]
-            if len(active_flows) > 1 or bundle.status != 'created':
-                return False, '已有菲发生后续流转，当前报工不允许撤销'
+            if len(active_flows) > 1 or bundle.status != "created":
+                return False, "已有菲发生后续流转，当前报工不允许撤销"
 
-        report.status = 'cancelled'
+        report.status = "cancelled"
         report.is_deleted = 1
         db.session.add(report)
         for bundle in report.bundles:
-            bundle.status = 'cancelled'
+            bundle.status = "cancelled"
             bundle.is_deleted = 1
             db.session.add(bundle)
             for flow in bundle.flows:

@@ -12,10 +12,10 @@ class FactorySchema(Schema):
     address = fields.Str()
     status = fields.Int()
     remark = fields.Str()
-    service_expire_date = fields.Date(format='%Y-%m-%d', allow_none=True)
+    service_expire_date = fields.Date(format="%Y-%m-%d", allow_none=True)
     service_status = fields.Str()
-    create_time = fields.DateTime(format='%Y-%m-%d %H:%M:%S')
-    update_time = fields.DateTime(format='%Y-%m-%d %H:%M:%S')
+    create_time = fields.DateTime(format="%Y-%m-%d %H:%M:%S")
+    update_time = fields.DateTime(format="%Y-%m-%d %H:%M:%S")
 
 
 class FactoryCreateSchema(Schema):
@@ -26,7 +26,7 @@ class FactoryCreateSchema(Schema):
     contact_person = fields.Str(validate=validate.Length(max=50))
     contact_phone = fields.Str(validate=validate.Length(max=20))
     address = fields.Str(validate=validate.Length(max=255))
-    service_expire_date = fields.Date(format='%Y-%m-%d', allow_none=True)
+    service_expire_date = fields.Date(format="%Y-%m-%d", allow_none=True)
     remark = fields.Str(validate=validate.Length(max=500))
 
 
@@ -37,6 +37,6 @@ class FactoryUpdateSchema(Schema):
     contact_person = fields.Str(validate=validate.Length(max=50))
     contact_phone = fields.Str(validate=validate.Length(max=20))
     address = fields.Str(validate=validate.Length(max=255))
-    service_expire_date = fields.Date(format='%Y-%m-%d', allow_none=True)
+    service_expire_date = fields.Date(format="%Y-%m-%d", allow_none=True)
     status = fields.Int(validate=validate.OneOf([0, 1]))
     remark = fields.Str(validate=validate.Length(max=500))

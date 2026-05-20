@@ -39,11 +39,17 @@ class StyleService(BaseService):
         return category.name if category else None
 
     @staticmethod
-    def _build_style_query(current_factory_id):
+    def _build_style_query(current_user, current_factory_id=None, factory_id=None):
         """构建款号查询对象，统一处理工厂范围与关联预加载。"""
-        if not current_factory_id:
-            return None
-        return Style.query.filter_by(factory_id=current_factory_id, is_deleted=0).options(
+        query = Style.query.filter_by(is_deleted=0)
+        if current_user.is_internal_user:
+            if factory_id:
+                query = query.filter_by(factory_id=factory_id)
+        else:
+            if not current_factory_id:
+                return None
+            query = query.filter_by(factory_id=current_factory_id)
+        return query.options(
             joinedload(Style.category),
             selectinload(Style.image_items),
             selectinload(Style.splice_items),
@@ -110,10 +116,11 @@ class StyleService(BaseService):
             )
 
     @staticmethod
-    def get_style_list(current_factory_id, filters):
+    def get_style_list(current_user, current_factory_id, filters):
         """分页查询当前工厂的款号列表。"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
+        factory_id = filters.get('factory_id')
         style_no = filters.get('style_no', '')
         name = filters.get('name', '')
         category_id = filters.get('category_id')
@@ -121,7 +128,7 @@ class StyleService(BaseService):
         season = filters.get('season', '')
         status = filters.get('status')
 
-        query = StyleService._build_style_query(current_factory_id)
+        query = StyleService._build_style_query(current_user, current_factory_id=current_factory_id, factory_id=factory_id)
         if query is None:
             return {'items': [], 'total': 0, 'page': page, 'page_size': page_size, 'pages': 0}
 
@@ -148,14 +155,15 @@ class StyleService(BaseService):
         }
 
     @staticmethod
-    def get_style_options(current_factory_id, filters):
+    def get_style_options(current_user, current_factory_id, filters):
         """查询款号轻量选项列表，供下拉选择器直接使用。"""
+        factory_id = filters.get('factory_id')
         style_no = filters.get('style_no', '')
         name = filters.get('name', '')
         category_id = filters.get('category_id')
         status = filters.get('status')
 
-        query = StyleService._build_style_query(current_factory_id)
+        query = StyleService._build_style_query(current_user, current_factory_id=current_factory_id, factory_id=factory_id)
         if query is None:
             return []
 

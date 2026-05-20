@@ -471,12 +471,16 @@ class OrderService(BaseService):
         ]
 
     @staticmethod
-    def _build_order_query(current_factory_id, include_details=True):
+    def _build_order_query(current_user, current_factory_id=None, factory_id=None, include_details=True):
         """构建订单查询对象，统一处理工厂范围与关联预加载。"""
-        if not current_factory_id:
-            return None
-
-        query = Order.query.filter_by(factory_id=current_factory_id, is_deleted=0)
+        query = Order.query.filter_by(is_deleted=0)
+        if current_user.is_internal_user:
+            if factory_id:
+                query = query.filter_by(factory_id=factory_id)
+        else:
+            if not current_factory_id:
+                return None
+            query = query.filter_by(factory_id=current_factory_id)
         if include_details:
             query = query.options(*OrderService.get_order_query_options())
         return query
@@ -492,17 +496,23 @@ class OrderService(BaseService):
         return Order.query.filter_by(order_no=order_no, is_deleted=0).first()
 
     @staticmethod
-    def get_order_list(current_factory_id, filters):
+    def get_order_list(current_user, current_factory_id, filters):
         """分页查询当前工厂的订单列表。"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
+        factory_id = filters.get('factory_id')
         order_no = filters.get('order_no', '')
         customer_name = filters.get('customer_name', '')
         status = filters.get('status')
         start_date = filters.get('start_date')
         end_date = filters.get('end_date')
 
-        query = OrderService._build_order_query(current_factory_id, include_details=True)
+        query = OrderService._build_order_query(
+            current_user,
+            current_factory_id=current_factory_id,
+            factory_id=factory_id,
+            include_details=True,
+        )
         if query is None:
             return {'items': [], 'total': 0, 'page': page, 'page_size': page_size, 'pages': 0}
 
@@ -527,13 +537,19 @@ class OrderService(BaseService):
         }
 
     @staticmethod
-    def get_order_options(current_factory_id, filters):
+    def get_order_options(current_user, current_factory_id, filters):
         """查询订单轻量选项列表，供下拉选择器直接使用。"""
+        factory_id = filters.get('factory_id')
         order_no = filters.get('order_no', '')
         customer_name = filters.get('customer_name', '')
         status = filters.get('status')
 
-        query = OrderService._build_order_query(current_factory_id, include_details=False)
+        query = OrderService._build_order_query(
+            current_user,
+            current_factory_id=current_factory_id,
+            factory_id=factory_id,
+            include_details=False,
+        )
         if query is None:
             return []
 

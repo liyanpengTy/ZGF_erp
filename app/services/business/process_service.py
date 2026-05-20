@@ -1,4 +1,4 @@
-"""工序管理服务。"""
+"""工序主数据与款号工序映射服务。"""
 
 from app.extensions import db
 from app.models.business.process import Process, StyleProcessMapping
@@ -11,7 +11,7 @@ class ProcessService(BaseService):
 
     @staticmethod
     def get_process_by_id(process_id):
-        """根据工序 ID 查询工序。"""
+        """根据工序 ID 查询工序详情。"""
         return Process.query.filter_by(id=process_id, is_deleted=0).first()
 
     @staticmethod
@@ -21,12 +21,12 @@ class ProcessService(BaseService):
 
     @staticmethod
     def _build_process_query():
-        """构建工序查询对象，统一处理软删除过滤。"""
+        """构建工序查询对象，统一过滤软删除数据。"""
         return Process.query.filter_by(is_deleted=0)
 
     @staticmethod
     def get_process_list(filters):
-        """分页查询工序列表。"""
+        """分页查询工序主数据列表。"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
         name = filters.get('name', '')
@@ -38,7 +38,11 @@ class ProcessService(BaseService):
         if status is not None:
             query = query.filter_by(status=status)
 
-        pagination = query.order_by(Process.sort_order, Process.id).paginate(page=page, per_page=page_size, error_out=False)
+        pagination = query.order_by(Process.sort_order, Process.id).paginate(
+            page=page,
+            per_page=page_size,
+            error_out=False,
+        )
         return {
             'items': pagination.items,
             'total': pagination.total,
@@ -49,12 +53,12 @@ class ProcessService(BaseService):
 
     @staticmethod
     def get_all_enabled_processes():
-        """查询全部启用工序。"""
+        """查询全部启用中的工序。"""
         return ProcessService._build_process_query().filter_by(status=1).order_by(Process.sort_order, Process.id).all()
 
     @staticmethod
     def get_process_options(filters):
-        """查询工序轻量选项列表，供下拉选择器直接使用。"""
+        """查询工序轻量选项列表。"""
         name = filters.get('name', '')
         status = filters.get('status')
 
@@ -67,7 +71,7 @@ class ProcessService(BaseService):
 
     @staticmethod
     def create_process(data):
-        """创建工序。"""
+        """创建工序主数据。"""
         existing = ProcessService.get_process_by_code(data['code'])
         if existing:
             return None, '工序编码已存在'
@@ -84,7 +88,7 @@ class ProcessService(BaseService):
 
     @staticmethod
     def update_process(process, data):
-        """更新工序资料。"""
+        """更新工序主数据。"""
         if 'name' in data:
             process.name = data['name']
         if 'description' in data:
@@ -98,7 +102,7 @@ class ProcessService(BaseService):
 
     @staticmethod
     def delete_process(process):
-        """删除工序前，先校验是否仍被款号引用。"""
+        """删除工序前先校验是否仍被款号工序映射引用。"""
         ref_count = StyleProcessMapping.query.filter_by(process_id=process.id, is_deleted=0).count()
         if ref_count > 0:
             return False, f'当前有 {ref_count} 个款号引用该工序，无法删除'
@@ -110,7 +114,7 @@ class ProcessService(BaseService):
     def get_style_processes(style_id):
         """查询指定款号的工序映射列表。"""
         return StyleProcessMapping.query.filter_by(style_id=style_id, is_deleted=0).order_by(
-            StyleProcessMapping.sequence
+            StyleProcessMapping.sequence,
         ).all()
 
     @staticmethod
@@ -120,13 +124,15 @@ class ProcessService(BaseService):
 
     @staticmethod
     def add_style_process(style_id, data):
-        """新增单个款号工序映射。"""
+        """新增单条款号工序映射。"""
         process = ProcessService.get_process_by_id(data['process_id'])
         if not process:
             return None, '工序不存在'
 
         existing = StyleProcessMapping.query.filter_by(
-            style_id=style_id, process_id=data['process_id'], is_deleted=0
+            style_id=style_id,
+            process_id=data['process_id'],
+            is_deleted=0,
         ).first()
         if existing:
             return None, '该款号已添加此工序'
@@ -152,14 +158,14 @@ class ProcessService(BaseService):
 
     @staticmethod
     def delete_style_process(mapping):
-        """删除款号工序映射。"""
+        """软删除款号工序映射。"""
         mapping.is_deleted = 1
         mapping.save()
         return True, None
 
     @staticmethod
     def batch_save_style_processes(style_id, mappings_data):
-        """批量覆盖保存款号工序映射列表。"""
+        """覆盖保存指定款号的工序映射列表。"""
         try:
             StyleProcessMapping.query.filter_by(style_id=style_id, is_deleted=0).update({'is_deleted': 1})
 
@@ -168,7 +174,6 @@ class ProcessService(BaseService):
                 process = ProcessService.get_process_by_id(item['process_id'])
                 if not process:
                     continue
-
                 mapping = StyleProcessMapping(
                     style_id=style_id,
                     process_id=item['process_id'],
@@ -182,17 +187,19 @@ class ProcessService(BaseService):
 
             BaseService.commit()
             return new_mappings
-        except Exception as exc:
+        except Exception:
             db.session.rollback()
-            raise exc
+            raise
 
     @staticmethod
-    def check_style_permission(current_factory_id, style_id):
-        """校验款号是否属于当前工厂上下文。"""
-        if not current_factory_id:
-            return None, '请先切换到工厂上下文'
-
-        style = Style.query.filter_by(id=style_id, factory_id=current_factory_id, is_deleted=0).first()
+    def check_style_permission(current_user, current_factory_id, style_id):
+        """校验当前用户是否可以访问指定款号。"""
+        if current_user and current_user.is_internal_user:
+            style = Style.query.filter_by(id=style_id, is_deleted=0).first()
+        else:
+            if not current_factory_id:
+                return None, '请先切换到工厂上下文'
+            style = Style.query.filter_by(id=style_id, factory_id=current_factory_id, is_deleted=0).first()
         if not style:
             return None, '款号不存在或无权限'
         return style, None

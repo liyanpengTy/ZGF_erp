@@ -8,25 +8,25 @@ from werkzeug.datastructures import MultiDict
 def positive_int(value):
     """校验正整数。"""
     try:
-        ival = int(value)
-        if ival < 1:
+        parsed = int(value)
+        if parsed < 1:
             raise ValueError()
-        return ival
-    except ValueError:
-        raise ValueError('必须为正整数')
+        return parsed
+    except ValueError as exc:
+        raise ValueError("必须为正整数") from exc
 
 
 def range_int(min_val, max_val):
-    """校验范围内的整数。"""
+    """返回一个用于校验整数范围的解析函数。"""
 
     def checker(value):
         try:
-            ival = int(value)
-            if ival < min_val or ival > max_val:
-                raise ValueError(f'取值范围 {min_val} - {max_val}')
-            return ival
-        except ValueError:
-            raise ValueError(f'必须为 {min_val} - {max_val} 之间的整数')
+            parsed = int(value)
+            if parsed < min_val or parsed > max_val:
+                raise ValueError(f"取值范围 {min_val} - {max_val}")
+            return parsed
+        except ValueError as exc:
+            raise ValueError(f"必须是 {min_val} - {max_val} 之间的整数") from exc
 
     return checker
 
@@ -34,24 +34,24 @@ def range_int(min_val, max_val):
 def validate_date(value):
     """校验日期格式 YYYY-MM-DD。"""
     try:
-        datetime.strptime(value, '%Y-%m-%d')
+        datetime.strptime(value, "%Y-%m-%d")
         return value
-    except ValueError:
-        raise ValueError('日期格式必须为 YYYY-MM-DD')
+    except ValueError as exc:
+        raise ValueError("日期格式必须为 YYYY-MM-DD") from exc
 
 
 def _strip_blank_query_args(query_args):
-    """移除值为空字符串的查询参数，避免空参触发类型转换报错。"""
+    """移除值为空字符串的查询参数，避免空值触发类型转换报错。"""
     cleaned_args = MultiDict()
     for key in query_args.keys():
         for value in query_args.getlist(key):
-            if value not in (None, ''):
+            if value not in (None, ""):
                 cleaned_args.add(key, value)
     return cleaned_args
 
 
 class _RequestArgsProxy:
-    """请求代理，只覆盖 args，其它属性继续透传原始 request。"""
+    """仅覆盖 request.args 的代理对象，其余属性透传原始 request。"""
 
     def __init__(self, raw_request):
         self._raw_request = raw_request
@@ -62,11 +62,11 @@ class _RequestArgsProxy:
 
 
 class BlankFriendlyRequestParser(reqparse.RequestParser):
-    """查询参数解析器：把空字符串统一按未传处理。"""
+    """把空字符串查询参数统一按“未传”处理的解析器。"""
 
     def parse_args(self, req=None, strict=False):
         raw_request = req or request
-        if hasattr(raw_request, 'args') and not isinstance(raw_request, _RequestArgsProxy):
+        if hasattr(raw_request, "args") and not isinstance(raw_request, _RequestArgsProxy):
             raw_request = _RequestArgsProxy(raw_request)
         return super().parse_args(req=raw_request, strict=strict)
 
@@ -77,21 +77,21 @@ def new_query_parser():
 
 
 page_parser = new_query_parser()
-page_parser.add_argument('page', type=positive_int, default=1, location='args', help='页码')
-page_parser.add_argument('page_size', type=range_int(1, 100), default=10, location='args', help='每页数量')
+page_parser.add_argument("page", type=positive_int, default=1, location="args", help="页码")
+page_parser.add_argument("page_size", type=range_int(1, 100), default=10, location="args", help="每页数量")
 
 id_parser = new_query_parser()
-id_parser.add_argument('id', type=positive_int, required=True, location='args', help='ID')
+id_parser.add_argument("id", type=positive_int, required=True, location="args", help="ID")
 
 status_parser = new_query_parser()
-status_parser.add_argument('status', type=positive_int, location='args', help='状态', choices=[0, 1])
+status_parser.add_argument("status", type=positive_int, location="args", help="状态", choices=[0, 1])
 
 date_range_parser = new_query_parser()
-date_range_parser.add_argument('start_date', type=validate_date, location='args', help='开始日期(YYYY-MM-DD)')
-date_range_parser.add_argument('end_date', type=validate_date, location='args', help='结束日期(YYYY-MM-DD)')
+date_range_parser.add_argument("start_date", type=validate_date, location="args", help="开始日期（YYYY-MM-DD）")
+date_range_parser.add_argument("end_date", type=validate_date, location="args", help="结束日期（YYYY-MM-DD）")
 
 page_with_date_parser = new_query_parser()
-page_with_date_parser.add_argument('page', type=positive_int, default=1, location='args', help='页码')
-page_with_date_parser.add_argument('page_size', type=range_int(1, 100), default=10, location='args', help='每页数量')
-page_with_date_parser.add_argument('start_date', type=validate_date, location='args', help='开始日期(YYYY-MM-DD)')
-page_with_date_parser.add_argument('end_date', type=validate_date, location='args', help='结束日期(YYYY-MM-DD)')
+page_with_date_parser.add_argument("page", type=positive_int, default=1, location="args", help="页码")
+page_with_date_parser.add_argument("page_size", type=range_int(1, 100), default=10, location="args", help="每页数量")
+page_with_date_parser.add_argument("start_date", type=validate_date, location="args", help="开始日期（YYYY-MM-DD）")
+page_with_date_parser.add_argument("end_date", type=validate_date, location="args", help="结束日期（YYYY-MM-DD）")

@@ -1,4 +1,5 @@
-"""款号价格管理服务"""
+"""款号价格管理服务。"""
+
 from datetime import datetime
 
 from app.models.business.style import Style
@@ -7,7 +8,7 @@ from app.services.base.base_service import BaseService
 
 
 class StylePriceService(BaseService):
-    """款号价格管理服务"""
+    """封装款号价格记录的查询与维护逻辑。"""
 
     PRICE_TYPE_LABELS = {
         'customer': '客户价',
@@ -19,14 +20,17 @@ class StylePriceService(BaseService):
 
     @staticmethod
     def get_price_by_id(price_id):
+        """根据价格记录 ID 查询详情。"""
         return StylePrice.query.filter_by(id=price_id, is_deleted=0).first()
 
     @staticmethod
     def get_price_label(price_type):
+        """返回价格类型中文名称。"""
         return StylePriceService.PRICE_TYPE_LABELS.get(price_type, price_type)
 
     @staticmethod
     def get_price_list(style_id, filters):
+        """分页查询指定款号的价格列表。"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
         price_type = filters.get('price_type')
@@ -36,7 +40,9 @@ class StylePriceService(BaseService):
             query = query.filter_by(price_type=price_type)
 
         pagination = query.order_by(StylePrice.effective_date.desc()).paginate(
-            page=page, per_page=page_size, error_out=False
+            page=page,
+            per_page=page_size,
+            error_out=False,
         )
         return {
             'items': pagination.items,
@@ -48,6 +54,7 @@ class StylePriceService(BaseService):
 
     @staticmethod
     def create_price(data):
+        """创建价格记录。"""
         effective_date = None
         if data.get('effective_date'):
             effective_date = datetime.strptime(data['effective_date'], '%Y-%m-%d').date()
@@ -64,31 +71,39 @@ class StylePriceService(BaseService):
 
     @staticmethod
     def delete_price(price):
+        """软删除价格记录。"""
         price.is_deleted = 1
         price.save()
         return True
 
     @staticmethod
-    def check_style_permission(current_factory_id, style_id):
-        if not current_factory_id:
-            return None, '请先切换到工厂上下文'
-
-        style = Style.query.filter_by(id=style_id, factory_id=current_factory_id, is_deleted=0).first()
+    def check_style_permission(current_user, current_factory_id, style_id):
+        """校验当前用户是否可以访问指定款号。"""
+        if current_user and current_user.is_internal_user:
+            style = Style.query.filter_by(id=style_id, is_deleted=0).first()
+        else:
+            if not current_factory_id:
+                return None, '请先切换到工厂上下文'
+            style = Style.query.filter_by(id=style_id, factory_id=current_factory_id, is_deleted=0).first()
         if not style:
             return None, '款号不存在或无权限'
         return style, None
 
     @staticmethod
-    def check_price_permission(current_factory_id, price):
-        if not current_factory_id:
-            return False, '请先切换到工厂上下文'
-
-        style = Style.query.filter_by(id=price.style_id, factory_id=current_factory_id, is_deleted=0).first()
+    def check_price_permission(current_user, current_factory_id, price):
+        """校验当前用户是否可以访问指定价格记录。"""
+        if current_user and current_user.is_internal_user:
+            style = Style.query.filter_by(id=price.style_id, is_deleted=0).first()
+        else:
+            if not current_factory_id:
+                return False, '请先切换到工厂上下文'
+            style = Style.query.filter_by(id=price.style_id, factory_id=current_factory_id, is_deleted=0).first()
         if not style:
             return False, '无权限操作'
         return True, None
 
     @staticmethod
     def enrich_with_label(price_data, price_obj):
+        """为价格响应补充价格类型名称。"""
         price_data['price_type_label'] = StylePriceService.get_price_label(price_obj.price_type)
         return price_data

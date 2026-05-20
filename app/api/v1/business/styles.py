@@ -30,6 +30,7 @@ build_page_data_model = common['build_page_data_model']
 build_page_response_model = common['build_page_response_model']
 
 style_query_parser = page_parser.copy()
+style_query_parser.add_argument('factory_id', type=int, location='args', help='工厂 ID')
 style_query_parser.add_argument('style_no', type=str, location='args', help='款号')
 style_query_parser.add_argument('name', type=str, location='args', help='款号名称')
 style_query_parser.add_argument('category_id', type=int, location='args', help='分类 ID')
@@ -38,6 +39,7 @@ style_query_parser.add_argument('season', type=str, location='args', help='季�
 style_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
 
 style_option_query_parser = new_query_parser()
+style_option_query_parser.add_argument('factory_id', type=int, location='args', help='工厂 ID')
 style_option_query_parser.add_argument('style_no', type=str, location='args', help='款号')
 style_option_query_parser.add_argument('name', type=str, location='args', help='款号名称')
 style_option_query_parser.add_argument('category_id', type=int, location='args', help='分类 ID')
@@ -171,7 +173,7 @@ class StyleList(Resource):
         if not current_user:
             return ApiResponse.error('用户不存在')
 
-        result = StyleService.get_style_list(current_factory_id, args)
+        result = StyleService.get_style_list(current_user, current_factory_id, args)
         return ApiResponse.success({
             'items': [serialize_style(style) for style in result['items']],
             'total': result['total'],
@@ -221,7 +223,7 @@ class StyleOptions(Resource):
         if not current_user:
             return ApiResponse.error('用户不存在')
 
-        styles = StyleService.get_style_options(current_factory_id, style_option_query_parser.parse_args())
+        styles = StyleService.get_style_options(current_user, current_factory_id, style_option_query_parser.parse_args())
         return ApiResponse.success([
             {
                 'id': style.id,

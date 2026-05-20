@@ -29,8 +29,8 @@ class BundleTemplateSchema(Schema):
     is_default = fields.Int()
     status = fields.Int()
     remark = fields.Str(allow_none=True)
-    create_time = fields.DateTime(format='%Y-%m-%d %H:%M:%S')
-    update_time = fields.DateTime(format='%Y-%m-%d %H:%M:%S')
+    create_time = fields.DateTime(format="%Y-%m-%d %H:%M:%S")
+    update_time = fields.DateTime(format="%Y-%m-%d %H:%M:%S")
     items = fields.List(fields.Nested(BundleTemplateItemSchema))
 
 
@@ -75,14 +75,14 @@ class FactoryBundleRuleSchema(Schema):
     bundle_code_prefix = fields.Str(allow_none=True)
     status = fields.Int()
     remark = fields.Str(allow_none=True)
-    create_time = fields.DateTime(format='%Y-%m-%d %H:%M:%S')
-    update_time = fields.DateTime(format='%Y-%m-%d %H:%M:%S')
+    create_time = fields.DateTime(format="%Y-%m-%d %H:%M:%S")
+    update_time = fields.DateTime(format="%Y-%m-%d %H:%M:%S")
 
 
 class FactoryBundleRuleUpdateSchema(Schema):
     """更新工厂菲规则参数。"""
 
-    reset_cycle = fields.Str(validate=validate.OneOf(['yearly', 'monthly']))
+    reset_cycle = fields.Str(validate=validate.OneOf(["yearly", "monthly"]))
     default_template_id = fields.Int(allow_none=True)
     bundle_code_prefix = fields.Str(validate=validate.Length(max=20))
     status = fields.Int(validate=validate.OneOf([0, 1]))
@@ -94,17 +94,17 @@ class ProductionBundleFlowSchema(Schema):
 
     id = fields.Int()
     process_id = fields.Int(allow_none=True)
-    process_name = fields.Method('get_process_name')
+    process_name = fields.Method("get_process_name")
     user_id = fields.Int(allow_none=True)
-    user_name = fields.Method('get_user_name')
+    user_name = fields.Method("get_user_name")
     from_user_id = fields.Int(allow_none=True)
-    from_user_name = fields.Method('get_from_user_name')
+    from_user_name = fields.Method("get_from_user_name")
     to_user_id = fields.Int(allow_none=True)
-    to_user_name = fields.Method('get_to_user_name')
+    to_user_name = fields.Method("get_to_user_name")
     action_type = fields.Str()
     action_type_label = fields.Str()
     quantity = fields.Int()
-    action_time = fields.DateTime(format='%Y-%m-%d %H:%M:%S')
+    action_time = fields.DateTime(format="%Y-%m-%d %H:%M:%S")
     remark = fields.Str(allow_none=True)
 
     def get_process_name(self, obj):
@@ -137,12 +137,12 @@ class ProductionBundleSchema(Schema):
     order_detail_id = fields.Int()
     order_detail_sku_id = fields.Int()
     style_id = fields.Int()
-    style_no = fields.Method('get_style_no')
-    style_name = fields.Method('get_style_name')
+    style_no = fields.Method("get_style_no")
+    style_name = fields.Method("get_style_name")
     color_id = fields.Int(allow_none=True)
-    color_name = fields.Method('get_color_name')
+    color_name = fields.Method("get_color_name")
     size_id = fields.Int(allow_none=True)
-    size_name = fields.Method('get_size_name')
+    size_name = fields.Method("get_size_name")
     cut_batch_no = fields.Int()
     bed_no = fields.Int()
     bundle_quantity = fields.Int()
@@ -151,18 +151,18 @@ class ProductionBundleSchema(Schema):
     status = fields.Str()
     status_label = fields.Str()
     current_holder_user_id = fields.Int(allow_none=True)
-    current_holder_name = fields.Method('get_current_holder_name')
+    current_holder_name = fields.Method("get_current_holder_name")
     current_process_id = fields.Int(allow_none=True)
-    current_process_name = fields.Method('get_current_process_name')
+    current_process_name = fields.Method("get_current_process_name")
     printed_content = fields.Str(allow_none=True)
-    printed_at = fields.DateTime(format='%Y-%m-%d %H:%M:%S', allow_none=True)
+    printed_at = fields.DateTime(format="%Y-%m-%d %H:%M:%S", allow_none=True)
     print_count = fields.Int()
-    issued_quantity = fields.Method('get_issued_quantity')
-    returned_quantity = fields.Method('get_returned_quantity')
-    in_hand_quantity = fields.Method('get_in_hand_quantity')
+    issued_quantity = fields.Method("get_issued_quantity")
+    returned_quantity = fields.Method("get_returned_quantity")
+    in_hand_quantity = fields.Method("get_in_hand_quantity")
     remark = fields.Str(allow_none=True)
-    create_time = fields.DateTime(format='%Y-%m-%d %H:%M:%S')
-    update_time = fields.DateTime(format='%Y-%m-%d %H:%M:%S')
+    create_time = fields.DateTime(format="%Y-%m-%d %H:%M:%S")
+    update_time = fields.DateTime(format="%Y-%m-%d %H:%M:%S")
     flows = fields.List(fields.Nested(ProductionBundleFlowSchema))
 
     def get_style_no(self, obj):
@@ -191,15 +191,15 @@ class ProductionBundleSchema(Schema):
 
     def get_issued_quantity(self, obj):
         """返回累计领货数量。"""
-        return BundleService.calculate_flow_metrics(obj)['issued_quantity']
+        return BundleService.calculate_flow_metrics(obj)["issued_quantity"]
 
     def get_returned_quantity(self, obj):
         """返回累计交货数量。"""
-        return BundleService.calculate_flow_metrics(obj)['returned_quantity']
+        return BundleService.calculate_flow_metrics(obj)["returned_quantity"]
 
     def get_in_hand_quantity(self, obj):
         """返回当前在手数量。"""
-        return BundleService.calculate_flow_metrics(obj)['in_hand_quantity']
+        return BundleService.calculate_flow_metrics(obj)["in_hand_quantity"]
 
 
 class BundleIssueSchema(Schema):

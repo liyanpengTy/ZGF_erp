@@ -1,66 +1,56 @@
-"""服务层模块"""
-from app.services.base import BaseService
+"""服务层模块。"""
+
 from app.services.auth import AuthService, LoginResponseBuilder
-from app.services.system import (
-    UserService,
-    RoleService,
-    MenuService,
-    FactoryService,
-    LogService,
-    MonitorService,
-    RewardService,
-    EmployeeWageService
-)
-from app.services.profile import ProfileService
+from app.services.base import BaseService
 from app.services.base_data import CategoryService, ColorService, SizeService
 from app.services.business import (
-    StyleService,
-    StyleProcessService,
-    StylePriceService,
-    StyleElasticService,
-    ProcessService,
-    OrderService,
     BundleService,
     BundleTemplateService,
     CuttingReportService,
+    OrderService,
+    ProcessService,
     ShipmentService,
+    StyleElasticService,
+    StylePriceService,
+    StyleProcessService,
+    StyleService,
+)
+from app.services.profile import ProfileService
+from app.services.system import (
+    EmployeeWageService,
+    FactoryService,
+    LogService,
+    MenuService,
+    MonitorService,
+    RewardService,
+    RoleService,
+    UserService,
 )
 
 __all__ = [
-    # 基础服务
-    'BaseService',
-
-    # 认证服务
-    'AuthService',
-    'LoginResponseBuilder',
-
-    # 系统管理服务
-    'UserService',
-    'RoleService',
-    'MenuService',
-    'FactoryService',
-    'LogService',
-    'MonitorService',
-    'RewardService',
-    'EmployeeWageService',
-
-    # 个人中心服务
-    'ProfileService',
-
-    # 基础数据服务
-    'CategoryService',
-    'ColorService',
-    'SizeService',
-
-    # 业务模块服务
-    'StyleService',
-    'StyleProcessService',
-    'StylePriceService',
-    'StyleElasticService',
-    'ProcessService',
-    'OrderService',
-    'BundleService',
-    'BundleTemplateService',
-    'CuttingReportService',
-    'ShipmentService',
+    "BaseService",
+    "AuthService",
+    "LoginResponseBuilder",
+    "UserService",
+    "RoleService",
+    "MenuService",
+    "FactoryService",
+    "LogService",
+    "MonitorService",
+    "RewardService",
+    "EmployeeWageService",
+    "ProfileService",
+    "CategoryService",
+    "ColorService",
+    "SizeService",
+    "StyleService",
+    "StyleProcessService",
+    "StylePriceService",
+    "StyleElasticService",
+    "ProcessService",
+    "OrderService",
+    "BundleService",
+    "BundleTemplateService",
+    "CuttingReportService",
+    "ShipmentService",
 ]

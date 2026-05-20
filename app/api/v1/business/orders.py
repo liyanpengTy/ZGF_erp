@@ -30,6 +30,7 @@ build_page_data_model = common['build_page_data_model']
 build_page_response_model = common['build_page_response_model']
 
 order_query_parser = page_with_date_parser.copy()
+order_query_parser.add_argument('factory_id', type=int, location='args', help='工厂 ID')
 order_query_parser.add_argument('order_no', type=str, location='args', help='订单号')
 order_query_parser.add_argument('customer_name', type=str, location='args', help='客户名称')
 order_query_parser.add_argument(
@@ -41,6 +42,7 @@ order_query_parser.add_argument(
 )
 
 order_option_query_parser = new_query_parser()
+order_option_query_parser.add_argument('factory_id', type=int, location='args', help='工厂 ID')
 order_option_query_parser.add_argument('order_no', type=str, location='args', help='订单号')
 order_option_query_parser.add_argument('customer_name', type=str, location='args', help='客户名称')
 order_option_query_parser.add_argument(
@@ -534,7 +536,7 @@ class OrderList(Resource):
         if not current_user:
             return ApiResponse.error('用户不存在')
 
-        result = OrderService.get_order_list(current_factory_id, args)
+        result = OrderService.get_order_list(current_user, current_factory_id, args)
         return ApiResponse.success({
             'items': serialize_orders(result['items']),
             'total': result['total'],
@@ -585,7 +587,7 @@ class OrderOptions(Resource):
         if not current_user:
             return ApiResponse.error('用户不存在')
 
-        orders = OrderService.get_order_options(current_factory_id, order_option_query_parser.parse_args())
+        orders = OrderService.get_order_options(current_user, current_factory_id, order_option_query_parser.parse_args())
         return ApiResponse.success([
             {
                 'id': order.id,

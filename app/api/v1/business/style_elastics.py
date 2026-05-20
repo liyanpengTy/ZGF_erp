@@ -4,7 +4,8 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_factory_id, get_current_user
+from app.api.common.auth import get_current_user
+from app.api.common.factory_context import resolve_factory_context as resolve_business_factory_context
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
 from app.constants.permissions import (
@@ -19,7 +20,7 @@ from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
-style_elastic_ns = Namespace('款号橡筋管理-style-elastics', description='款号橡筋管理')
+style_elastic_ns = Namespace('款号橡筋管理-style-elastics', description='款号橡筋配置查询与维护')
 
 common = get_common_models(style_elastic_ns)
 base_response = common['base_response']
@@ -32,11 +33,18 @@ build_page_response_model = common['build_page_response_model']
 style_elastic_query_parser = page_parser.copy()
 style_elastic_query_parser.add_argument('style_id', type=int, required=True, location='args', help='款号 ID')
 style_elastic_query_parser.add_argument('size_id', type=int, location='args', help='尺码 ID')
-style_elastic_query_parser.add_argument('grouped', type=int, location='args', default=0, help='是否按类型分组返回', choices=[0, 1])
+style_elastic_query_parser.add_argument(
+    'grouped',
+    type=int,
+    location='args',
+    default=0,
+    help='是否按橡筋类型分组返回',
+    choices=[0, 1],
+)
 
 elastic_detail_model = style_elastic_ns.model('ElasticDetail', {
-    'id': fields.Integer(description='明细ID'),
-    'size_id': fields.Integer(description='尺码ID'),
+    'id': fields.Integer(description='明细 ID'),
+    'size_id': fields.Integer(description='尺码 ID'),
     'size_name': fields.String(description='尺码名称'),
     'length': fields.Float(description='长度'),
     'quantity': fields.Integer(description='数量'),
@@ -49,9 +57,9 @@ elastic_group_model = style_elastic_ns.model('ElasticGroup', {
 })
 
 style_elastic_item_model = style_elastic_ns.model('StyleElasticItem', {
-    'id': fields.Integer(description='记录ID'),
-    'style_id': fields.Integer(description='款号ID'),
-    'size_id': fields.Integer(description='尺码ID'),
+    'id': fields.Integer(description='记录 ID'),
+    'style_id': fields.Integer(description='款号 ID'),
+    'size_id': fields.Integer(description='尺码 ID'),
     'size_name': fields.String(description='尺码名称'),
     'elastic_type': fields.String(description='橡筋类型'),
     'elastic_length': fields.Float(description='橡筋长度'),
@@ -61,18 +69,27 @@ style_elastic_item_model = style_elastic_ns.model('StyleElasticItem', {
     'update_time': fields.String(description='更新时间'),
 })
 
-style_elastic_list_data = build_page_data_model(style_elastic_ns, 'StyleElasticListData', style_elastic_item_model, items_description='橡筋列表')
-
+style_elastic_list_data = build_page_data_model(
+    style_elastic_ns,
+    'StyleElasticListData',
+    style_elastic_item_model,
+    items_description='橡筋列表',
+)
 style_elastic_grouped_data = style_elastic_ns.model('StyleElasticGroupedData', {
-    'items': fields.List(fields.Nested(elastic_group_model), description='按类型分组的橡筋列表'),
+    'items': fields.List(fields.Nested(elastic_group_model), description='按类型分组后的橡筋列表'),
 })
-
-style_elastic_list_response = build_page_response_model(style_elastic_ns, 'StyleElasticListResponse', base_response, style_elastic_list_data, '橡筋分页数据')
+style_elastic_list_response = build_page_response_model(
+    style_elastic_ns,
+    'StyleElasticListResponse',
+    base_response,
+    style_elastic_list_data,
+    '橡筋分页数据',
+)
 style_elastic_grouped_response = style_elastic_ns.clone('StyleElasticGroupedResponse', base_response, {
-    'data': fields.Nested(style_elastic_grouped_data, description='橡筋分组数据')
+    'data': fields.Nested(style_elastic_grouped_data, description='橡筋分组数据'),
 })
 style_elastic_item_response = style_elastic_ns.clone('StyleElasticItemResponse', base_response, {
-    'data': fields.Nested(style_elastic_item_model, description='橡筋详情数据')
+    'data': fields.Nested(style_elastic_item_model, description='橡筋详情数据'),
 })
 
 elastic_detail_item_create_model = style_elastic_ns.model('ElasticDetailItem', {
@@ -119,24 +136,23 @@ class StyleElasticList(Resource):
     @login_required
     @button_permission(PERM_BUSINESS_STYLE_ELASTIC_QUERY)
     @style_elastic_ns.expect(style_elastic_query_parser)
-    @style_elastic_ns.response(200, '成功', style_elastic_list_response)
+    @style_elastic_ns.response(200, '查询成功', style_elastic_list_response)
     @style_elastic_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """查询款号橡筋列表。"""
+        """查询款号橡筋分页列表接口。平台内部用户可不切工厂直接按款号查询。"""
         args = style_elastic_query_parser.parse_args()
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
+        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(
+            allow_internal_without_factory=True,
+        )
+        if error_response_obj:
+            return error_response_obj
 
-        if not current_user:
-            return ApiResponse.error('用户不存在')
-
-        style, error = StyleElasticService.check_style_permission(current_factory_id, args['style_id'])
+        style, error = StyleElasticService.check_style_permission(current_user, current_factory_id, args['style_id'])
         if error:
             return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
 
         if args.get('grouped', 0) == 1:
-            items = StyleElasticService.get_elastic_grouped(style.id)
-            return ApiResponse.success(items)
+            return ApiResponse.success(StyleElasticService.get_elastic_grouped(style.id))
 
         result = StyleElasticService.get_elastic_list(style.id, {
             'page': args['page'],
@@ -166,10 +182,10 @@ class StyleElasticList(Resource):
     @style_elastic_ns.response(403, '无权限', forbidden_response)
     @style_elastic_ns.response(404, '款号不存在', error_response)
     def post(self):
-        """创建款号橡筋记录。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-
+        """创建款号橡筋记录接口。写操作仍要求当前工厂上下文。"""
+        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
+        if error_response_obj:
+            return error_response_obj
         if not current_user:
             return ApiResponse.error('用户不存在')
 
@@ -178,7 +194,7 @@ class StyleElasticList(Resource):
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
 
-        _, error = StyleElasticService.check_style_permission(current_factory_id, data['style_id'])
+        _, error = StyleElasticService.check_style_permission(current_user, current_factory_id, data['style_id'])
         if error:
             return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
 
@@ -204,9 +220,10 @@ class StyleElasticBatch(Resource):
     @style_elastic_ns.response(403, '无权限', forbidden_response)
     @style_elastic_ns.response(404, '款号不存在', error_response)
     def post(self):
-        """批量保存款号橡筋配置。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
+        """批量保存款号橡筋配置接口。写操作仍要求当前工厂上下文。"""
+        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
+        if error_response_obj:
+            return error_response_obj
         if not current_user:
             return ApiResponse.error('用户不存在')
 
@@ -216,14 +233,13 @@ class StyleElasticBatch(Resource):
         if not style_id:
             return ApiResponse.error('请指定款号 ID', 400)
 
-        _, error = StyleElasticService.check_style_permission(current_factory_id, style_id)
+        _, error = StyleElasticService.check_style_permission(current_user, current_factory_id, style_id)
         if error:
             return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
 
         StyleElasticService.delete_by_style(style_id)
         if items:
             StyleElasticService.create_elastic_batch(style_id, items)
-
         return ApiResponse.success(message='保存成功')
 
 
@@ -231,22 +247,25 @@ class StyleElasticBatch(Resource):
 class StyleElasticDetail(Resource):
     @login_required
     @button_permission(PERM_BUSINESS_STYLE_ELASTIC_QUERY)
-    @style_elastic_ns.response(200, '成功', style_elastic_item_response)
+    @style_elastic_ns.response(200, '查询成功', style_elastic_item_response)
     @style_elastic_ns.response(401, '未登录', unauthorized_response)
     @style_elastic_ns.response(403, '无权限', forbidden_response)
     @style_elastic_ns.response(404, '橡筋记录不存在', error_response)
     def get(self, elastic_id):
-        """查询款号橡筋详情。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        """查询款号橡筋详情接口。平台内部用户可跨工厂查看。"""
+        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(
+            allow_internal_without_factory=True,
+        )
+        if error_response_obj:
+            return error_response_obj
+
         elastic = StyleElasticService.get_elastic_by_id(elastic_id)
         if not elastic:
             return ApiResponse.error('橡筋记录不存在')
-        has_permission, error = StyleElasticService.check_elastic_permission(current_factory_id, elastic)
+        has_permission, error = StyleElasticService.check_elastic_permission(current_user, current_factory_id, elastic)
         if not has_permission:
             return ApiResponse.error(error, 403)
+
         result = style_elastic_schema.dump(elastic)
         result['size_name'] = StyleElasticService.get_size_name(elastic.size_id)
         return ApiResponse.success(result)
@@ -260,15 +279,17 @@ class StyleElasticDetail(Resource):
     @style_elastic_ns.response(403, '无权限', forbidden_response)
     @style_elastic_ns.response(404, '橡筋记录不存在', error_response)
     def patch(self, elastic_id):
-        """更新款号橡筋记录。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
+        """更新款号橡筋记录接口。写操作仍要求当前工厂上下文。"""
+        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
+        if error_response_obj:
+            return error_response_obj
         if not current_user:
             return ApiResponse.error('用户不存在')
+
         elastic = StyleElasticService.get_elastic_by_id(elastic_id)
         if not elastic:
             return ApiResponse.error('橡筋记录不存在')
-        has_permission, error = StyleElasticService.check_elastic_permission(current_factory_id, elastic)
+        has_permission, error = StyleElasticService.check_elastic_permission(current_user, current_factory_id, elastic)
         if not has_permission:
             return ApiResponse.error(error, 403)
 
@@ -294,16 +315,19 @@ class StyleElasticDetail(Resource):
     @style_elastic_ns.response(403, '无权限', forbidden_response)
     @style_elastic_ns.response(404, '橡筋记录不存在', error_response)
     def delete(self, elastic_id):
-        """删除款号橡筋记录。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
+        """删除款号橡筋记录接口。写操作仍要求当前工厂上下文。"""
+        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
+        if error_response_obj:
+            return error_response_obj
         if not current_user:
             return ApiResponse.error('用户不存在')
+
         elastic = StyleElasticService.get_elastic_by_id(elastic_id)
         if not elastic:
             return ApiResponse.error('橡筋记录不存在')
-        has_permission, error = StyleElasticService.check_elastic_permission(current_factory_id, elastic)
+        has_permission, error = StyleElasticService.check_elastic_permission(current_user, current_factory_id, elastic)
         if not has_permission:
             return ApiResponse.error(error, 403)
+
         StyleElasticService.delete_elastic(elastic)
         return ApiResponse.success(message='删除成功')

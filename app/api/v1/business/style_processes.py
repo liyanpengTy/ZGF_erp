@@ -4,7 +4,8 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_factory_id, get_current_user
+from app.api.common.auth import get_current_user
+from app.api.common.factory_context import resolve_factory_context as resolve_business_factory_context
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
 from app.constants.permissions import (
@@ -19,7 +20,7 @@ from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
-style_process_ns = Namespace('款号工艺管理-style-processes', description='款号工艺管理')
+style_process_ns = Namespace('款号工艺管理-style-processes', description='款号工艺记录查询与维护')
 
 common = get_common_models(style_process_ns)
 base_response = common['base_response']
@@ -31,11 +32,17 @@ build_page_response_model = common['build_page_response_model']
 
 style_process_query_parser = page_parser.copy()
 style_process_query_parser.add_argument('style_id', type=int, required=True, location='args', help='款号 ID')
-style_process_query_parser.add_argument('process_type', type=str, location='args', help='工艺类型', choices=['embroidery', 'print', 'other'])
+style_process_query_parser.add_argument(
+    'process_type',
+    type=str,
+    location='args',
+    help='工艺类型',
+    choices=['embroidery', 'print', 'other'],
+)
 
 style_process_item_model = style_process_ns.model('StyleProcessItem', {
-    'id': fields.Integer(description='工艺记录ID'),
-    'style_id': fields.Integer(description='款号ID'),
+    'id': fields.Integer(description='工艺记录 ID'),
+    'style_id': fields.Integer(description='款号 ID'),
     'process_type': fields.String(description='工艺类型'),
     'process_type_label': fields.String(description='工艺类型名称'),
     'process_name': fields.String(description='工艺名称'),
@@ -44,10 +51,21 @@ style_process_item_model = style_process_ns.model('StyleProcessItem', {
     'update_time': fields.String(description='更新时间'),
 })
 
-style_process_list_data = build_page_data_model(style_process_ns, 'StyleProcessListData', style_process_item_model, items_description='工艺列表')
-style_process_list_response = build_page_response_model(style_process_ns, 'StyleProcessListResponse', base_response, style_process_list_data, '工艺分页数据')
+style_process_list_data = build_page_data_model(
+    style_process_ns,
+    'StyleProcessListData',
+    style_process_item_model,
+    items_description='工艺列表',
+)
+style_process_list_response = build_page_response_model(
+    style_process_ns,
+    'StyleProcessListResponse',
+    base_response,
+    style_process_list_data,
+    '工艺分页数据',
+)
 style_process_item_response = style_process_ns.clone('StyleProcessItemResponse', base_response, {
-    'data': fields.Nested(style_process_item_model, description='工艺详情数据')
+    'data': fields.Nested(style_process_item_model, description='工艺详情数据'),
 })
 
 style_process_create_model = style_process_ns.model('StyleProcessCreate', {
@@ -59,7 +77,7 @@ style_process_create_model = style_process_ns.model('StyleProcessCreate', {
 
 style_process_update_model = style_process_ns.model('StyleProcessUpdate', {
     'process_type': fields.String(description='工艺类型', choices=['embroidery', 'print', 'other'], example='embroidery'),
-    'process_name': fields.String(description='工艺名称', example='电脑绣花'),
+    'process_name': fields.String(description='工艺名称', example='电脑刺绣'),
     'remark': fields.String(description='备注', example='左胸 logo'),
 })
 
@@ -73,18 +91,18 @@ class StyleProcessList(Resource):
     @login_required
     @button_permission(PERM_BUSINESS_STYLE_PROCESS_QUERY)
     @style_process_ns.expect(style_process_query_parser)
-    @style_process_ns.response(200, '成功', style_process_list_response)
+    @style_process_ns.response(200, '查询成功', style_process_list_response)
     @style_process_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """查询款号工艺分页列表。"""
+        """查询款号工艺分页列表接口。平台内部用户可不切工厂直接按款号查询。"""
         args = style_process_query_parser.parse_args()
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
+        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(
+            allow_internal_without_factory=True,
+        )
+        if error_response_obj:
+            return error_response_obj
 
-        if not current_user:
-            return ApiResponse.error('用户不存在')
-
-        style, error = StyleProcessService.check_style_permission(current_factory_id, args['style_id'])
+        style, error = StyleProcessService.check_style_permission(current_user, current_factory_id, args['style_id'])
         if error:
             return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
 
@@ -111,10 +129,10 @@ class StyleProcessList(Resource):
     @style_process_ns.response(403, '无权限', forbidden_response)
     @style_process_ns.response(404, '款号不存在', error_response)
     def post(self):
-        """创建款号工艺记录。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-
+        """创建款号工艺记录接口。写操作仍要求当前工厂上下文。"""
+        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
+        if error_response_obj:
+            return error_response_obj
         if not current_user:
             return ApiResponse.error('用户不存在')
 
@@ -123,7 +141,7 @@ class StyleProcessList(Resource):
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
 
-        _, error = StyleProcessService.check_style_permission(current_factory_id, data['style_id'])
+        _, error = StyleProcessService.check_style_permission(current_user, current_factory_id, data['style_id'])
         if error:
             return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
 
@@ -136,22 +154,25 @@ class StyleProcessList(Resource):
 class StyleProcessDetail(Resource):
     @login_required
     @button_permission(PERM_BUSINESS_STYLE_PROCESS_QUERY)
-    @style_process_ns.response(200, '成功', style_process_item_response)
+    @style_process_ns.response(200, '查询成功', style_process_item_response)
     @style_process_ns.response(401, '未登录', unauthorized_response)
     @style_process_ns.response(403, '无权限', forbidden_response)
     @style_process_ns.response(404, '工艺记录不存在', error_response)
     def get(self, process_id):
-        """查询款号工艺详情。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        """查询款号工艺详情接口。平台内部用户可跨工厂查看。"""
+        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(
+            allow_internal_without_factory=True,
+        )
+        if error_response_obj:
+            return error_response_obj
+
         process = StyleProcessService.get_process_by_id(process_id)
         if not process:
             return ApiResponse.error('工艺记录不存在')
-        has_permission, error = StyleProcessService.check_process_permission(current_factory_id, process)
+        has_permission, error = StyleProcessService.check_process_permission(current_user, current_factory_id, process)
         if not has_permission:
             return ApiResponse.error(error, 403)
+
         result = style_process_schema.dump(process)
         return ApiResponse.success(StyleProcessService.enrich_with_label(result, process))
 
@@ -164,15 +185,17 @@ class StyleProcessDetail(Resource):
     @style_process_ns.response(403, '无权限', forbidden_response)
     @style_process_ns.response(404, '工艺记录不存在', error_response)
     def patch(self, process_id):
-        """更新款号工艺记录。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
+        """更新款号工艺记录接口。写操作仍要求当前工厂上下文。"""
+        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
+        if error_response_obj:
+            return error_response_obj
         if not current_user:
             return ApiResponse.error('用户不存在')
+
         process = StyleProcessService.get_process_by_id(process_id)
         if not process:
             return ApiResponse.error('工艺记录不存在')
-        has_permission, error = StyleProcessService.check_process_permission(current_factory_id, process)
+        has_permission, error = StyleProcessService.check_process_permission(current_user, current_factory_id, process)
         if not has_permission:
             return ApiResponse.error(error, 403)
 
@@ -192,16 +215,19 @@ class StyleProcessDetail(Resource):
     @style_process_ns.response(403, '无权限', forbidden_response)
     @style_process_ns.response(404, '工艺记录不存在', error_response)
     def delete(self, process_id):
-        """删除款号工艺记录。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
+        """删除款号工艺记录接口。写操作仍要求当前工厂上下文。"""
+        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
+        if error_response_obj:
+            return error_response_obj
         if not current_user:
             return ApiResponse.error('用户不存在')
+
         process = StyleProcessService.get_process_by_id(process_id)
         if not process:
             return ApiResponse.error('工艺记录不存在')
-        has_permission, error = StyleProcessService.check_process_permission(current_factory_id, process)
+        has_permission, error = StyleProcessService.check_process_permission(current_user, current_factory_id, process)
         if not has_permission:
             return ApiResponse.error(error, 403)
+
         StyleProcessService.delete_process(process)
         return ApiResponse.success(message='删除成功')

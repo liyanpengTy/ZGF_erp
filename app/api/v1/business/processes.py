@@ -4,7 +4,8 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_factory_id, get_current_user
+from app.api.common.auth import get_current_user
+from app.api.common.factory_context import resolve_factory_context as resolve_business_factory_context
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
 from app.constants.permissions import (
@@ -287,12 +288,15 @@ class StyleProcesses(Resource):
     @process_ns.response(404, '款号不存在', error_response)
     def get(self, style_id):
         """查询款号工序映射列表。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
+        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(
+            allow_internal_without_factory=True,
+        )
+        if error_response_obj:
+            return error_response_obj
         if not current_user:
             return ApiResponse.error('用户不存在')
 
-        _, error = ProcessService.check_style_permission(current_factory_id, style_id)
+        _, error = ProcessService.check_style_permission(current_user, current_factory_id, style_id)
         if error:
             return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
 
@@ -308,12 +312,13 @@ class StyleProcesses(Resource):
     @process_ns.response(404, '款号不存在', error_response)
     def post(self, style_id):
         """批量保存款号工序映射。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
+        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
+        if error_response_obj:
+            return error_response_obj
         if not current_user:
             return ApiResponse.error('用户不存在')
 
-        _, error = ProcessService.check_style_permission(current_factory_id, style_id)
+        _, error = ProcessService.check_style_permission(current_user, current_factory_id, style_id)
         if error:
             return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
 
@@ -332,12 +337,13 @@ class StyleProcessDetail(Resource):
     @process_ns.response(404, '映射不存在', error_response)
     def delete(self, style_id, mapping_id):
         """删除款号工序映射。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
+        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
+        if error_response_obj:
+            return error_response_obj
         if not current_user:
             return ApiResponse.error('用户不存在')
 
-        _, error = ProcessService.check_style_permission(current_factory_id, style_id)
+        _, error = ProcessService.check_style_permission(current_user, current_factory_id, style_id)
         if error:
             return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
 

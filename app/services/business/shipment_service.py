@@ -47,10 +47,24 @@ class ShipmentService(BaseService):
         ).first()
 
     @staticmethod
-    def get_shipment_list(factory_id, filters):
+    def _build_shipment_query(current_user, current_factory_id=None, factory_id=None):
+        """构建出货单查询对象，统一处理平台视角与工厂视角。"""
+        query = Shipment.query.options(*ShipmentService.get_shipment_query_options()).filter_by(is_deleted=0)
+        if current_user.is_internal_user:
+            if factory_id:
+                query = query.filter_by(factory_id=factory_id)
+        else:
+            if not current_factory_id:
+                return None
+            query = query.filter_by(factory_id=current_factory_id)
+        return query
+
+    @staticmethod
+    def get_shipment_list(current_user, current_factory_id, filters):
         """分页查询当前工厂的出货单列表。"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
+        factory_id = filters.get('factory_id')
         shipment_no = filters.get('shipment_no', '')
         order_no = filters.get('order_no', '')
         customer_name = filters.get('customer_name', '')
@@ -58,10 +72,13 @@ class ShipmentService(BaseService):
         start_date = filters.get('start_date')
         end_date = filters.get('end_date')
 
-        query = Shipment.query.options(*ShipmentService.get_shipment_query_options()).filter_by(
+        query = ShipmentService._build_shipment_query(
+            current_user,
+            current_factory_id=current_factory_id,
             factory_id=factory_id,
-            is_deleted=0,
         )
+        if query is None:
+            return {'items': [], 'total': 0, 'page': page, 'page_size': page_size, 'pages': 0}
         if shipment_no:
             query = query.filter(Shipment.shipment_no.like(f'%{shipment_no}%'))
         if order_no:
@@ -83,6 +100,17 @@ class ShipmentService(BaseService):
             'page_size': page_size,
             'pages': pagination.pages,
         }
+
+    @staticmethod
+    def check_permission(current_user, current_factory_id, shipment):
+        """校验当前用户是否可以查看指定出货单。"""
+        if not current_user:
+            return False, '用户不存在'
+        if current_user.is_internal_user:
+            return True, None
+        if shipment.factory_id != current_factory_id:
+            return False, '无权限操作'
+        return True, None
 
     @staticmethod
     def get_completed_quantity_map_for_order(order_id):
