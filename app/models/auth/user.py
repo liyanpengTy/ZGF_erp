@@ -1,3 +1,5 @@
+"""用户模型。"""
+
 from datetime import datetime
 
 from app.constants.identity import (

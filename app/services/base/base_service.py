@@ -1,4 +1,4 @@
-"""基础服务类"""
+"""基础服务类。"""
 from app.extensions import db
 
 

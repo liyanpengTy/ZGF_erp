@@ -1,8 +1,10 @@
+"""服务监控相关序列化定义。"""
+
 from marshmallow import Schema, fields
 
 
 class SystemInfoSchema(Schema):
-    """系统信息"""
+    """系统信息。"""
     hostname = fields.String()
     os_name = fields.String()
     os_version = fields.String()

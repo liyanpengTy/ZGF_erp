@@ -1,4 +1,4 @@
-"""认证响应构建器"""
+"""认证响应构建器。"""
 from app.schemas.auth.user import UserLoginSchema
 from app.utils.response import ApiResponse
 

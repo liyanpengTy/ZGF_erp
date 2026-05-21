@@ -4,7 +4,7 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_claims, get_current_user
+from app.api.common.auth import get_current_claims, require_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser
 from app.models.system.menu import Menu
@@ -78,19 +78,24 @@ menu_create_schema = MenuCreateSchema()
 menu_update_schema = MenuUpdateSchema()
 
 
+def get_menu_user_or_error():
+    """获取菜单接口当前用户，不存在时返回统一错误响应。"""
+    return require_current_user()
+
+
 @menu_ns.route('')
 class MenuList(Resource):
     @login_required
     @menu_ns.expect(menu_query_parser)
     @menu_ns.response(200, '成功', menu_list_response)
     @menu_ns.response(401, '未登录', unauthorized_response)
+    @menu_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """查询菜单树列表。"""
+        """查询菜单树列表接口，支持按菜单类型和状态筛选。"""
         args = menu_query_parser.parse_args()
-        current_user = get_current_user()
-
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        current_user, error_response_data = get_menu_user_or_error()
+        if error_response_data:
+            return error_response_data
 
         has_permission, error = MenuService.check_admin_permission(current_user)
         if not has_permission:
@@ -106,8 +111,10 @@ class MenuList(Resource):
     @menu_ns.response(400, '参数错误', error_response)
     @menu_ns.response(403, '无权限', forbidden_response)
     def post(self):
-        """创建菜单。"""
-        current_user = get_current_user()
+        """创建菜单接口，用于新增目录、菜单或按钮。"""
+        current_user, error_response_data = get_menu_user_or_error()
+        if error_response_data:
+            return error_response_data
 
         has_permission, error = MenuService.check_admin_permission(current_user)
         if not has_permission:
@@ -129,10 +136,13 @@ class MenuList(Resource):
 class MenuDetail(Resource):
     @login_required
     @menu_ns.response(200, '成功', menu_item_response)
+    @menu_ns.response(403, '无权限', forbidden_response)
     @menu_ns.response(404, '菜单不存在', error_response)
     def get(self, menu_id):
-        """查询菜单详情。"""
-        current_user = get_current_user()
+        """查询菜单详情接口，返回单个菜单的完整配置。"""
+        current_user, error_response_data = get_menu_user_or_error()
+        if error_response_data:
+            return error_response_data
 
         has_permission, error = MenuService.check_admin_permission(current_user)
         if not has_permission:
@@ -150,8 +160,10 @@ class MenuDetail(Resource):
     @menu_ns.response(404, '菜单不存在', error_response)
     @menu_ns.response(403, '无权限', forbidden_response)
     def patch(self, menu_id):
-        """更新菜单。"""
-        current_user = get_current_user()
+        """更新菜单接口，可修改菜单基础信息与状态。"""
+        current_user, error_response_data = get_menu_user_or_error()
+        if error_response_data:
+            return error_response_data
 
         has_permission, error = MenuService.check_admin_permission(current_user)
         if not has_permission:
@@ -178,8 +190,10 @@ class MenuDetail(Resource):
     @menu_ns.response(403, '无权限', forbidden_response)
     @menu_ns.response(409, '存在子菜单或关联角色', error_response)
     def delete(self, menu_id):
-        """删除菜单。"""
-        current_user = get_current_user()
+        """删除菜单接口，存在子菜单或角色关联时会阻止删除。"""
+        current_user, error_response_data = get_menu_user_or_error()
+        if error_response_data:
+            return error_response_data
 
         has_permission, error = MenuService.check_admin_permission(current_user)
         if not has_permission:
@@ -201,9 +215,12 @@ class MenuTree(Resource):
     @login_required
     @menu_ns.response(200, '成功', menu_list_response)
     @menu_ns.response(401, '未登录', unauthorized_response)
+    @menu_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """查询启用中的完整菜单树，供角色分配权限使用。"""
-        current_user = get_current_user()
+        """查询启用菜单树接口，供角色分配权限时选择菜单节点。"""
+        current_user, error_response_data = get_menu_user_or_error()
+        if error_response_data:
+            return error_response_data
 
         has_permission, error = MenuService.check_admin_permission(current_user)
         if not has_permission:
@@ -220,11 +237,10 @@ class UserMenus(Resource):
     @menu_ns.response(200, '成功', menu_list_response)
     @menu_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """查询当前登录账号的可见菜单树。"""
-        current_user = get_current_user()
-
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        """查询当前账号可见菜单树接口，按登录身份与工厂上下文返回菜单。"""
+        current_user, error_response_data = get_menu_user_or_error()
+        if error_response_data:
+            return error_response_data
 
         claims = get_current_claims()
         factory_id = claims.get('factory_id')

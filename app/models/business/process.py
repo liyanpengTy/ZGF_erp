@@ -1,11 +1,11 @@
-"""工序管理模型"""
+"""工序管理模型。"""
 from app.extensions import db
 from app.models.base import BaseModel
 from datetime import datetime
 
 
 class Process(BaseModel):
-    """工序定义表（系统级基础数据）"""
+    """工序定义表（系统级基础数据）。"""
     __tablename__ = 'pro_process'
     __table_args__ = (
         {'comment': '工序定义表'}

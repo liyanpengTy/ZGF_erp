@@ -10,7 +10,7 @@ from app.constants.permissions import (
     PERM_BUSINESS_STYLE_EDIT,
     PERM_BUSINESS_STYLE_QUERY,
 )
-from app.api.common.auth import get_current_factory_id, get_current_user
+from app.api.common.auth import get_current_factory_id, require_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
 from app.schemas.business.style import StyleCreateSchema, StyleSchema, StyleUpdateSchema
@@ -150,11 +150,48 @@ style_create_schema = StyleCreateSchema()
 style_update_schema = StyleUpdateSchema()
 
 
+def get_style_request_context():
+    """获取款号接口通用的当前用户和工厂上下文。"""
+    current_user, error_response_data = require_current_user()
+    if error_response_data:
+        return None, None, error_response_data
+    return current_user, get_current_factory_id(), None
+
+
+def get_accessible_style_or_error(style_id):
+    """查询当前上下文可访问的款号，不可访问时返回统一错误响应。"""
+    current_user, current_factory_id, error_response_data = get_style_request_context()
+    if error_response_data:
+        return None, None, None, error_response_data
+
+    style = StyleService.get_style_by_id(style_id)
+    if not style:
+        return None, None, None, ApiResponse.error('款号不存在')
+
+    has_permission, error = StyleService.check_permission(current_user, current_factory_id, style)
+    if not has_permission:
+        return None, None, None, ApiResponse.error(error, 403)
+    return current_user, current_factory_id, style, None
+
+
 def serialize_style(style):
     """序列化单个款号，并补充分类名称。"""
     item = style_schema.dump(style)
     item['category_name'] = style.category.name if style.category else None
     return item
+
+
+def serialize_style_option(style):
+    """序列化款号下拉选项。"""
+    return {
+        'id': style.id,
+        'style_no': style.style_no,
+        'name': style.name,
+        'customer_style_no': style.customer_style_no,
+        'category_id': style.category_id,
+        'category_name': style.category.name if style.category else None,
+        'status': style.status,
+    }
 
 
 @style_ns.route('')
@@ -164,23 +201,16 @@ class StyleList(Resource):
     @style_ns.expect(style_query_parser)
     @style_ns.response(200, '成功', style_list_response)
     @style_ns.response(401, '未登录', unauthorized_response)
+    @style_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """查询款号分页列表。"""
+        """查询款号分页列表接口，支持按款号、名称、客户款号和分类筛选。"""
         args = style_query_parser.parse_args()
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        current_user, current_factory_id, error_response_data = get_style_request_context()
+        if error_response_data:
+            return error_response_data
 
         result = StyleService.get_style_list(current_user, current_factory_id, args)
-        return ApiResponse.success({
-            'items': [serialize_style(style) for style in result['items']],
-            'total': result['total'],
-            'page': result['page'],
-            'page_size': result['page_size'],
-            'pages': result['pages'],
-        })
+        return ApiResponse.success_page_result(result, [serialize_style(style) for style in result['items']])
 
     @login_required
     @button_permission(PERM_BUSINESS_STYLE_ADD)
@@ -188,13 +218,13 @@ class StyleList(Resource):
     @style_ns.response(201, '创建成功', style_item_response)
     @style_ns.response(400, '参数错误', error_response)
     @style_ns.response(401, '未登录', unauthorized_response)
+    @style_ns.response(403, '无权限', forbidden_response)
     @style_ns.response(409, '款号已存在', error_response)
     def post(self):
-        """创建款号。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        """创建款号接口，支持维护图片、自定义属性和拼接配置。"""
+        current_user, current_factory_id, error_response_data = get_style_request_context()
+        if error_response_data:
+            return error_response_data
 
         try:
             data = style_create_schema.load(request.get_json() or {})
@@ -216,26 +246,15 @@ class StyleOptions(Resource):
     @style_ns.expect(style_option_query_parser)
     @style_ns.response(200, '成功', style_options_response)
     @style_ns.response(401, '未登录', unauthorized_response)
+    @style_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """查询款号下拉选项列表，供款号选择器直接使用。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        current_user, current_factory_id, error_response_data = get_style_request_context()
+        if error_response_data:
+            return error_response_data
 
         styles = StyleService.get_style_options(current_user, current_factory_id, style_option_query_parser.parse_args())
-        return ApiResponse.success([
-            {
-                'id': style.id,
-                'style_no': style.style_no,
-                'name': style.name,
-                'customer_style_no': style.customer_style_no,
-                'category_id': style.category_id,
-                'category_name': style.category.name if style.category else None,
-                'status': style.status,
-            }
-            for style in styles
-        ])
+        return ApiResponse.success_list([serialize_style_option(style) for style in styles])
 
 
 @style_ns.route('/<int:style_id>')
@@ -247,16 +266,10 @@ class StyleDetail(Resource):
     @style_ns.response(403, '无权限', forbidden_response)
     @style_ns.response(404, '款号不存在', error_response)
     def get(self, style_id):
-        """查询款号详情。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-        style = StyleService.get_style_by_id(style_id)
-        if not style:
-            return ApiResponse.error('款号不存在')
-
-        has_permission, error = StyleService.check_permission(current_user, current_factory_id, style)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        """查询款号详情接口，返回款号基础信息、图片和扩展属性。"""
+        _, _, style, error_response_data = get_accessible_style_or_error(style_id)
+        if error_response_data:
+            return error_response_data
 
         return ApiResponse.success(serialize_style(style))
 
@@ -270,12 +283,10 @@ class StyleDetail(Resource):
     @style_ns.response(404, '款号不存在', error_response)
     @style_ns.response(409, '款号冲突', error_response)
     def patch(self, style_id):
-        """更新款号。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-        style = StyleService.get_style_by_id(style_id)
-        if not style:
-            return ApiResponse.error('款号不存在')
+        """更新款号接口，可调整基础信息、图片、自定义属性和拼接数据。"""
+        current_user, current_factory_id, style, error_response_data = get_accessible_style_or_error(style_id)
+        if error_response_data:
+            return error_response_data
         can_manage, error = StyleService.check_manage_permission(current_user, current_factory_id, style)
         if not can_manage:
             return ApiResponse.error(error, 403)
@@ -299,12 +310,10 @@ class StyleDetail(Resource):
     @style_ns.response(404, '款号不存在', error_response)
     @style_ns.response(409, '款号已被引用', error_response)
     def delete(self, style_id):
-        """删除款号。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-        style = StyleService.get_style_by_id(style_id)
-        if not style:
-            return ApiResponse.error('款号不存在')
+        """删除款号接口，已被业务引用的款号不允许删除。"""
+        current_user, current_factory_id, style, error_response_data = get_accessible_style_or_error(style_id)
+        if error_response_data:
+            return error_response_data
         can_manage, error = StyleService.check_manage_permission(current_user, current_factory_id, style)
         if not can_manage:
             return ApiResponse.error(error, 403)

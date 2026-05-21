@@ -1,8 +1,10 @@
+"""菜单相关序列化定义。"""
+
 from marshmallow import Schema, fields, validate
 
 
 class MenuSchema(Schema):
-    """菜单序列化器"""
+    """菜单序列化器。"""
     id = fields.Int()
     parent_id = fields.Int()
     name = fields.Str()

@@ -1,4 +1,4 @@
-"""员工计酬服务"""
+"""员工计酬服务。"""
 from datetime import datetime
 from app.models.system.employee_wage import EmployeeWage
 from app.models.auth.user import User
@@ -7,7 +7,7 @@ from app.services.base.base_service import BaseService
 
 
 class EmployeeWageService(BaseService):
-    """员工计酬服务"""
+    """员工计酬服务。"""
 
     @staticmethod
     def get_wage_by_id(wage_id):

@@ -1,4 +1,4 @@
-"""员工计酬序列化器"""
+"""员工计酬相关序列化定义。"""
 from marshmallow import Schema, fields, validate
 
 

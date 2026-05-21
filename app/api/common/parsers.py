@@ -1,3 +1,5 @@
+"""接口查询参数解析工具。"""
+
 from datetime import datetime
 
 from flask import request

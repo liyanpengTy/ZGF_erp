@@ -1,11 +1,12 @@
-# 菜单/权限模型
+"""菜单与权限模型。"""
+
 from app.extensions import db
 from app.models.base import BaseModel
 from datetime import datetime
 
 
 class Menu(BaseModel):
-    """菜单/权限表"""
+    """菜单/权限表。"""
     __tablename__ = 'sys_menu'
     __table_args__ = {'comment': '菜单/权限表'}
 

@@ -4,7 +4,7 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_factory_id, get_current_user
+from app.api.common.auth import get_current_factory_id, require_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
 from app.schemas.system.role import RoleAssignMenuSchema, RoleCreateSchema, RoleSchema, RoleUpdateSchema
@@ -149,30 +149,62 @@ role_update_schema = RoleUpdateSchema()
 role_assign_menu_schema = RoleAssignMenuSchema()
 
 
+def get_required_role_user():
+    """获取角色接口当前用户，不存在时返回统一错误响应。"""
+    return require_current_user()
+
+
+def get_role_or_error(role_id):
+    """根据角色 ID 查询角色，不存在时返回统一错误响应。"""
+    role = RoleService.get_role_by_id(role_id)
+    if not role:
+        return None, ApiResponse.error('角色不存在')
+    return role, None
+
+
+def serialize_role_option(role):
+    """序列化角色下拉选项。"""
+    return {
+        'id': role.id,
+        'name': role.name,
+        'code': role.code,
+        'scope_type': role.scope_type,
+        'scope_type_label': role.scope_type_label,
+        'scope_id': role.scope_id,
+        'is_factory_admin': role.is_factory_admin,
+    }
+
+
+def serialize_role_user(user):
+    """序列化角色下的用户项。"""
+    return {
+        'id': user.id,
+        'username': user.username,
+        'nickname': user.nickname,
+        'phone': user.phone,
+        'status': user.status,
+    }
+
+
 @role_ns.route('')
 class RoleList(Resource):
     @login_required
     @role_ns.expect(role_query_parser)
     @role_ns.response(200, '成功', role_list_response)
     @role_ns.response(401, '未登录', unauthorized_response)
+    @role_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """分页查询角色列表。"""
+        """查询角色分页列表接口，支持按归属范围、状态和名称筛选。"""
         args = role_query_parser.parse_args()
-        current_user = get_current_user()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        current_user, error_response_data = get_required_role_user()
+        if error_response_data:
+            return error_response_data
 
         result, error = RoleService.get_role_list(current_user, args, get_current_factory_id())
         if error:
             return ApiResponse.error(error, 403 if error == '无权限查看角色' else 400)
 
-        return ApiResponse.success({
-            'items': roles_schema.dump(result['items']),
-            'total': result['total'],
-            'page': result['page'],
-            'page_size': result['page_size'],
-            'pages': result['pages'],
-        })
+        return ApiResponse.success_page_result(result, roles_schema.dump(result['items']))
 
     @login_required
     @role_ns.expect(role_create_model)
@@ -182,10 +214,10 @@ class RoleList(Resource):
     @role_ns.response(409, '角色编码或名称已存在', error_response)
     def post(self):
         """按归属范围创建角色，支持平台角色和工厂角色。"""
-        current_user = get_current_user()
+        current_user, error_response_data = get_required_role_user()
         current_factory_id = get_current_factory_id()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        if error_response_data:
+            return error_response_data
 
         try:
             data = role_create_schema.load(request.get_json() or {})
@@ -210,41 +242,34 @@ class RoleOptions(Resource):
     @role_ns.expect(role_option_query_parser)
     @role_ns.response(200, '成功', role_options_response)
     @role_ns.response(401, '未登录', unauthorized_response)
+    @role_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """查询角色下拉选项列表，供角色选择器直接使用。"""
-        current_user = get_current_user()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        current_user, error_response_data = get_required_role_user()
+        if error_response_data:
+            return error_response_data
 
         roles, error = RoleService.get_role_options(current_user, role_option_query_parser.parse_args(), get_current_factory_id())
         if error:
             return ApiResponse.error(error, 403 if error == '无权限查看角色' else 400)
 
-        return ApiResponse.success([
-            {
-                'id': role.id,
-                'name': role.name,
-                'code': role.code,
-                'scope_type': role.scope_type,
-                'scope_type_label': role.scope_type_label,
-                'scope_id': role.scope_id,
-                'is_factory_admin': role.is_factory_admin,
-            }
-            for role in roles
-        ])
+        return ApiResponse.success_list([serialize_role_option(role) for role in roles])
 
 
 @role_ns.route('/<int:role_id>')
 class RoleDetail(Resource):
     @login_required
     @role_ns.response(200, '成功', role_item_response)
+    @role_ns.response(403, '无权限', forbidden_response)
     @role_ns.response(404, '角色不存在', error_response)
     def get(self, role_id):
-        """查看单个角色详情。"""
-        current_user = get_current_user()
-        role = RoleService.get_role_by_id(role_id)
-        if not role:
-            return ApiResponse.error('角色不存在')
+        """查询角色详情接口，返回角色范围、数据权限和扩展配置。"""
+        current_user, error_response_data = get_required_role_user()
+        if error_response_data:
+            return error_response_data
+        role, error_response_data = get_role_or_error(role_id)
+        if error_response_data:
+            return error_response_data
         if not RoleService.verify_role_permission(current_user, role):
             return ApiResponse.error('无权限查看此角色', 403)
         return ApiResponse.success(role_schema.dump(role))
@@ -256,11 +281,13 @@ class RoleDetail(Resource):
     @role_ns.response(403, '无权限', forbidden_response)
     def patch(self, role_id):
         """更新角色名称、数据范围和工厂管理员标识。"""
-        current_user = get_current_user()
+        current_user, error_response_data = get_required_role_user()
         current_factory_id = get_current_factory_id()
-        role = RoleService.get_role_by_id(role_id)
-        if not role:
-            return ApiResponse.error('角色不存在')
+        if error_response_data:
+            return error_response_data
+        role, error_response_data = get_role_or_error(role_id)
+        if error_response_data:
+            return error_response_data
         if not RoleService.can_manage_role(current_user, role, current_factory_id):
             return ApiResponse.error('只有平台管理员或本工厂管理员可以更新角色', 403)
 
@@ -281,11 +308,13 @@ class RoleDetail(Resource):
     @role_ns.response(409, '角色已被使用', error_response)
     def delete(self, role_id):
         """删除角色；删除前会检查是否仍被用户占用。"""
-        current_user = get_current_user()
+        current_user, error_response_data = get_required_role_user()
         current_factory_id = get_current_factory_id()
-        role = RoleService.get_role_by_id(role_id)
-        if not role:
-            return ApiResponse.error('角色不存在')
+        if error_response_data:
+            return error_response_data
+        role, error_response_data = get_role_or_error(role_id)
+        if error_response_data:
+            return error_response_data
         if not RoleService.can_manage_role(current_user, role, current_factory_id):
             return ApiResponse.error('只有平台管理员或本工厂管理员可以删除角色', 403)
 
@@ -299,17 +328,20 @@ class RoleDetail(Resource):
 class RoleMenus(Resource):
     @login_required
     @role_ns.response(200, '成功', menu_ids_response)
+    @role_ns.response(403, '无权限', forbidden_response)
     @role_ns.response(404, '角色不存在', error_response)
     def get(self, role_id):
-        """查询角色已绑定的菜单权限。"""
-        current_user = get_current_user()
-        role = RoleService.get_role_by_id(role_id)
-        if not role:
-            return ApiResponse.error('角色不存在')
+        """查询角色菜单权限接口，返回当前角色已绑定的菜单 ID 集合。"""
+        current_user, error_response_data = get_required_role_user()
+        if error_response_data:
+            return error_response_data
+        role, error_response_data = get_role_or_error(role_id)
+        if error_response_data:
+            return error_response_data
         if not RoleService.verify_role_permission(current_user, role):
             return ApiResponse.error('无权限查看', 403)
 
-        return ApiResponse.success(RoleService.get_role_menu_ids(role_id))
+        return ApiResponse.success_list(RoleService.get_role_menu_ids(role_id))
 
     @login_required
     @role_ns.expect(role_assign_menu_model)
@@ -318,11 +350,13 @@ class RoleMenus(Resource):
     @role_ns.response(403, '无权限', forbidden_response)
     def post(self, role_id):
         """重建角色菜单权限绑定关系。"""
-        current_user = get_current_user()
+        current_user, error_response_data = get_required_role_user()
         current_factory_id = get_current_factory_id()
-        role = RoleService.get_role_by_id(role_id)
-        if not role:
-            return ApiResponse.error('角色不存在')
+        if error_response_data:
+            return error_response_data
+        role, error_response_data = get_role_or_error(role_id)
+        if error_response_data:
+            return error_response_data
         if not RoleService.can_manage_role(current_user, role, current_factory_id):
             return ApiResponse.error('只有平台管理员或本工厂管理员可以分配权限', 403)
 
@@ -341,13 +375,16 @@ class RoleMenus(Resource):
 class RoleUsers(Resource):
     @login_required
     @role_ns.response(200, '成功', role_users_response)
+    @role_ns.response(403, '无权限', forbidden_response)
     @role_ns.response(404, '角色不存在', error_response)
     def get(self, role_id):
-        """查询当前角色下的用户列表。"""
-        current_user = get_current_user()
-        role = RoleService.get_role_by_id(role_id)
-        if not role:
-            return ApiResponse.error('角色不存在')
+        """查询角色用户列表接口，返回当前角色下的关联用户。"""
+        current_user, error_response_data = get_required_role_user()
+        if error_response_data:
+            return error_response_data
+        role, error_response_data = get_role_or_error(role_id)
+        if error_response_data:
+            return error_response_data
         if not RoleService.verify_role_permission(current_user, role):
             return ApiResponse.error('无权限查看', 403)
 
@@ -355,13 +392,4 @@ class RoleUsers(Resource):
         from app.models.auth.user import User
 
         users = User.query.filter(User.id.in_(user_ids), User.is_deleted == 0).all() if user_ids else []
-        return ApiResponse.success([
-            {
-                'id': user.id,
-                'username': user.username,
-                'nickname': user.nickname,
-                'phone': user.phone,
-                'status': user.status,
-            }
-            for user in users
-        ])
+        return ApiResponse.success_list([serialize_role_user(user) for user in users])

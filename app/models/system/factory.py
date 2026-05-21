@@ -1,3 +1,5 @@
+"""工厂模型。"""
+
 from datetime import date, datetime, timedelta
 
 from app.extensions import db

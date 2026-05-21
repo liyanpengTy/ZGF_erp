@@ -2,7 +2,7 @@
 
 from flask_restx import Namespace, Resource, fields
 
-from app.api.common.auth import get_current_user
+from app.api.common.auth import require_current_user
 from app.api.common.models import get_common_models
 from app.services import MonitorService
 from app.utils.permissions import login_required
@@ -121,10 +121,15 @@ system_monitor_response = monitor_ns.clone('SystemMonitorResponse', base_respons
 
 
 def check_monitor_permission(current_user):
-    """统一校验服务监控接口是否允许访问。"""
+    """校验监控查看权限，仅允许平台内部用户访问监控模块。"""
     if not current_user:
         return False, '用户不存在'
     return MonitorService.check_admin_permission(current_user)
+
+
+def get_monitor_user_or_error():
+    """获取监控接口当前用户，不存在时返回统一错误响应。"""
+    return require_current_user()
 
 
 @monitor_ns.route('/info')
@@ -134,8 +139,10 @@ class MonitorInfo(Resource):
     @monitor_ns.response(401, '未登录', unauthorized_response)
     @monitor_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """查询完整监控信息。"""
-        current_user = get_current_user()
+        """查询完整监控信息接口，汇总 CPU、内存、磁盘与系统信息。"""
+        current_user, error_response_data = get_monitor_user_or_error()
+        if error_response_data:
+            return error_response_data
         has_permission, error = check_monitor_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
@@ -149,8 +156,10 @@ class CpuMonitor(Resource):
     @monitor_ns.response(401, '未登录', unauthorized_response)
     @monitor_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """查询 CPU 监控信息。"""
-        current_user = get_current_user()
+        """查询 CPU 监控信息接口，返回 CPU 占用率和核心数。"""
+        current_user, error_response_data = get_monitor_user_or_error()
+        if error_response_data:
+            return error_response_data
         has_permission, error = check_monitor_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
@@ -164,8 +173,10 @@ class MemoryMonitor(Resource):
     @monitor_ns.response(401, '未登录', unauthorized_response)
     @monitor_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """查询内存监控信息。"""
-        current_user = get_current_user()
+        """查询内存监控信息接口，返回内存总量、已用量和使用率。"""
+        current_user, error_response_data = get_monitor_user_or_error()
+        if error_response_data:
+            return error_response_data
         has_permission, error = check_monitor_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
@@ -179,8 +190,10 @@ class DiskMonitor(Resource):
     @monitor_ns.response(401, '未登录', unauthorized_response)
     @monitor_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """查询磁盘监控信息。"""
-        current_user = get_current_user()
+        """查询磁盘监控信息接口，返回各磁盘分区容量和使用情况。"""
+        current_user, error_response_data = get_monitor_user_or_error()
+        if error_response_data:
+            return error_response_data
         has_permission, error = check_monitor_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
@@ -194,8 +207,10 @@ class SystemMonitor(Resource):
     @monitor_ns.response(401, '未登录', unauthorized_response)
     @monitor_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """查询系统基础信息。"""
-        current_user = get_current_user()
+        """查询系统基础信息接口，返回主机、系统和运行环境信息。"""
+        current_user, error_response_data = get_monitor_user_or_error()
+        if error_response_data:
+            return error_response_data
         has_permission, error = check_monitor_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)

@@ -1,10 +1,11 @@
-# 模型基类
+"""模型基类定义。"""
+
 from app.extensions import db
 from datetime import datetime
 
 
 class BaseModel(db.Model):
-    """模型基类"""
+    """模型基类。"""
     __abstract__ = True
 
     def to_dict(self):

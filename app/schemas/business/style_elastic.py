@@ -1,3 +1,5 @@
+"""款号橡筋相关序列化定义。"""
+
 from marshmallow import Schema, fields, validate
 
 

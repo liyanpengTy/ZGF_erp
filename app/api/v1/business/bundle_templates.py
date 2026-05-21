@@ -4,8 +4,8 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_user
-from app.api.common.factory_context import resolve_factory_context as resolve_business_factory_context
+from app.api.common.auth import require_current_user
+from app.api.common.factory_context import resolve_read_factory_context, resolve_write_factory_context
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser
 from app.constants.permissions import (
@@ -167,22 +167,29 @@ bundle_rule_schema = FactoryBundleRuleSchema()
 bundle_rule_update_schema = FactoryBundleRuleUpdateSchema()
 
 
+def get_bundle_template_user_or_error():
+    """获取菲模板接口当前用户，不存在时返回统一错误响应。"""
+    return require_current_user()
+
+
 @bundle_template_ns.route("/field-options")
 class BundleFieldOptions(Resource):
     @login_required
     @button_permission(PERM_BUSINESS_BUNDLE_TEMPLATE_QUERY)
     @bundle_template_ns.response(200, "查询成功", bundle_field_option_response)
     @bundle_template_ns.response(401, "未登录", unauthorized_response)
+    @bundle_template_ns.response(403, "无权限", forbidden_response)
     def get(self):
         """查询菲模板字段池接口，返回系统内置可配置字段列表。"""
-        if not get_current_user():
-            return ApiResponse.error("用户不存在", 401)
+        _, error_response_data = get_bundle_template_user_or_error()
+        if error_response_data:
+            return error_response_data
 
         options = [
             {"field_code": field_code, "field_label": config["label"]}
             for field_code, config in BundleTemplateService.FIELD_DEFINITIONS.items()
         ]
-        return ApiResponse.success(options)
+        return ApiResponse.success_list(options)
 
 
 @bundle_template_ns.route("")
@@ -196,14 +203,14 @@ class BundleTemplateList(Resource):
     def get(self):
         """查询菲模板列表接口，返回当前工厂可用的系统模板和工厂模板。"""
         args = bundle_template_factory_parser.parse_args()
-        _, current_factory_id, error_response_obj = resolve_business_factory_context(
+        _, current_factory_id, error_response_obj = resolve_read_factory_context(
             query_factory_id=args.get("factory_id"),
         )
         if error_response_obj:
             return error_response_obj
 
         templates = BundleTemplateService.get_template_list(current_factory_id)
-        return ApiResponse.success(bundle_templates_schema.dump(templates))
+        return ApiResponse.success_list(bundle_templates_schema.dump(templates))
 
     @login_required
     @button_permission(PERM_BUSINESS_BUNDLE_TEMPLATE_ADD)
@@ -214,7 +221,7 @@ class BundleTemplateList(Resource):
     @bundle_template_ns.response(403, "无权限", forbidden_response)
     def post(self):
         """创建菲模板接口，仅允许在当前工厂下新增自定义模板。"""
-        _, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
+        _, current_factory_id, error_response_obj = resolve_write_factory_context()
         if error_response_obj:
             return error_response_obj
 
@@ -240,7 +247,7 @@ class BundleTemplateDetail(Resource):
     @bundle_template_ns.response(404, "模板不存在", error_response)
     def get(self, template_id):
         """查询菲模板详情接口，平台内部用户可跨工厂查看。"""
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(
+        current_user, current_factory_id, error_response_obj = resolve_read_factory_context(
             allow_internal_without_factory=True,
         )
         if error_response_obj:
@@ -265,7 +272,7 @@ class BundleTemplateDetail(Resource):
     @bundle_template_ns.response(404, "模板不存在", error_response)
     def patch(self, template_id):
         """更新菲模板接口，仅允许修改当前工厂下的自定义模板。"""
-        _, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
+        _, current_factory_id, error_response_obj = resolve_write_factory_context()
         if error_response_obj:
             return error_response_obj
 
@@ -292,7 +299,7 @@ class BundleTemplateDetail(Resource):
     @bundle_template_ns.response(404, "模板不存在", error_response)
     def delete(self, template_id):
         """删除菲模板接口，仅允许删除当前工厂下的自定义模板。"""
-        _, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
+        _, current_factory_id, error_response_obj = resolve_write_factory_context()
         if error_response_obj:
             return error_response_obj
 
@@ -318,7 +325,7 @@ class FactoryBundleRuleDetail(Resource):
     def get(self):
         """查询工厂菲规则接口，返回床次重置周期、默认模板和菲号前缀。"""
         args = bundle_template_factory_parser.parse_args()
-        _, current_factory_id, error_response_obj = resolve_business_factory_context(
+        _, current_factory_id, error_response_obj = resolve_read_factory_context(
             query_factory_id=args.get("factory_id"),
         )
         if error_response_obj:
@@ -336,7 +343,7 @@ class FactoryBundleRuleDetail(Resource):
     @bundle_template_ns.response(403, "无权限", forbidden_response)
     def patch(self):
         """更新工厂菲规则接口，可维护默认模板、床次重置周期和菲号前缀。"""
-        _, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
+        _, current_factory_id, error_response_obj = resolve_write_factory_context()
         if error_response_obj:
             return error_response_obj
 

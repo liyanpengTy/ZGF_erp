@@ -7,6 +7,7 @@ from flask import request
 from flask_jwt_extended import create_access_token, get_jwt, get_jwt_identity
 from flask_restx import Namespace, Resource, fields
 
+from app.api.common.auth import require_current_user
 from app.api.common.models import get_common_models
 from app.extensions import bcrypt
 from app.models.auth.user import User
@@ -123,6 +124,20 @@ my_factories_response = auth_ns.clone('MyFactoriesResponse', base_response, {
 })
 
 
+def build_refresh_token_payload(access_token):
+    """构造刷新 access token 接口的返回数据。"""
+    return {'access_token': access_token}
+
+
+def build_register_payload(user):
+    """构造注册成功后的返回数据。"""
+    return {
+        'id': user.id,
+        'username': user.username,
+        'invite_code': user.invite_code
+    }
+
+
 @auth_ns.route('/login')
 class Login(Resource):
     @auth_ns.expect(login_request_model)
@@ -190,7 +205,7 @@ class RefreshToken(Resource):
                 additional_claims[key] = old_claims[key]
 
         access_token = create_access_token(identity=str(user_id), additional_claims=additional_claims)
-        return ApiResponse.success({'access_token': access_token})
+        return ApiResponse.success(build_refresh_token_payload(access_token))
 
 
 @auth_ns.route('/userinfo')
@@ -199,10 +214,10 @@ class UserInfo(Resource):
     @auth_ns.response(200, '获取成功', user_info_response)
     @auth_ns.response(401, '未登录或 token 无效', unauthorized_response)
     def get(self):
-        """读取当前登录用户的基础资料。"""
-        user = AuthService.get_current_user()
-        if not user:
-            return ApiResponse.error('用户不存在')
+        """查询当前登录账号信息接口，返回基础资料与身份信息。"""
+        user, error_response_data = require_current_user()
+        if error_response_data:
+            return error_response_data
 
         user_schema = UserLoginSchema()
         return ApiResponse.success(user_schema.dump(user))
@@ -217,9 +232,9 @@ class SwitchFactory(Resource):
     @auth_ns.response(403, '无权限', forbidden_response)
     def post(self):
         """切换当前工厂上下文，并重新签发带新 claims 的 token。"""
-        user = AuthService.get_current_user()
-        if not user:
-            return ApiResponse.error('用户不存在')
+        user, error_response_data = require_current_user()
+        if error_response_data:
+            return error_response_data
 
         if AuthService.is_internal_user(user):
             return ApiResponse.error('平台内部人员不使用工厂切换上下文', 400)
@@ -260,19 +275,20 @@ class MyFactories(Resource):
     @auth_ns.response(200, '获取成功', my_factories_response)
     @auth_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """返回当前用户已绑定的工厂列表。"""
-        user = AuthService.get_current_user()
-        if not user:
-            return ApiResponse.error('用户不存在')
-        return ApiResponse.success(AuthService.get_user_factories(user.id))
+        """查询当前账号已绑定工厂列表接口，供外部用户切换工厂使用。"""
+        user, error_response_data = require_current_user()
+        if error_response_data:
+            return error_response_data
+        return ApiResponse.success_list(AuthService.get_user_factories(user.id))
 
 
 @auth_ns.route('/logout')
 class Logout(Resource):
     @login_required
     @auth_ns.response(200, '退出成功', base_response)
+    @auth_ns.response(401, '未登录', unauthorized_response)
     def post(self):
-        """退出登录接口，当前实现由前端自行丢弃 token。"""
+        """退出登录接口，当前实现由前端自行丢弃本地 token。"""
         return ApiResponse.success(message='退出成功')
 
 
@@ -317,8 +333,4 @@ class Register(Resource):
         )
         user.save()
 
-        return ApiResponse.success({
-            'id': user.id,
-            'username': user.username,
-            'invite_code': user.invite_code
-        }, '注册成功', 201)
+        return ApiResponse.success(build_register_payload(user), '注册成功', 201)

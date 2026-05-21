@@ -4,7 +4,7 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.factory_context import resolve_factory_context as resolve_business_factory_context
+from app.api.common.factory_context import resolve_read_factory_context, resolve_write_factory_context
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
 from app.constants.permissions import (
@@ -256,6 +256,36 @@ bundle_complete_schema = BundleCompleteSchema()
 bundle_print_schema = BundlePrintSchema()
 
 
+def get_accessible_bundle_or_error(bundle_id):
+    """查询当前上下文可访问的菲，不可访问时返回统一错误响应。"""
+    current_user, current_factory_id, error_response_obj = resolve_read_factory_context(
+        allow_internal_without_factory=True,
+    )
+    if error_response_obj:
+        return None, None, None, error_response_obj
+
+    bundle = BundleService.get_bundle_by_id(bundle_id)
+    if not bundle:
+        return None, None, None, ApiResponse.error("菲不存在", 404)
+
+    has_permission, error = BundleService.check_permission(current_user, current_factory_id, bundle)
+    if not has_permission:
+        return None, None, None, ApiResponse.error(error, 403)
+    return current_user, current_factory_id, bundle, None
+
+
+def get_writable_bundle_or_error(bundle_id):
+    """查询当前工厂下可写入的菲，不存在时返回统一错误响应。"""
+    current_user, current_factory_id, error_response_obj = resolve_write_factory_context()
+    if error_response_obj:
+        return None, None, None, error_response_obj
+
+    bundle = BundleService.get_bundle_by_id(bundle_id)
+    if not bundle or bundle.factory_id != current_factory_id:
+        return None, None, None, ApiResponse.error("菲不存在", 404)
+    return current_user, current_factory_id, bundle, None
+
+
 @bundle_ns.route("/in-hand-statistics")
 class BundleInHandStatistics(Resource):
     @login_required
@@ -267,7 +297,7 @@ class BundleInHandStatistics(Resource):
     def get(self):
         """查询菲在手统计接口，支持按工厂、持有人、工序维度汇总。"""
         args = bundle_in_hand_stats_parser.parse_args()
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(
+        current_user, current_factory_id, error_response_obj = resolve_read_factory_context(
             query_factory_id=args.get("factory_id"),
             allow_internal_without_factory=True,
         )
@@ -289,7 +319,7 @@ class BundleList(Resource):
     def get(self):
         """分页查询菲列表接口，平台内部用户可跨工厂读取，外部用户按当前工厂读取。"""
         args = bundle_query_parser.parse_args()
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(
+        current_user, current_factory_id, error_response_obj = resolve_read_factory_context(
             query_factory_id=args.get("factory_id"),
             allow_internal_without_factory=True,
         )
@@ -297,15 +327,7 @@ class BundleList(Resource):
             return error_response_obj
 
         result = BundleService.get_bundle_list(current_user, current_factory_id, args)
-        return ApiResponse.success(
-            {
-                "items": bundles_schema.dump(result["items"]),
-                "total": result["total"],
-                "page": result["page"],
-                "page_size": result["page_size"],
-                "pages": result["pages"],
-            }
-        )
+        return ApiResponse.success_page_result(result, bundles_schema.dump(result["items"]))
 
 
 @bundle_ns.route("/<int:bundle_id>")
@@ -318,19 +340,9 @@ class BundleDetail(Resource):
     @bundle_ns.response(404, "菲不存在", error_response)
     def get(self, bundle_id):
         """查询菲详情接口，返回菲基础信息、流转记录和打印快照。"""
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(
-            allow_internal_without_factory=True,
-        )
-        if error_response_obj:
-            return error_response_obj
-
-        bundle = BundleService.get_bundle_by_id(bundle_id)
-        if not bundle:
-            return ApiResponse.error("菲不存在", 404)
-
-        has_permission, error = BundleService.check_permission(current_user, current_factory_id, bundle)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        _, _, bundle, error_response_data = get_accessible_bundle_or_error(bundle_id)
+        if error_response_data:
+            return error_response_data
 
         return ApiResponse.success(bundle_schema.dump(bundle))
 
@@ -347,13 +359,9 @@ class BundleIssue(Resource):
     @bundle_ns.response(404, "菲不存在", error_response)
     def post(self, bundle_id):
         """菲领货接口，把整张菲挂到指定工序和持有人名下。"""
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
-        if error_response_obj:
-            return error_response_obj
-
-        bundle = BundleService.get_bundle_by_id(bundle_id)
-        if not bundle or bundle.factory_id != current_factory_id:
-            return ApiResponse.error("菲不存在", 404)
+        current_user, _, bundle, error_response_data = get_writable_bundle_or_error(bundle_id)
+        if error_response_data:
+            return error_response_data
 
         try:
             data = bundle_issue_schema.load(request.get_json() or {})
@@ -385,13 +393,9 @@ class BundleReturn(Resource):
     @bundle_ns.response(404, "菲不存在", error_response)
     def post(self, bundle_id):
         """菲交货接口，支持分次交回，全部交回后自动清空当前持有人和工序。"""
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
-        if error_response_obj:
-            return error_response_obj
-
-        bundle = BundleService.get_bundle_by_id(bundle_id)
-        if not bundle or bundle.factory_id != current_factory_id:
-            return ApiResponse.error("菲不存在", 404)
+        current_user, _, bundle, error_response_data = get_writable_bundle_or_error(bundle_id)
+        if error_response_data:
+            return error_response_data
 
         try:
             data = bundle_return_schema.load(request.get_json() or {})
@@ -422,13 +426,9 @@ class BundleTransfer(Resource):
     @bundle_ns.response(404, "菲不存在", error_response)
     def post(self, bundle_id):
         """菲转交接口，把当前在手菲转给新的接收人，并同步更新所属工序。"""
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
-        if error_response_obj:
-            return error_response_obj
-
-        bundle = BundleService.get_bundle_by_id(bundle_id)
-        if not bundle or bundle.factory_id != current_factory_id:
-            return ApiResponse.error("菲不存在", 404)
+        current_user, _, bundle, error_response_data = get_writable_bundle_or_error(bundle_id)
+        if error_response_data:
+            return error_response_data
 
         try:
             data = bundle_transfer_schema.load(request.get_json() or {})
@@ -460,13 +460,9 @@ class BundleComplete(Resource):
     @bundle_ns.response(404, "菲不存在", error_response)
     def post(self, bundle_id):
         """菲完工确认接口，要求当前菲已全部交回后才能确认完工。"""
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
-        if error_response_obj:
-            return error_response_obj
-
-        bundle = BundleService.get_bundle_by_id(bundle_id)
-        if not bundle or bundle.factory_id != current_factory_id:
-            return ApiResponse.error("菲不存在", 404)
+        current_user, _, bundle, error_response_data = get_writable_bundle_or_error(bundle_id)
+        if error_response_data:
+            return error_response_data
 
         try:
             data = bundle_complete_schema.load(request.get_json() or {})
@@ -494,19 +490,9 @@ class BundlePrintPreview(Resource):
     @bundle_ns.response(404, "菲不存在", error_response)
     def get(self, bundle_id):
         """查询菲打印预览接口，返回完整打印文本和按行拆分结果。"""
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(
-            allow_internal_without_factory=True,
-        )
-        if error_response_obj:
-            return error_response_obj
-
-        bundle = BundleService.get_bundle_by_id(bundle_id)
-        if not bundle:
-            return ApiResponse.error("菲不存在", 404)
-
-        has_permission, error = BundleService.check_permission(current_user, current_factory_id, bundle)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        _, _, bundle, error_response_data = get_accessible_bundle_or_error(bundle_id)
+        if error_response_data:
+            return error_response_data
 
         return ApiResponse.success(BundleService.build_print_preview(bundle))
 
@@ -523,13 +509,9 @@ class BundlePrint(Resource):
     @bundle_ns.response(404, "菲不存在", error_response)
     def post(self, bundle_id):
         """菲打印登记接口，更新最近打印时间、打印次数并写入打印流转记录。"""
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
-        if error_response_obj:
-            return error_response_obj
-
-        bundle = BundleService.get_bundle_by_id(bundle_id)
-        if not bundle or bundle.factory_id != current_factory_id:
-            return ApiResponse.error("菲不存在", 404)
+        current_user, _, bundle, error_response_data = get_writable_bundle_or_error(bundle_id)
+        if error_response_data:
+            return error_response_data
 
         try:
             data = bundle_print_schema.load(request.get_json() or {})

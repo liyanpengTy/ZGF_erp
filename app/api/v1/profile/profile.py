@@ -4,7 +4,7 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_user
+from app.api.common.auth import require_current_user
 from app.api.common.models import get_common_models
 from app.models.system.reward_record import RewardRecord
 from app.schemas.auth.user import UserSchema, UserUpdateSchema
@@ -123,16 +123,47 @@ profile_update_schema = UserUpdateSchema()
 password_change_schema = PasswordChangeSchema()
 
 
+def build_invite_info_payload(user, invited_users):
+    """构造邀请信息接口的返回数据。"""
+    return {
+        'invite_code': user.invite_code,
+        'invited_count': user.invited_count,
+        'invited_users': [
+            {
+                'id': invited_user.id,
+                'username': invited_user.username,
+                'nickname': invited_user.nickname,
+                'create_time': invited_user.create_time.isoformat() if invited_user.create_time else None
+            }
+            for invited_user in invited_users
+        ]
+    }
+
+
+def build_invite_reward_payload(user, pending_count, need_count=5):
+    """构造邀请奖励进度接口的返回数据。"""
+    current_count = user.invited_count
+    progress = min(100, int(current_count / need_count * 100))
+    return {
+        'need_count': need_count,
+        'current_count': current_count,
+        'progress': progress,
+        'pending_rewards': pending_count,
+        'reward_received': False,
+        'reward_type': None
+    }
+
+
 @profile_ns.route('/info')
 class ProfileInfo(Resource):
     @login_required
     @profile_ns.response(200, '成功', user_info_response)
     @profile_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """获取个人信息。"""
-        user = get_current_user()
-        if not user:
-            return ApiResponse.error('用户不存在')
+        """查询个人中心基础信息接口，返回当前账号资料与身份字段。"""
+        user, error_response_data = require_current_user()
+        if error_response_data:
+            return error_response_data
         return ApiResponse.success(user_schema.dump(user))
 
     @login_required
@@ -141,10 +172,10 @@ class ProfileInfo(Resource):
     @profile_ns.response(400, '参数错误', error_response)
     @profile_ns.response(401, '未登录', unauthorized_response)
     def patch(self):
-        """更新个人信息。"""
-        user = get_current_user()
-        if not user:
-            return ApiResponse.error('用户不存在')
+        """更新个人中心基础信息接口，可修改昵称、手机号和头像地址。"""
+        user, error_response_data = require_current_user()
+        if error_response_data:
+            return error_response_data
 
         try:
             data = profile_update_schema.load(request.get_json() or {})
@@ -163,10 +194,10 @@ class ChangePassword(Resource):
     @profile_ns.response(400, '参数错误', error_response)
     @profile_ns.response(401, '未登录', unauthorized_response)
     def post(self):
-        """修改当前用户密码。"""
-        user = get_current_user()
-        if not user:
-            return ApiResponse.error('用户不存在')
+        """修改当前账号密码接口，要求校验旧密码和确认密码。"""
+        user, error_response_data = require_current_user()
+        if error_response_data:
+            return error_response_data
 
         try:
             data = password_change_schema.load(request.get_json() or {})
@@ -191,10 +222,10 @@ class UploadAvatar(Resource):
     @profile_ns.response(400, '上传失败', error_response)
     @profile_ns.response(401, '未登录', unauthorized_response)
     def post(self):
-        """上传当前用户头像。"""
-        user = get_current_user()
-        if not user:
-            return ApiResponse.error('用户不存在')
+        """上传当前账号头像接口，返回头像相对路径和访问地址。"""
+        user, error_response_data = require_current_user()
+        if error_response_data:
+            return error_response_data
 
         if 'file' not in request.files:
             return ApiResponse.error('请选择文件')
@@ -212,10 +243,10 @@ class ProfileStats(Resource):
     @profile_ns.response(200, '成功', profile_stats_response)
     @profile_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """获取个人统计信息。"""
-        user = get_current_user()
-        if not user:
-            return ApiResponse.error('用户不存在')
+        """查询个人统计信息接口，汇总当前账号操作次数与登录情况。"""
+        user, error_response_data = require_current_user()
+        if error_response_data:
+            return error_response_data
 
         stats = ProfileService.get_user_stats(user.id)
         return ApiResponse.success(stats)
@@ -227,27 +258,15 @@ class InviteInfo(Resource):
     @profile_ns.response(200, '成功', invite_info_response)
     @profile_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """获取用户邀请信息。"""
+        """查询邀请信息接口，返回邀请码、邀请人数和邀请用户列表。"""
         from app.models.auth.user import User
 
-        user = get_current_user()
-        if not user:
-            return ApiResponse.error('用户不存在')
+        user, error_response_data = require_current_user()
+        if error_response_data:
+            return error_response_data
 
         invited_users = User.query.filter_by(invited_by=user.id, is_deleted=0).order_by(User.id.desc()).all()
-        return ApiResponse.success({
-            'invite_code': user.invite_code,
-            'invited_count': user.invited_count,
-            'invited_users': [
-                {
-                    'id': invited_user.id,
-                    'username': invited_user.username,
-                    'nickname': invited_user.nickname,
-                    'create_time': invited_user.create_time.isoformat() if invited_user.create_time else None
-                }
-                for invited_user in invited_users
-            ]
-        })
+        return ApiResponse.success(build_invite_info_payload(user, invited_users))
 
 
 @profile_ns.route('/invite-reward')
@@ -256,10 +275,10 @@ class InviteReward(Resource):
     @profile_ns.response(200, '成功', invite_reward_response)
     @profile_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """获取邀请奖励进度。"""
-        user = get_current_user()
-        if not user:
-            return ApiResponse.error('用户不存在')
+        """查询邀请奖励进度接口，返回当前邀请进度和待发放奖励数。"""
+        user, error_response_data = require_current_user()
+        if error_response_data:
+            return error_response_data
 
         pending_count = RewardRecord.query.filter_by(
             user_id=user.id,
@@ -267,15 +286,4 @@ class InviteReward(Resource):
             is_deleted=0
         ).count()
 
-        need_count = 5
-        current_count = user.invited_count
-        progress = min(100, int(current_count / need_count * 100))
-
-        return ApiResponse.success({
-            'need_count': need_count,
-            'current_count': current_count,
-            'progress': progress,
-            'pending_rewards': pending_count,
-            'reward_received': False,
-            'reward_type': None
-        })
+        return ApiResponse.success(build_invite_reward_payload(user, pending_count))

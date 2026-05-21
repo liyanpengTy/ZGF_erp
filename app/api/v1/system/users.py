@@ -7,7 +7,7 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_claims, get_current_factory_id, get_current_user
+from app.api.common.auth import get_current_claims, get_current_factory_id, require_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
 from app.extensions import bcrypt
@@ -192,6 +192,19 @@ user_reset_password_schema = UserResetPasswordSchema()
 role_schema = RoleSchema(many=True)
 
 
+def get_required_current_user():
+    """获取当前登录用户，不存在时返回统一错误响应。"""
+    return require_current_user()
+
+
+def get_target_user_or_error(user_id):
+    """根据用户 ID 查询目标用户，不存在时返回统一错误响应。"""
+    target_user = UserService.get_user_by_id(user_id)
+    if not target_user:
+        return None, ApiResponse.error('用户不存在')
+    return target_user, None
+
+
 def get_active_factory_ids(user):
     """查询用户当前有效挂靠的工厂 ID 列表。"""
     if not user:
@@ -262,17 +275,19 @@ class UserList(Resource):
     @user_ns.expect(user_query_parser)
     @user_ns.response(200, '成功', user_list_response)
     @user_ns.response(401, '未登录', unauthorized_response)
+    @user_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """按权限范围分页查询用户列表，返回工厂挂靠关系和角色绑定信息。"""
         args = user_query_parser.parse_args()
-        current_user = get_current_user()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        current_user, error_response_data = get_required_current_user()
+        if error_response_data:
+            return error_response_data
 
         if not current_user.is_internal_user and not args.get('factory_id'):
             args['factory_id'] = get_current_factory_id()
 
-        return ApiResponse.success(UserService.get_user_list(current_user, args))
+        result = UserService.get_user_list(current_user, args)
+        return ApiResponse.success_page_result(result, result['items'])
 
     @login_required
     @user_ns.expect(user_create_model)
@@ -282,9 +297,9 @@ class UserList(Resource):
     @user_ns.response(409, '用户名已存在', error_response)
     def post(self):
         """创建用户账号；必要时同时挂靠到工厂，并返回完整用户视图。"""
-        current_user = get_current_user()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        current_user, error_response_data = get_required_current_user()
+        if error_response_data:
+            return error_response_data
 
         try:
             data = user_create_schema.load(request.get_json() or {})
@@ -347,33 +362,35 @@ class UserOptions(Resource):
     @user_ns.expect(user_option_query_parser)
     @user_ns.response(200, '成功', user_options_response)
     @user_ns.response(401, '未登录', unauthorized_response)
+    @user_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """查询轻量用户选项列表，供客户、员工、协作用户等选择器直接使用。"""
-        current_user = get_current_user()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        current_user, error_response_data = get_required_current_user()
+        if error_response_data:
+            return error_response_data
 
         args = user_option_query_parser.parse_args()
         if not current_user.is_internal_user and not args.get('factory_id'):
             args['factory_id'] = get_current_factory_id()
 
-        return ApiResponse.success(UserService.get_user_options(current_user, args))
+        return ApiResponse.success_list(UserService.get_user_options(current_user, args))
 
 
 @user_ns.route('/<int:user_id>')
 class UserDetail(Resource):
     @login_required
     @user_ns.response(200, '成功', user_item_response)
+    @user_ns.response(403, '无权限', forbidden_response)
     @user_ns.response(404, '用户不存在', error_response)
     def get(self, user_id):
         """查看单个用户详情，返回工厂挂靠关系和角色绑定信息。"""
-        current_user = get_current_user()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        current_user, error_response_data = get_required_current_user()
+        if error_response_data:
+            return error_response_data
 
-        target_user = UserService.get_user_by_id(user_id)
-        if not target_user:
-            return ApiResponse.error('用户不存在')
+        target_user, error_response_data = get_target_user_or_error(user_id)
+        if error_response_data:
+            return error_response_data
 
         has_permission, error = check_user_permission(current_user, target_user)
         if not has_permission:
@@ -383,16 +400,17 @@ class UserDetail(Resource):
     @login_required
     @user_ns.expect(user_update_model)
     @user_ns.response(200, '更新成功', user_item_response)
+    @user_ns.response(403, '无权限', forbidden_response)
     @user_ns.response(404, '用户不存在', error_response)
     def patch(self, user_id):
         """更新用户昵称、手机号和状态，并返回完整用户视图。"""
-        current_user = get_current_user()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        current_user, error_response_data = get_required_current_user()
+        if error_response_data:
+            return error_response_data
 
-        target_user = UserService.get_user_by_id(user_id)
-        if not target_user:
-            return ApiResponse.error('用户不存在')
+        target_user, error_response_data = get_target_user_or_error(user_id)
+        if error_response_data:
+            return error_response_data
 
         has_permission, error = check_user_write_permission(current_user, target_user)
         if not has_permission:
@@ -412,13 +430,13 @@ class UserDetail(Resource):
     @user_ns.response(403, '不能删除自己', forbidden_response)
     def delete(self, user_id):
         """删除用户；当前登录用户不允许删除自己。"""
-        current_user = get_current_user()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        current_user, error_response_data = get_required_current_user()
+        if error_response_data:
+            return error_response_data
 
-        target_user = UserService.get_user_by_id(user_id)
-        if not target_user:
-            return ApiResponse.error('用户不存在')
+        target_user, error_response_data = get_target_user_or_error(user_id)
+        if error_response_data:
+            return error_response_data
 
         has_permission, error = check_user_write_permission(current_user, target_user)
         if not has_permission:
@@ -435,16 +453,17 @@ class UserResetPassword(Resource):
     @login_required
     @user_ns.expect(user_reset_password_model)
     @user_ns.response(200, '重置成功', base_response)
+    @user_ns.response(403, '无权限', forbidden_response)
     @user_ns.response(404, '用户不存在', error_response)
     def post(self, user_id):
-        """重置指定用户密码。"""
-        current_user = get_current_user()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        """重置指定用户密码接口。"""
+        current_user, error_response_data = get_required_current_user()
+        if error_response_data:
+            return error_response_data
 
-        target_user = UserService.get_user_by_id(user_id)
-        if not target_user:
-            return ApiResponse.error('用户不存在')
+        target_user, error_response_data = get_target_user_or_error(user_id)
+        if error_response_data:
+            return error_response_data
 
         has_permission, error = check_user_write_permission(current_user, target_user)
         if not has_permission:
@@ -463,12 +482,13 @@ class UserResetPassword(Resource):
 class UserRoles(Resource):
     @login_required
     @user_ns.response(200, '成功', base_response)
+    @user_ns.response(403, '无权限', forbidden_response)
     @user_ns.response(404, '用户不存在', error_response)
     def get(self, user_id):
-        """查询用户在当前工厂上下文中的角色集合。"""
-        user = UserService.get_user_by_id(user_id)
-        if not user:
-            return ApiResponse.error('用户不存在')
+        """查询用户角色集合接口，返回当前工厂上下文下的角色列表。"""
+        user, error_response_data = get_target_user_or_error(user_id)
+        if error_response_data:
+            return error_response_data
 
         claims = get_current_claims()
         factory_id = claims.get('factory_id')
@@ -478,7 +498,7 @@ class UserRoles(Resource):
             return ApiResponse.error('请指定工厂', 400)
 
         roles = UserService.get_user_roles(user_id, factory_id)
-        return ApiResponse.success(role_schema.dump(roles))
+        return ApiResponse.success_list(role_schema.dump(roles))
 
     @login_required
     @user_ns.expect(user_assign_roles_model)
@@ -487,13 +507,13 @@ class UserRoles(Resource):
     @user_ns.response(404, '用户不存在', error_response)
     def post(self, user_id):
         """给用户重新分配角色，会替换当前上下文下的旧角色。"""
-        current_user = get_current_user()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        current_user, error_response_data = get_required_current_user()
+        if error_response_data:
+            return error_response_data
 
-        target_user = UserService.get_user_by_id(user_id)
-        if not target_user:
-            return ApiResponse.error('用户不存在', 404)
+        target_user, error_response_data = get_target_user_or_error(user_id)
+        if error_response_data:
+            return error_response_data
 
         data = request.get_json() or {}
         role_ids = data.get('role_ids', [])
@@ -524,11 +544,12 @@ class UserPermissions(Resource):
     @login_required
     @user_ns.response(200, '成功', permission_summary_response)
     @user_ns.response(401, '未登录', unauthorized_response)
+    @user_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """返回当前账号绑定角色的权限并集，以及当前上下文权限。"""
-        current_user = get_current_user()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        current_user, error_response_data = get_required_current_user()
+        if error_response_data:
+            return error_response_data
 
         return ApiResponse.success(UserService.get_permission_summary(current_user.id))
 

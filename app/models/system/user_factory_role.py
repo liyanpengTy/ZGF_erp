@@ -1,3 +1,5 @@
+"""用户角色分配模型。"""
+
 from datetime import datetime
 
 from app.extensions import db

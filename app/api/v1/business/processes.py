@@ -4,8 +4,8 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_user
-from app.api.common.factory_context import resolve_factory_context as resolve_business_factory_context
+from app.api.common.auth import require_current_user
+from app.api.common.factory_context import resolve_read_factory_context, resolve_write_factory_context
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
 from app.constants.permissions import (
@@ -115,6 +115,29 @@ process_update_schema = ProcessUpdateSchema()
 style_process_mapping_schema = StyleProcessMappingSchema()
 
 
+def get_required_process_user():
+    """获取工序接口当前用户，不存在时返回统一错误响应。"""
+    return require_current_user()
+
+
+def get_process_or_error(process_id):
+    """根据工序 ID 查询工序，不存在时返回统一错误响应。"""
+    process = ProcessService.get_process_by_id(process_id)
+    if not process:
+        return None, ApiResponse.error('工序不存在')
+    return process, None
+
+
+def serialize_process_option(process):
+    """序列化工序下拉选项。"""
+    return {
+        'id': process.id,
+        'name': process.name,
+        'code': process.code,
+        'status': process.status,
+    }
+
+
 def check_process_admin_permission(current_user):
     """校验工序主数据维护权限，仅允许平台管理员维护。"""
     if not current_user:
@@ -124,6 +147,23 @@ def check_process_admin_permission(current_user):
     return True, None
 
 
+def get_accessible_style_for_process_or_error(style_id, require_write=False):
+    """获取当前上下文下可访问的款号工序映射目标。"""
+    if require_write:
+        current_user, current_factory_id, error_response_data = resolve_write_factory_context()
+    else:
+        current_user, current_factory_id, error_response_data = resolve_read_factory_context(
+            allow_internal_without_factory=True,
+        )
+    if error_response_data:
+        return None, None, error_response_data
+
+    _, error = ProcessService.check_style_permission(current_user, current_factory_id, style_id)
+    if error:
+        return None, None, ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
+    return current_user, current_factory_id, None
+
+
 @process_ns.route('')
 class ProcessList(Resource):
     @login_required
@@ -131,19 +171,15 @@ class ProcessList(Resource):
     @process_ns.expect(process_query_parser)
     @process_ns.response(200, '成功', process_list_response)
     @process_ns.response(401, '未登录', unauthorized_response)
+    @process_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """查询工序分页列表。"""
-        if not get_current_user():
-            return ApiResponse.error('用户不存在')
+        """查询工序分页列表接口，支持按名称和状态筛选系统工序。"""
+        _, error_response_data = get_required_process_user()
+        if error_response_data:
+            return error_response_data
         args = process_query_parser.parse_args()
         result = ProcessService.get_process_list(args)
-        return ApiResponse.success({
-            'items': processes_schema.dump(result['items']),
-            'total': result['total'],
-            'page': result['page'],
-            'page_size': result['page_size'],
-            'pages': result['pages'],
-        })
+        return ApiResponse.success_page_result(result, processes_schema.dump(result['items']))
 
     @login_required
     @button_permission(PERM_BUSINESS_PROCESS_ADD)
@@ -154,8 +190,10 @@ class ProcessList(Resource):
     @process_ns.response(403, '无权限', forbidden_response)
     @process_ns.response(409, '工序已存在', error_response)
     def post(self):
-        """创建工序。"""
-        current_user = get_current_user()
+        """创建工序接口，用于新增平台级工序主数据。"""
+        current_user, error_response_data = get_required_process_user()
+        if error_response_data:
+            return error_response_data
         has_permission, error = check_process_admin_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
@@ -178,21 +216,15 @@ class ProcessOptions(Resource):
     @process_ns.expect(process_option_query_parser)
     @process_ns.response(200, '成功', process_options_response)
     @process_ns.response(401, '未登录', unauthorized_response)
+    @process_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """查询工序下拉选项列表，供工序选择器直接使用。"""
-        if not get_current_user():
-            return ApiResponse.error('用户不存在')
+        _, error_response_data = get_required_process_user()
+        if error_response_data:
+            return error_response_data
 
         processes = ProcessService.get_process_options(process_option_query_parser.parse_args())
-        return ApiResponse.success([
-            {
-                'id': process.id,
-                'name': process.name,
-                'code': process.code,
-                'status': process.status,
-            }
-            for process in processes
-        ])
+        return ApiResponse.success_list([serialize_process_option(process) for process in processes])
 
 
 @process_ns.route('/<int:process_id>')
@@ -201,14 +233,16 @@ class ProcessDetail(Resource):
     @button_permission(PERM_BUSINESS_PROCESS_QUERY)
     @process_ns.response(200, '成功', process_item_response)
     @process_ns.response(401, '未登录', unauthorized_response)
+    @process_ns.response(403, '无权限', forbidden_response)
     @process_ns.response(404, '工序不存在', error_response)
     def get(self, process_id):
-        """查询工序详情。"""
-        if not get_current_user():
-            return ApiResponse.error('用户不存在')
-        process = ProcessService.get_process_by_id(process_id)
-        if not process:
-            return ApiResponse.error('工序不存在')
+        """查询工序详情接口，返回单个工序的完整配置。"""
+        _, error_response_data = get_required_process_user()
+        if error_response_data:
+            return error_response_data
+        process, error_response_data = get_process_or_error(process_id)
+        if error_response_data:
+            return error_response_data
         return ApiResponse.success(process_schema.dump(process))
 
     @login_required
@@ -220,15 +254,17 @@ class ProcessDetail(Resource):
     @process_ns.response(403, '无权限', forbidden_response)
     @process_ns.response(404, '工序不存在', error_response)
     def patch(self, process_id):
-        """更新工序。"""
-        current_user = get_current_user()
+        """更新工序接口，可修改工序名称、编码、描述和状态。"""
+        current_user, error_response_data = get_required_process_user()
+        if error_response_data:
+            return error_response_data
         has_permission, error = check_process_admin_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
 
-        process = ProcessService.get_process_by_id(process_id)
-        if not process:
-            return ApiResponse.error('工序不存在')
+        process, error_response_data = get_process_or_error(process_id)
+        if error_response_data:
+            return error_response_data
 
         try:
             data = process_update_schema.load(request.get_json() or {})
@@ -248,15 +284,17 @@ class ProcessDetail(Resource):
     @process_ns.response(404, '工序不存在', error_response)
     @process_ns.response(409, '工序已被引用', error_response)
     def delete(self, process_id):
-        """删除工序。"""
-        current_user = get_current_user()
+        """删除工序接口，已被业务引用的工序不允许删除。"""
+        current_user, error_response_data = get_required_process_user()
+        if error_response_data:
+            return error_response_data
         has_permission, error = check_process_admin_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
 
-        process = ProcessService.get_process_by_id(process_id)
-        if not process:
-            return ApiResponse.error('工序不存在')
+        process, error_response_data = get_process_or_error(process_id)
+        if error_response_data:
+            return error_response_data
 
         success, service_error = ProcessService.delete_process(process)
         if not success:
@@ -270,12 +308,14 @@ class EnabledProcesses(Resource):
     @button_permission(PERM_BUSINESS_PROCESS_QUERY)
     @process_ns.response(200, '成功', base_response)
     @process_ns.response(401, '未登录', unauthorized_response)
+    @process_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """查询启用中的工序列表。"""
-        if not get_current_user():
-            return ApiResponse.error('用户不存在')
+        """查询启用工序列表接口，返回当前可选的工序主数据。"""
+        _, error_response_data = get_required_process_user()
+        if error_response_data:
+            return error_response_data
         processes = ProcessService.get_all_enabled_processes()
-        return ApiResponse.success(processes_schema.dump(processes))
+        return ApiResponse.success_list(processes_schema.dump(processes))
 
 
 @process_ns.route('/styles/<int:style_id>/processes')
@@ -287,18 +327,10 @@ class StyleProcesses(Resource):
     @process_ns.response(403, '无权限', forbidden_response)
     @process_ns.response(404, '款号不存在', error_response)
     def get(self, style_id):
-        """查询款号工序映射列表。"""
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(
-            allow_internal_without_factory=True,
-        )
-        if error_response_obj:
-            return error_response_obj
-        if not current_user:
-            return ApiResponse.error('用户不存在')
-
-        _, error = ProcessService.check_style_permission(current_user, current_factory_id, style_id)
-        if error:
-            return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
+        """查询款号工序映射列表接口，返回款号当前绑定的工序顺序。"""
+        _, _, error_response_data = get_accessible_style_for_process_or_error(style_id)
+        if error_response_data:
+            return error_response_data
 
         mappings = ProcessService.get_style_processes(style_id)
         return ApiResponse.success(style_process_mapping_schema.dump(mappings, many=True))
@@ -311,16 +343,10 @@ class StyleProcesses(Resource):
     @process_ns.response(403, '无权限', forbidden_response)
     @process_ns.response(404, '款号不存在', error_response)
     def post(self, style_id):
-        """批量保存款号工序映射。"""
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
-        if error_response_obj:
-            return error_response_obj
-        if not current_user:
-            return ApiResponse.error('用户不存在')
-
-        _, error = ProcessService.check_style_permission(current_user, current_factory_id, style_id)
-        if error:
-            return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
+        """批量保存款号工序映射接口，用于整体重建款号工序顺序。"""
+        _, _, error_response_data = get_accessible_style_for_process_or_error(style_id, require_write=True)
+        if error_response_data:
+            return error_response_data
 
         data = request.get_json() or {}
         mappings = ProcessService.batch_save_style_processes(style_id, data.get('mappings', []))
@@ -336,16 +362,10 @@ class StyleProcessDetail(Resource):
     @process_ns.response(403, '无权限', forbidden_response)
     @process_ns.response(404, '映射不存在', error_response)
     def delete(self, style_id, mapping_id):
-        """删除款号工序映射。"""
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
-        if error_response_obj:
-            return error_response_obj
-        if not current_user:
-            return ApiResponse.error('用户不存在')
-
-        _, error = ProcessService.check_style_permission(current_user, current_factory_id, style_id)
-        if error:
-            return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
+        """删除款号工序映射接口，用于移除单条款号工序关联。"""
+        _, _, error_response_data = get_accessible_style_for_process_or_error(style_id, require_write=True)
+        if error_response_data:
+            return error_response_data
 
         mapping = ProcessService.get_style_process_mapping_by_id(mapping_id)
         if not mapping or mapping.style_id != style_id:

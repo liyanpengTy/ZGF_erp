@@ -4,8 +4,7 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_user
-from app.api.common.factory_context import resolve_factory_context as resolve_business_factory_context
+from app.api.common.factory_context import resolve_read_factory_context, resolve_write_factory_context
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
 from app.constants.permissions import (
@@ -131,6 +130,66 @@ style_elastic_create_schema = StyleElasticCreateSchema()
 style_elastic_update_schema = StyleElasticUpdateSchema()
 
 
+def build_style_elastic_access_error(error):
+    """根据款号橡筋访问错误内容推导响应状态码。"""
+    return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
+
+
+def serialize_style_elastic(elastic):
+    """序列化款号橡筋记录并补充尺码名称。"""
+    result = style_elastic_schema.dump(elastic)
+    result['size_name'] = StyleElasticService.get_size_name(elastic.size_id)
+    return result
+
+
+def get_accessible_style_for_elastic_or_error(style_id, require_write=False):
+    """查询当前上下文可访问的款号，用于橡筋记录读写前校验。"""
+    if require_write:
+        current_user, current_factory_id, error_response_obj = resolve_write_factory_context()
+    else:
+        current_user, current_factory_id, error_response_obj = resolve_read_factory_context(
+            allow_internal_without_factory=True,
+        )
+    if error_response_obj:
+        return None, None, None, error_response_obj
+
+    style, error = StyleElasticService.check_style_permission(current_user, current_factory_id, style_id)
+    if error:
+        return None, None, None, build_style_elastic_access_error(error)
+    return current_user, current_factory_id, style, None
+
+
+def get_accessible_elastic_or_error(elastic_id, require_write=False):
+    """查询当前上下文可访问的橡筋记录。"""
+    if require_write:
+        current_user, current_factory_id, error_response_obj = resolve_write_factory_context()
+    else:
+        current_user, current_factory_id, error_response_obj = resolve_read_factory_context(
+            allow_internal_without_factory=True,
+        )
+    if error_response_obj:
+        return None, None, None, error_response_obj
+
+    elastic = StyleElasticService.get_elastic_by_id(elastic_id)
+    if not elastic:
+        return None, None, None, ApiResponse.error('橡筋记录不存在', 404)
+
+    has_permission, error = StyleElasticService.check_elastic_permission(current_user, current_factory_id, elastic)
+    if not has_permission:
+        return None, None, None, ApiResponse.error(error, 403)
+    return current_user, current_factory_id, elastic, None
+
+
+def validate_elastic_size_or_error(size_id):
+    """校验尺码是否存在，不存在时返回统一错误响应。"""
+    if not size_id:
+        return None
+    _, error = StyleElasticService.validate_size(size_id)
+    if error:
+        return ApiResponse.error(error, 400)
+    return None
+
+
 @style_elastic_ns.route('')
 class StyleElasticList(Resource):
     @login_required
@@ -138,18 +197,13 @@ class StyleElasticList(Resource):
     @style_elastic_ns.expect(style_elastic_query_parser)
     @style_elastic_ns.response(200, '查询成功', style_elastic_list_response)
     @style_elastic_ns.response(401, '未登录', unauthorized_response)
+    @style_elastic_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """查询款号橡筋分页列表接口。平台内部用户可不切工厂直接按款号查询。"""
         args = style_elastic_query_parser.parse_args()
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(
-            allow_internal_without_factory=True,
-        )
-        if error_response_obj:
-            return error_response_obj
-
-        style, error = StyleElasticService.check_style_permission(current_user, current_factory_id, args['style_id'])
-        if error:
-            return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
+        _, _, style, error_response_data = get_accessible_style_for_elastic_or_error(args['style_id'])
+        if error_response_data:
+            return error_response_data
 
         if args.get('grouped', 0) == 1:
             return ApiResponse.success(StyleElasticService.get_elastic_grouped(style.id))
@@ -159,19 +213,7 @@ class StyleElasticList(Resource):
             'page_size': args['page_size'],
             'size_id': args.get('size_id'),
         })
-        items = []
-        for elastic in result['items']:
-            item = style_elastic_schema.dump(elastic)
-            item['size_name'] = StyleElasticService.get_size_name(elastic.size_id)
-            items.append(item)
-
-        return ApiResponse.success({
-            'items': items,
-            'total': result['total'],
-            'page': result['page'],
-            'page_size': result['page_size'],
-            'pages': result['pages'],
-        })
+        return ApiResponse.success_page_result(result, [serialize_style_elastic(elastic) for elastic in result['items']])
 
     @login_required
     @button_permission(PERM_BUSINESS_STYLE_ELASTIC_ADD)
@@ -183,30 +225,21 @@ class StyleElasticList(Resource):
     @style_elastic_ns.response(404, '款号不存在', error_response)
     def post(self):
         """创建款号橡筋记录接口。写操作仍要求当前工厂上下文。"""
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
-        if error_response_obj:
-            return error_response_obj
-        if not current_user:
-            return ApiResponse.error('用户不存在')
-
         try:
             data = style_elastic_create_schema.load(request.get_json() or {})
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
 
-        _, error = StyleElasticService.check_style_permission(current_user, current_factory_id, data['style_id'])
-        if error:
-            return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
+        _, _, _, error_response_data = get_accessible_style_for_elastic_or_error(data['style_id'], require_write=True)
+        if error_response_data:
+            return error_response_data
 
-        if data.get('size_id'):
-            _, error = StyleElasticService.validate_size(data['size_id'])
-            if error:
-                return ApiResponse.error(error, 400)
+        size_error_response = validate_elastic_size_or_error(data.get('size_id'))
+        if size_error_response:
+            return size_error_response
 
         elastic = StyleElasticService.create_elastic(data)
-        result = style_elastic_schema.dump(elastic)
-        result['size_name'] = StyleElasticService.get_size_name(elastic.size_id)
-        return ApiResponse.success(result, '创建成功', 201)
+        return ApiResponse.success(serialize_style_elastic(elastic), '创建成功', 201)
 
 
 @style_elastic_ns.route('/batch')
@@ -221,21 +254,15 @@ class StyleElasticBatch(Resource):
     @style_elastic_ns.response(404, '款号不存在', error_response)
     def post(self):
         """批量保存款号橡筋配置接口。写操作仍要求当前工厂上下文。"""
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
-        if error_response_obj:
-            return error_response_obj
-        if not current_user:
-            return ApiResponse.error('用户不存在')
-
         data = request.get_json() or {}
         style_id = data.get('style_id')
         items = data.get('items', [])
         if not style_id:
             return ApiResponse.error('请指定款号 ID', 400)
 
-        _, error = StyleElasticService.check_style_permission(current_user, current_factory_id, style_id)
-        if error:
-            return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
+        _, _, _, error_response_data = get_accessible_style_for_elastic_or_error(style_id, require_write=True)
+        if error_response_data:
+            return error_response_data
 
         StyleElasticService.delete_by_style(style_id)
         if items:
@@ -253,22 +280,10 @@ class StyleElasticDetail(Resource):
     @style_elastic_ns.response(404, '橡筋记录不存在', error_response)
     def get(self, elastic_id):
         """查询款号橡筋详情接口。平台内部用户可跨工厂查看。"""
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(
-            allow_internal_without_factory=True,
-        )
-        if error_response_obj:
-            return error_response_obj
-
-        elastic = StyleElasticService.get_elastic_by_id(elastic_id)
-        if not elastic:
-            return ApiResponse.error('橡筋记录不存在')
-        has_permission, error = StyleElasticService.check_elastic_permission(current_user, current_factory_id, elastic)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
-
-        result = style_elastic_schema.dump(elastic)
-        result['size_name'] = StyleElasticService.get_size_name(elastic.size_id)
-        return ApiResponse.success(result)
+        _, _, elastic, error_response_data = get_accessible_elastic_or_error(elastic_id)
+        if error_response_data:
+            return error_response_data
+        return ApiResponse.success(serialize_style_elastic(elastic))
 
     @login_required
     @button_permission(PERM_BUSINESS_STYLE_ELASTIC_EDIT)
@@ -280,33 +295,21 @@ class StyleElasticDetail(Resource):
     @style_elastic_ns.response(404, '橡筋记录不存在', error_response)
     def patch(self, elastic_id):
         """更新款号橡筋记录接口。写操作仍要求当前工厂上下文。"""
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
-        if error_response_obj:
-            return error_response_obj
-        if not current_user:
-            return ApiResponse.error('用户不存在')
-
-        elastic = StyleElasticService.get_elastic_by_id(elastic_id)
-        if not elastic:
-            return ApiResponse.error('橡筋记录不存在')
-        has_permission, error = StyleElasticService.check_elastic_permission(current_user, current_factory_id, elastic)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        _, _, elastic, error_response_data = get_accessible_elastic_or_error(elastic_id, require_write=True)
+        if error_response_data:
+            return error_response_data
 
         try:
             data = style_elastic_update_schema.load(request.get_json() or {})
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
 
-        if data.get('size_id'):
-            _, error = StyleElasticService.validate_size(data['size_id'])
-            if error:
-                return ApiResponse.error(error, 400)
+        size_error_response = validate_elastic_size_or_error(data.get('size_id'))
+        if size_error_response:
+            return size_error_response
 
         elastic = StyleElasticService.update_elastic(elastic, data)
-        result = style_elastic_schema.dump(elastic)
-        result['size_name'] = StyleElasticService.get_size_name(elastic.size_id)
-        return ApiResponse.success(result, '更新成功')
+        return ApiResponse.success(serialize_style_elastic(elastic), '更新成功')
 
     @login_required
     @button_permission(PERM_BUSINESS_STYLE_ELASTIC_DELETE)
@@ -316,18 +319,9 @@ class StyleElasticDetail(Resource):
     @style_elastic_ns.response(404, '橡筋记录不存在', error_response)
     def delete(self, elastic_id):
         """删除款号橡筋记录接口。写操作仍要求当前工厂上下文。"""
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
-        if error_response_obj:
-            return error_response_obj
-        if not current_user:
-            return ApiResponse.error('用户不存在')
-
-        elastic = StyleElasticService.get_elastic_by_id(elastic_id)
-        if not elastic:
-            return ApiResponse.error('橡筋记录不存在')
-        has_permission, error = StyleElasticService.check_elastic_permission(current_user, current_factory_id, elastic)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        _, _, elastic, error_response_data = get_accessible_elastic_or_error(elastic_id, require_write=True)
+        if error_response_data:
+            return error_response_data
 
         StyleElasticService.delete_elastic(elastic)
         return ApiResponse.success(message='删除成功')

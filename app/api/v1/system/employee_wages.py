@@ -4,7 +4,7 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_user
+from app.api.common.auth import require_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
 from app.schemas.system.employee_wage import EmployeeWageCreateSchema, EmployeeWageSchema, EmployeeWageUpdateSchema
@@ -118,8 +118,17 @@ wage_create_schema = EmployeeWageCreateSchema()
 wage_update_schema = EmployeeWageUpdateSchema()
 
 
+def build_wage_calculate_payload(user_id, process_id, wage_amount):
+    """构造计薪试算接口的返回数据。"""
+    return {
+        'user_id': user_id,
+        'process_id': process_id,
+        'wage_amount': wage_amount,
+    }
+
+
 def check_wage_view_permission(current_user):
-    """校验计薪查看权限，仅允许平台内部用户访问。"""
+    """校验计薪查看权限，限定为平台内部用户可访问。"""
     if not current_user:
         return False, '用户不存在'
     if not current_user.is_internal_user:
@@ -128,12 +137,25 @@ def check_wage_view_permission(current_user):
 
 
 def check_wage_write_permission(current_user):
-    """校验计薪维护权限，仅允许平台管理员维护。"""
+    """校验计薪维护权限，限定为平台管理员可维护配置。"""
     if not current_user:
         return False, '用户不存在'
     if not current_user.is_platform_admin:
         return False, '只有平台管理员可以维护计薪配置'
     return True, None
+
+
+def get_employee_wage_user_or_error():
+    """获取员工计薪接口当前用户，不存在时返回统一错误响应。"""
+    return require_current_user()
+
+
+def get_wage_or_error(wage_id):
+    """根据计薪配置 ID 查询记录，不存在时返回统一错误响应。"""
+    wage = EmployeeWageService.get_wage_by_id(wage_id)
+    if not wage:
+        return None, ApiResponse.error('计薪配置不存在', 404)
+    return wage, None
 
 
 @employee_wage_ns.route('')
@@ -145,22 +167,18 @@ class EmployeeWageList(Resource):
     @employee_wage_ns.response(401, '未登录', unauthorized_response)
     @employee_wage_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """查询员工计薪分页列表。"""
+        """查询员工计薪分页列表接口，支持按员工、工序和计薪方式筛选。"""
         args = wage_query_parser.parse_args()
-        current_user = get_current_user()
+        current_user, error_response_data = get_employee_wage_user_or_error()
+        if error_response_data:
+            return error_response_data
 
         has_permission, error = check_wage_view_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
 
         result = EmployeeWageService.get_wage_list(args)
-        return ApiResponse.success({
-            'items': wages_schema.dump(result['items']),
-            'total': result['total'],
-            'page': result['page'],
-            'page_size': result['page_size'],
-            'pages': result['pages'],
-        })
+        return ApiResponse.success_page_result(result, wages_schema.dump(result['items']))
 
     @login_required
     @permission_required('factory-management.employee-wages.create')
@@ -171,8 +189,10 @@ class EmployeeWageList(Resource):
     @employee_wage_ns.response(403, '无权限', forbidden_response)
     @employee_wage_ns.response(409, '配置已存在', error_response)
     def post(self):
-        """创建员工计薪配置。"""
-        current_user = get_current_user()
+        """创建员工计薪配置接口，用于维护员工在指定工序下的工资规则。"""
+        current_user, error_response_data = get_employee_wage_user_or_error()
+        if error_response_data:
+            return error_response_data
         has_permission, error = check_wage_write_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
@@ -198,15 +218,17 @@ class EmployeeWageDetail(Resource):
     @employee_wage_ns.response(404, '记录不存在', error_response)
     @employee_wage_ns.response(403, '无权限', forbidden_response)
     def get(self, wage_id):
-        """查询计薪配置详情。"""
-        current_user = get_current_user()
+        """查询计薪配置详情接口，返回单条工资规则完整信息。"""
+        current_user, error_response_data = get_employee_wage_user_or_error()
+        if error_response_data:
+            return error_response_data
         has_permission, error = check_wage_view_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
 
-        wage = EmployeeWageService.get_wage_by_id(wage_id)
-        if not wage:
-            return ApiResponse.error('计薪配置不存在')
+        wage, error_response_data = get_wage_or_error(wage_id)
+        if error_response_data:
+            return error_response_data
 
         return ApiResponse.success(wage_schema.dump(wage))
 
@@ -219,15 +241,17 @@ class EmployeeWageDetail(Resource):
     @employee_wage_ns.response(404, '记录不存在', error_response)
     @employee_wage_ns.response(403, '无权限', forbidden_response)
     def patch(self, wage_id):
-        """更新计薪配置。"""
-        current_user = get_current_user()
+        """更新计薪配置接口，可调整计薪方式、生效日期和备注。"""
+        current_user, error_response_data = get_employee_wage_user_or_error()
+        if error_response_data:
+            return error_response_data
         has_permission, error = check_wage_write_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
 
-        wage = EmployeeWageService.get_wage_by_id(wage_id)
-        if not wage:
-            return ApiResponse.error('计薪配置不存在')
+        wage, error_response_data = get_wage_or_error(wage_id)
+        if error_response_data:
+            return error_response_data
 
         try:
             data = wage_update_schema.load(request.get_json() or {})
@@ -247,15 +271,17 @@ class EmployeeWageDetail(Resource):
     @employee_wage_ns.response(404, '记录不存在', error_response)
     @employee_wage_ns.response(403, '无权限', forbidden_response)
     def delete(self, wage_id):
-        """删除计薪配置。"""
-        current_user = get_current_user()
+        """删除计薪配置接口，用于移除失效或误建的工资规则。"""
+        current_user, error_response_data = get_employee_wage_user_or_error()
+        if error_response_data:
+            return error_response_data
         has_permission, error = check_wage_write_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
 
-        wage = EmployeeWageService.get_wage_by_id(wage_id)
-        if not wage:
-            return ApiResponse.error('计薪配置不存在')
+        wage, error_response_data = get_wage_or_error(wage_id)
+        if error_response_data:
+            return error_response_data
 
         EmployeeWageService.delete_wage(wage)
         return ApiResponse.success(message='删除成功')
@@ -270,8 +296,10 @@ class WageCalculate(Resource):
     @employee_wage_ns.response(401, '未登录', unauthorized_response)
     @employee_wage_ns.response(403, '无权限', forbidden_response)
     def post(self):
-        """试算工资金额。"""
-        current_user = get_current_user()
+        """试算工资金额接口，按传入产量、工时和日期计算预估工资。"""
+        current_user, error_response_data = get_employee_wage_user_or_error()
+        if error_response_data:
+            return error_response_data
         has_permission, error = check_wage_view_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
@@ -295,8 +323,4 @@ class WageCalculate(Resource):
             work_date=work_date,
         )
 
-        return ApiResponse.success({
-            'user_id': user_id,
-            'process_id': process_id,
-            'wage_amount': wage_amount,
-        })
+        return ApiResponse.success(build_wage_calculate_payload(user_id, process_id, wage_amount))

@@ -11,18 +11,18 @@ def resolve_factory_context(require_write=False, query_factory_id=None, allow_in
     current_factory_id = get_current_factory_id()
 
     if not current_user:
-        return None, None, ApiResponse.error("用户不存在", 401)
+        return None, None, ApiResponse.error('用户不存在', 401)
 
     if require_write:
         if not current_factory_id:
-            return None, None, ApiResponse.error("当前缺少工厂上下文，请先切换工厂", 400)
+            return None, None, ApiResponse.error('当前缺少工厂上下文，请先切换工厂', 400)
         has_permission, error = FactoryService.check_factory_permission(
             current_user,
             current_factory_id,
             require_write=True,
         )
         if not has_permission:
-            status_code = 403 if "无权限" in error or "续期" in error else 404
+            status_code = 403 if '无权限' in error or '续期' in error else 404
             return None, None, ApiResponse.error(error, status_code)
         return current_user, current_factory_id, None
 
@@ -34,11 +34,25 @@ def resolve_factory_context(require_write=False, query_factory_id=None, allow_in
             require_write=False,
         )
         if not has_permission:
-            status_code = 403 if "无权限" in error or "续期" in error else 404
+            status_code = 403 if '无权限' in error or '续期' in error else 404
             return None, None, ApiResponse.error(error, status_code)
         return current_user, target_factory_id, None
 
     if allow_internal_without_factory and current_user.is_internal_user:
         return current_user, None, None
 
-    return None, None, ApiResponse.error("当前缺少工厂上下文，请先切换工厂", 400)
+    return None, None, ApiResponse.error('当前缺少工厂上下文，请先切换工厂', 400)
+
+
+def resolve_read_factory_context(query_factory_id=None, allow_internal_without_factory=False):
+    """解析读接口工厂上下文，支持平台内部用户在未切换工厂时全局读取。"""
+    return resolve_factory_context(
+        require_write=False,
+        query_factory_id=query_factory_id,
+        allow_internal_without_factory=allow_internal_without_factory,
+    )
+
+
+def resolve_write_factory_context():
+    """解析写接口工厂上下文，统一要求先切换当前工厂。"""
+    return resolve_factory_context(require_write=True)

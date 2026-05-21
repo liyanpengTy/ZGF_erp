@@ -1,3 +1,5 @@
+"""颜色模型。"""
+
 from app.extensions import db
 from app.models.base import BaseModel
 from datetime import datetime

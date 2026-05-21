@@ -10,7 +10,7 @@ from app.constants.permissions import (
     PERM_BASE_SIZE_EDIT,
     PERM_BASE_SIZE_QUERY,
 )
-from app.api.common.auth import get_current_factory_id, get_current_user
+from app.api.common.auth import require_current_user_and_factory
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
 from app.schemas.base_data.size import SizeCreateSchema, SizeSchema, SizeUpdateSchema
@@ -76,23 +76,16 @@ class SizeList(Resource):
     @size_ns.expect(size_query_parser)
     @size_ns.response(200, '成功', size_list_response)
     @size_ns.response(401, '未登录', unauthorized_response)
+    @size_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """查询尺码分页列表。"""
+        """查询尺码分页列表接口，支持按名称、状态和工厂可见范围筛选。"""
         args = size_query_parser.parse_args()
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        if error_response_data:
+            return error_response_data
 
         result = SizeService.get_size_list(current_user, current_factory_id, args)
-        return ApiResponse.success({
-            'items': sizes_schema.dump(result['items']),
-            'total': result['total'],
-            'page': result['page'],
-            'page_size': result['page_size'],
-            'pages': result['pages'],
-        })
+        return ApiResponse.success_page_result(result, sizes_schema.dump(result['items']))
 
     @login_required
     @button_permission(PERM_BASE_SIZE_ADD)
@@ -100,14 +93,13 @@ class SizeList(Resource):
     @size_ns.response(201, '创建成功', size_item_response)
     @size_ns.response(400, '参数错误', error_response)
     @size_ns.response(401, '未登录', unauthorized_response)
+    @size_ns.response(403, '无权限', forbidden_response)
     @size_ns.response(409, '尺码已存在', error_response)
     def post(self):
-        """创建尺码。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        """创建尺码接口，用于新增系统尺码或工厂自定义尺码。"""
+        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        if error_response_data:
+            return error_response_data
 
         try:
             data = size_create_schema.load(request.get_json() or {})
@@ -131,9 +123,10 @@ class SizeDetail(Resource):
     @size_ns.response(403, '无权限', forbidden_response)
     @size_ns.response(404, '尺码不存在', error_response)
     def get(self, size_id):
-        """查询尺码详情。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
+        """查询尺码详情接口，返回单个尺码完整信息。"""
+        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        if error_response_data:
+            return error_response_data
 
         size = SizeService.get_size_by_id(size_id)
         if not size:
@@ -154,9 +147,10 @@ class SizeDetail(Resource):
     @size_ns.response(403, '无权限', forbidden_response)
     @size_ns.response(404, '尺码不存在', error_response)
     def patch(self, size_id):
-        """更新尺码。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
+        """更新尺码接口，可修改尺码名称、编码、排序和状态。"""
+        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        if error_response_data:
+            return error_response_data
 
         size = SizeService.get_size_by_id(size_id)
         if not size:
@@ -184,9 +178,10 @@ class SizeDetail(Resource):
     @size_ns.response(403, '无权限', forbidden_response)
     @size_ns.response(404, '尺码不存在', error_response)
     def delete(self, size_id):
-        """删除尺码。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
+        """删除尺码接口，用于移除未被业务引用的尺码数据。"""
+        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        if error_response_data:
+            return error_response_data
         size = SizeService.get_size_by_id(size_id)
         if not size:
             return ApiResponse.error('尺码不存在')

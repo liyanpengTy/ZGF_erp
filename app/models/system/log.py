@@ -1,10 +1,11 @@
-# 日志模型
+"""日志模型。"""
+
 from app.extensions import db
 from datetime import datetime
 
 
 class OperationLog(db.Model):
-    """操作日志表"""
+    """操作日志表。"""
     __tablename__ = 'sys_operation_log'
     __table_args__ = {'comment': '操作日志表'}
 

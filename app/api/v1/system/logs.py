@@ -2,7 +2,7 @@
 
 from flask_restx import Namespace, Resource, fields
 
-from app.api.common.auth import get_current_user
+from app.api.common.auth import require_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_with_date_parser
 from app.schemas.system.log import LoginLogSchema, OperationLogSchema
@@ -112,6 +112,11 @@ login_log_schema = LoginLogSchema()
 login_logs_schema = LoginLogSchema(many=True)
 
 
+def get_log_user_or_error():
+    """获取日志接口当前用户，不存在时返回统一错误响应。"""
+    return require_current_user()
+
+
 @log_ns.route('/operation')
 class OperationLogList(Resource):
     @login_required
@@ -119,21 +124,14 @@ class OperationLogList(Resource):
     @log_ns.response(200, '成功', operation_log_list_response)
     @log_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """查询操作日志分页列表。"""
+        """查询操作日志分页列表接口，支持按用户、操作内容、状态和工厂筛选。"""
         args = operation_log_query_parser.parse_args()
-        current_user = get_current_user()
-
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        current_user, error_response_data = get_log_user_or_error()
+        if error_response_data:
+            return error_response_data
 
         result = LogService.get_operation_log_list(current_user, args)
-        return ApiResponse.success({
-            'items': operation_logs_schema.dump(result['items']),
-            'total': result['total'],
-            'page': result['page'],
-            'page_size': result['page_size'],
-            'pages': result['pages'],
-        })
+        return ApiResponse.success_page_result(result, operation_logs_schema.dump(result['items']))
 
 
 @log_ns.route('/operation/<int:log_id>')
@@ -144,8 +142,10 @@ class OperationLogDetail(Resource):
     @log_ns.response(403, '无权限', forbidden_response)
     @log_ns.response(404, '日志不存在', error_response)
     def get(self, log_id):
-        """查询操作日志详情。"""
-        current_user = get_current_user()
+        """查询操作日志详情接口，返回单条操作记录的完整请求信息。"""
+        current_user, error_response_data = get_log_user_or_error()
+        if error_response_data:
+            return error_response_data
 
         log = LogService.get_operation_log_by_id(log_id)
         if not log:
@@ -165,21 +165,14 @@ class LoginLogList(Resource):
     @log_ns.response(200, '成功', login_log_list_response)
     @log_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """查询登录日志分页列表。"""
+        """查询登录日志分页列表接口，支持按用户、登录方式、状态和工厂筛选。"""
         args = login_log_query_parser.parse_args()
-        current_user = get_current_user()
-
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        current_user, error_response_data = get_log_user_or_error()
+        if error_response_data:
+            return error_response_data
 
         result = LogService.get_login_log_list(current_user, args)
-        return ApiResponse.success({
-            'items': login_logs_schema.dump(result['items']),
-            'total': result['total'],
-            'page': result['page'],
-            'page_size': result['page_size'],
-            'pages': result['pages'],
-        })
+        return ApiResponse.success_page_result(result, login_logs_schema.dump(result['items']))
 
 
 @log_ns.route('/login/<int:log_id>')
@@ -190,8 +183,10 @@ class LoginLogDetail(Resource):
     @log_ns.response(403, '无权限', forbidden_response)
     @log_ns.response(404, '日志不存在', error_response)
     def get(self, log_id):
-        """查询登录日志详情。"""
-        current_user = get_current_user()
+        """查询登录日志详情接口，返回单次登录尝试的结果信息。"""
+        current_user, error_response_data = get_log_user_or_error()
+        if error_response_data:
+            return error_response_data
 
         log = LogService.get_login_log_by_id(log_id)
         if not log:
@@ -210,11 +205,10 @@ class LogStats(Resource):
     @log_ns.response(200, '成功', stats_response)
     @log_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """查询当前用户可见范围内的日志统计数据。"""
-        current_user = get_current_user()
-
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        """查询日志统计接口，汇总当前账号可见范围内的今日日志数据。"""
+        current_user, error_response_data = get_log_user_or_error()
+        if error_response_data:
+            return error_response_data
 
         stats = LogService.get_log_stats(current_user)
         return ApiResponse.success(stats)

@@ -4,7 +4,7 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_factory_id, get_current_user
+from app.api.common.auth import require_current_user_and_factory
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
 from app.constants.permissions import (
@@ -108,6 +108,18 @@ category_create_schema = CategoryCreateSchema()
 category_update_schema = CategoryUpdateSchema()
 
 
+def serialize_category_option(category):
+    """序列化分类下拉选项。"""
+    return {
+        'id': category.id,
+        'name': category.name,
+        'code': category.code,
+        'parent_id': category.parent_id,
+        'category_type': category.category_type,
+        'factory_id': category.factory_id,
+    }
+
+
 @category_ns.route('')
 class CategoryList(Resource):
     @login_required
@@ -115,20 +127,15 @@ class CategoryList(Resource):
     @category_ns.expect(category_query_parser)
     @category_ns.response(200, '成功', category_list_response)
     @category_ns.response(401, '未登录', unauthorized_response)
+    @category_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """分页查询分类列表。"""
-        current_user = get_current_user()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        """查询分类分页列表接口，支持按分类类型、状态和工厂可见范围筛选。"""
+        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        if error_response_data:
+            return error_response_data
 
-        result = CategoryService.get_category_list(current_user, get_current_factory_id(), category_query_parser.parse_args())
-        return ApiResponse.success({
-            'items': categories_schema.dump(result['items']),
-            'total': result['total'],
-            'page': result['page'],
-            'page_size': result['page_size'],
-            'pages': result['pages'],
-        })
+        result = CategoryService.get_category_list(current_user, current_factory_id, category_query_parser.parse_args())
+        return ApiResponse.success_page_result(result, categories_schema.dump(result['items']))
 
     @login_required
     @button_permission(PERM_BASE_CATEGORY_ADD)
@@ -136,13 +143,13 @@ class CategoryList(Resource):
     @category_ns.response(201, '创建成功', category_item_response)
     @category_ns.response(400, '参数错误', error_response)
     @category_ns.response(401, '未登录', unauthorized_response)
+    @category_ns.response(403, '无权限', forbidden_response)
     @category_ns.response(409, '分类已存在', error_response)
     def post(self):
-        """创建分类。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        """创建分类接口，用于新增平台公共分类或工厂自定义分类。"""
+        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        if error_response_data:
+            return error_response_data
 
         try:
             data = category_create_schema.load(request.get_json() or {})
@@ -164,24 +171,15 @@ class CategoryOptions(Resource):
     @category_ns.expect(category_option_query_parser)
     @category_ns.response(200, '成功', category_options_response)
     @category_ns.response(401, '未登录', unauthorized_response)
+    @category_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """查询分类下拉选项列表，供分类选择器直接使用。"""
-        current_user = get_current_user()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        _, current_factory_id, error_response_data = require_current_user_and_factory()
+        if error_response_data:
+            return error_response_data
 
-        categories = CategoryService.get_category_options(get_current_factory_id(), category_option_query_parser.parse_args())
-        return ApiResponse.success([
-            {
-                'id': category.id,
-                'name': category.name,
-                'code': category.code,
-                'parent_id': category.parent_id,
-                'category_type': category.category_type,
-                'factory_id': category.factory_id,
-            }
-            for category in categories
-        ])
+        categories = CategoryService.get_category_options(current_factory_id, category_option_query_parser.parse_args())
+        return ApiResponse.success_list([serialize_category_option(category) for category in categories])
 
 
 @category_ns.route('/tree')
@@ -190,12 +188,12 @@ class CategoryTree(Resource):
     @button_permission(PERM_BASE_CATEGORY_QUERY)
     @category_ns.response(200, '成功', category_tree_response)
     @category_ns.response(401, '未登录', unauthorized_response)
+    @category_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """查询分类树。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        """查询分类树接口，返回树形结构供分类配置与选择使用。"""
+        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        if error_response_data:
+            return error_response_data
 
         tree = CategoryService.get_category_tree(current_user, current_factory_id, request.args.get('category_type'))
         return ApiResponse.success(tree)
@@ -210,9 +208,10 @@ class CategoryDetail(Resource):
     @category_ns.response(403, '无权限', forbidden_response)
     @category_ns.response(404, '分类不存在', error_response)
     def get(self, category_id):
-        """查询分类详情。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
+        """查询分类详情接口，返回单个分类的完整信息。"""
+        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        if error_response_data:
+            return error_response_data
         category = CategoryService.get_category_by_id(category_id)
         if not category:
             return ApiResponse.error('分类不存在')
@@ -231,9 +230,10 @@ class CategoryDetail(Resource):
     @category_ns.response(403, '无权限', forbidden_response)
     @category_ns.response(404, '分类不存在', error_response)
     def patch(self, category_id):
-        """更新分类。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
+        """更新分类接口，可调整名称、编码、父级、排序和状态。"""
+        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        if error_response_data:
+            return error_response_data
         category = CategoryService.get_category_by_id(category_id)
         if not category:
             return ApiResponse.error('分类不存在')
@@ -260,9 +260,10 @@ class CategoryDetail(Resource):
     @category_ns.response(404, '分类不存在', error_response)
     @category_ns.response(409, '分类存在子项或被引用', error_response)
     def delete(self, category_id):
-        """删除分类。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
+        """删除分类接口，存在子项或被业务引用时会阻止删除。"""
+        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        if error_response_data:
+            return error_response_data
         category = CategoryService.get_category_by_id(category_id)
         if not category:
             return ApiResponse.error('分类不存在')

@@ -10,7 +10,7 @@ from app.constants.permissions import (
     PERM_BASE_COLOR_EDIT,
     PERM_BASE_COLOR_QUERY,
 )
-from app.api.common.auth import get_current_factory_id, get_current_user
+from app.api.common.auth import require_current_user_and_factory
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
 from app.schemas.base_data.color import ColorCreateSchema, ColorSchema, ColorUpdateSchema
@@ -83,23 +83,16 @@ class ColorList(Resource):
     @color_ns.expect(color_query_parser)
     @color_ns.response(200, '成功', color_list_response)
     @color_ns.response(401, '未登录', unauthorized_response)
+    @color_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """查询颜色分页列表。"""
+        """查询颜色分页列表接口，支持按名称、状态和工厂可见范围筛选。"""
         args = color_query_parser.parse_args()
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        if error_response_data:
+            return error_response_data
 
         result = ColorService.get_color_list(current_user, current_factory_id, args)
-        return ApiResponse.success({
-            'items': colors_schema.dump(result['items']),
-            'total': result['total'],
-            'page': result['page'],
-            'page_size': result['page_size'],
-            'pages': result['pages'],
-        })
+        return ApiResponse.success_page_result(result, colors_schema.dump(result['items']))
 
     @login_required
     @button_permission(PERM_BASE_COLOR_ADD)
@@ -107,14 +100,13 @@ class ColorList(Resource):
     @color_ns.response(201, '创建成功', color_item_response)
     @color_ns.response(400, '参数错误', error_response)
     @color_ns.response(401, '未登录', unauthorized_response)
+    @color_ns.response(403, '无权限', forbidden_response)
     @color_ns.response(409, '颜色已存在', error_response)
     def post(self):
-        """创建颜色。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        """创建颜色接口，用于新增系统颜色或工厂自定义颜色。"""
+        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        if error_response_data:
+            return error_response_data
 
         try:
             data = color_create_schema.load(request.get_json() or {})
@@ -138,9 +130,10 @@ class ColorDetail(Resource):
     @color_ns.response(403, '无权限', forbidden_response)
     @color_ns.response(404, '颜色不存在', error_response)
     def get(self, color_id):
-        """查询颜色详情。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
+        """查询颜色详情接口，返回单个颜色完整信息。"""
+        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        if error_response_data:
+            return error_response_data
         color = ColorService.get_color_by_id(color_id)
         if not color:
             return ApiResponse.error('颜色不存在')
@@ -160,9 +153,10 @@ class ColorDetail(Resource):
     @color_ns.response(403, '无权限', forbidden_response)
     @color_ns.response(404, '颜色不存在', error_response)
     def patch(self, color_id):
-        """更新颜色。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
+        """更新颜色接口，可修改颜色名称、别名、编码和状态。"""
+        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        if error_response_data:
+            return error_response_data
         color = ColorService.get_color_by_id(color_id)
         if not color:
             return ApiResponse.error('颜色不存在')
@@ -188,9 +182,10 @@ class ColorDetail(Resource):
     @color_ns.response(403, '无权限', forbidden_response)
     @color_ns.response(404, '颜色不存在', error_response)
     def delete(self, color_id):
-        """删除颜色。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
+        """删除颜色接口，用于移除未被业务引用的颜色数据。"""
+        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        if error_response_data:
+            return error_response_data
         color = ColorService.get_color_by_id(color_id)
         if not color:
             return ApiResponse.error('颜色不存在')

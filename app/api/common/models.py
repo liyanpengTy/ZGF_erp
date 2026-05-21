@@ -1,3 +1,5 @@
+"""接口通用 Swagger 模型构建工具。"""
+
 from flask_restx import fields
 
 

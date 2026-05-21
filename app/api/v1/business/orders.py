@@ -10,7 +10,7 @@ from app.constants.permissions import (
     PERM_BUSINESS_ORDER_EDIT,
     PERM_BUSINESS_ORDER_QUERY,
 )
-from app.api.common.auth import get_current_factory_id, get_current_user
+from app.api.common.auth import get_current_factory_id, require_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_with_date_parser
 from app.schemas.business.order import OrderCreateSchema, OrderSchema, OrderStatusUpdateSchema, OrderUpdateSchema
@@ -449,6 +449,31 @@ order_update_schema = OrderUpdateSchema()
 order_status_update_schema = OrderStatusUpdateSchema()
 
 
+def get_order_request_context():
+    """获取订单接口通用的当前用户和工厂上下文。"""
+    current_user, error_response_data = require_current_user()
+    if error_response_data:
+        return None, None, error_response_data
+    return current_user, get_current_factory_id(), None
+
+
+def get_accessible_order_or_error(order_id):
+    """查询当前上下文可访问的订单，不可访问时返回统一错误响应。"""
+    current_user, current_factory_id, error_response_data = get_order_request_context()
+    if error_response_data:
+        return None, None, None, error_response_data
+
+    order = OrderService.get_order_by_id(order_id)
+    if not order:
+        return None, None, None, ApiResponse.error('订单不存在')
+
+    has_permission, error = OrderService.check_permission(current_user, current_factory_id, order)
+    if not has_permission:
+        return None, None, None, ApiResponse.error(error, 403)
+
+    return current_user, current_factory_id, order, None
+
+
 def serialize_order(order):
     """序列化订单详情，不附带统计字段。"""
     data = order_schema.dump(order)
@@ -458,6 +483,19 @@ def serialize_order(order):
 def serialize_orders(orders):
     """批量序列化订单列表，不附带订单内嵌统计。"""
     return [serialize_order(order) for order in orders]
+
+
+def serialize_order_option(order):
+    """序列化订单下拉选项。"""
+    return {
+        'id': order.id,
+        'order_no': order.order_no,
+        'customer_id': order.customer_id,
+        'customer_name': order.customer_name,
+        'status': order.status,
+        'order_date': order.order_date.isoformat() if order.order_date else None,
+        'delivery_date': order.delivery_date.isoformat() if order.delivery_date else None,
+    }
 
 
 def serialize_order_statistics(order):
@@ -527,24 +565,20 @@ class OrderList(Resource):
     @order_ns.expect(order_query_parser)
     @order_ns.response(200, '成功', order_list_response)
     @order_ns.response(401, '未登录', unauthorized_response)
+    @order_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """查询订单分页列表接口。"""
+        """查询订单分页列表接口，支持按订单号、客户、状态和工厂维度筛选。"""
         args = order_query_parser.parse_args()
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        current_user, current_factory_id, error_response_data = get_order_request_context()
+        if error_response_data:
+            return error_response_data
 
         result = OrderService.get_order_list(current_user, current_factory_id, args)
-        return ApiResponse.success({
-            'items': serialize_orders(result['items']),
-            'total': result['total'],
-            'page': result['page'],
-            'page_size': result['page_size'],
-            'pages': result['pages'],
-            'statistics': OrderService.build_order_list_statistics(result['items']),
-        })
+        return ApiResponse.success_page_result(
+            result,
+            serialize_orders(result['items']),
+            extra={'statistics': OrderService.build_order_list_statistics(result['items'])},
+        )
 
     @login_required
     @button_permission(PERM_BUSINESS_ORDER_ADD)
@@ -552,13 +586,12 @@ class OrderList(Resource):
     @order_ns.response(201, '创建成功', order_item_response)
     @order_ns.response(400, '参数错误', error_response)
     @order_ns.response(401, '未登录', unauthorized_response)
+    @order_ns.response(403, '无权限', forbidden_response)
     def post(self):
-        """创建订单接口。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        """创建订单接口，支持普通款、尺码颜色矩阵和拼接配置明细。"""
+        current_user, current_factory_id, error_response_data = get_order_request_context()
+        if error_response_data:
+            return error_response_data
 
         try:
             data = order_create_schema.load(request.get_json() or {})
@@ -579,27 +612,15 @@ class OrderOptions(Resource):
     @order_ns.expect(order_option_query_parser)
     @order_ns.response(200, '成功', order_options_response)
     @order_ns.response(401, '未登录', unauthorized_response)
+    @order_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """查询订单下拉选项列表，供订单选择器直接使用。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        current_user, current_factory_id, error_response_data = get_order_request_context()
+        if error_response_data:
+            return error_response_data
 
         orders = OrderService.get_order_options(current_user, current_factory_id, order_option_query_parser.parse_args())
-        return ApiResponse.success([
-            {
-                'id': order.id,
-                'order_no': order.order_no,
-                'customer_id': order.customer_id,
-                'customer_name': order.customer_name,
-                'status': order.status,
-                'order_date': order.order_date.isoformat() if order.order_date else None,
-                'delivery_date': order.delivery_date.isoformat() if order.delivery_date else None,
-            }
-            for order in orders
-        ])
+        return ApiResponse.success_list([serialize_order_option(order) for order in orders])
 
 
 @order_ns.route('/<int:order_id>')
@@ -611,20 +632,10 @@ class OrderDetail(Resource):
     @order_ns.response(403, '无权限', forbidden_response)
     @order_ns.response(404, '订单不存在', error_response)
     def get(self, order_id):
-        """查询订单详情接口。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-
-        if not current_user:
-            return ApiResponse.error('用户不存在')
-
-        order = OrderService.get_order_by_id(order_id)
-        if not order:
-            return ApiResponse.error('订单不存在')
-
-        has_permission, error = OrderService.check_permission(current_user, current_factory_id, order)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        """查询订单详情接口，返回订单主信息、明细与 SKU 配置。"""
+        _, _, order, error_response_data = get_accessible_order_or_error(order_id)
+        if error_response_data:
+            return error_response_data
 
         return ApiResponse.success(serialize_order(order))
 
@@ -637,20 +648,10 @@ class OrderDetail(Resource):
     @order_ns.response(403, '无权限', forbidden_response)
     @order_ns.response(404, '订单不存在', error_response)
     def patch(self, order_id):
-        """更新订单接口。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-
-        if not current_user:
-            return ApiResponse.error('用户不存在')
-
-        order = OrderService.get_order_by_id(order_id)
-        if not order:
-            return ApiResponse.error('订单不存在')
-
-        has_permission, error = OrderService.check_permission(current_user, current_factory_id, order)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        """更新订单接口，可调整订单主信息、明细数量和 SKU 结构。"""
+        _, _, order, error_response_data = get_accessible_order_or_error(order_id)
+        if error_response_data:
+            return error_response_data
 
         try:
             data = order_update_schema.load(request.get_json() or {})
@@ -667,20 +668,10 @@ class OrderDetail(Resource):
     @order_ns.response(403, '无权限', forbidden_response)
     @order_ns.response(404, '订单不存在', error_response)
     def delete(self, order_id):
-        """删除订单接口。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-
-        if not current_user:
-            return ApiResponse.error('用户不存在')
-
-        order = OrderService.get_order_by_id(order_id)
-        if not order:
-            return ApiResponse.error('订单不存在')
-
-        has_permission, error = OrderService.check_permission(current_user, current_factory_id, order)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        """删除订单接口，用于移除未进入后续生产流程的订单。"""
+        _, _, order, error_response_data = get_accessible_order_or_error(order_id)
+        if error_response_data:
+            return error_response_data
 
         OrderService.delete_order(order)
         return ApiResponse.success(message='删除成功')
@@ -696,19 +687,9 @@ class OrderStatistics(Resource):
     @order_ns.response(404, '订单不存在', error_response)
     def get(self, order_id):
         """查询订单统计接口，返回订单级与明细级统计结果。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-
-        if not current_user:
-            return ApiResponse.error('用户不存在')
-
-        order = OrderService.get_order_by_id(order_id)
-        if not order:
-            return ApiResponse.error('订单不存在')
-
-        has_permission, error = OrderService.check_permission(current_user, current_factory_id, order)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        _, _, order, error_response_data = get_accessible_order_or_error(order_id)
+        if error_response_data:
+            return error_response_data
 
         return ApiResponse.success(serialize_order_statistics(order))
 
@@ -724,20 +705,10 @@ class OrderStatus(Resource):
     @order_ns.response(403, '无权限', forbidden_response)
     @order_ns.response(404, '订单不存在', error_response)
     def post(self, order_id):
-        """更新订单状态接口。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-
-        if not current_user:
-            return ApiResponse.error('用户不存在')
-
-        order = OrderService.get_order_by_id(order_id)
-        if not order:
-            return ApiResponse.error('订单不存在')
-
-        has_permission, error = OrderService.check_permission(current_user, current_factory_id, order)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        """更新订单状态接口，用于切换订单业务状态并返回最新详情。"""
+        _, _, order, error_response_data = get_accessible_order_or_error(order_id)
+        if error_response_data:
+            return error_response_data
 
         try:
             data = order_status_update_schema.load(request.get_json() or {})
@@ -758,19 +729,9 @@ class OrderProductionStatistics(Resource):
     @order_ns.response(404, '订单不存在', error_response)
     def get(self, order_id):
         """查询订单生产统计接口，返回下单、实裁、领货、交货、在手与完工汇总。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-
-        if not current_user:
-            return ApiResponse.error('用户不存在')
-
-        order = OrderService.get_order_by_id(order_id)
-        if not order:
-            return ApiResponse.error('订单不存在')
-
-        has_permission, error = OrderService.check_permission(current_user, current_factory_id, order)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        _, _, order, error_response_data = get_accessible_order_or_error(order_id)
+        if error_response_data:
+            return error_response_data
 
         return ApiResponse.success(serialize_order_production_statistics(order))
 
@@ -785,18 +746,8 @@ class OrderShipmentAvailability(Resource):
     @order_ns.response(404, '订单不存在', error_response)
     def get(self, order_id):
         """查询订单可出货统计接口，返回各 SKU 的已完工、已出货与可出货数量。"""
-        current_user = get_current_user()
-        current_factory_id = get_current_factory_id()
-
-        if not current_user:
-            return ApiResponse.error('用户不存在')
-
-        order = OrderService.get_order_by_id(order_id)
-        if not order:
-            return ApiResponse.error('订单不存在')
-
-        has_permission, error = OrderService.check_permission(current_user, current_factory_id, order)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        _, _, order, error_response_data = get_accessible_order_or_error(order_id)
+        if error_response_data:
+            return error_response_data
 
         return ApiResponse.success(serialize_order_shipment_availability(order))

@@ -6,7 +6,7 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_user
+from app.api.common.auth import require_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
 from app.schemas.system.factory import FactoryCreateSchema, FactorySchema, FactoryUpdateSchema
@@ -230,6 +230,38 @@ factory_create_schema = FactoryCreateSchema()
 factory_update_schema = FactoryUpdateSchema()
 
 
+def get_factory_module_user_or_error():
+    """获取允许访问工厂管理模块的当前用户。"""
+    current_user, error_response_data = require_current_user()
+    if error_response_data:
+        return None, error_response_data
+    has_permission, error = check_factory_module_permission(current_user)
+    if not has_permission:
+        return None, ApiResponse.error(error, 403)
+    return current_user, None
+
+
+def get_factory_or_error(factory_id):
+    """根据工厂 ID 查询工厂，不存在时返回统一错误响应。"""
+    factory = FactoryService.get_factory_by_id(factory_id)
+    if not factory:
+        return None, ApiResponse.error("工厂不存在", 404)
+    return factory, None
+
+
+def serialize_factory_option(factory):
+    """序列化工厂下拉选项。"""
+    return {"id": factory.id, "name": factory.name, "code": factory.code}
+
+
+def build_factory_create_payload(factory, factory_admin):
+    """构造工厂创建成功后的返回数据。"""
+    result = factory_schema.dump(factory)
+    result["admin_username"] = factory_admin.username
+    result["admin_password"] = "123456"
+    return result
+
+
 def parse_factory_filter_args():
     """解析工厂筛选参数，空字符串按未传处理。"""
     name = (request.args.get("name") or "").strip()
@@ -317,27 +349,19 @@ class FactoryList(Resource):
     @factory_ns.expect(factory_query_parser)
     @factory_ns.response(200, "成功", factory_list_response)
     @factory_ns.response(401, "未登录", unauthorized_response)
+    @factory_ns.response(403, "无权限", forbidden_response)
     def get(self):
         """查询工厂列表接口；当筛选参数全部为空时返回所有工厂。"""
         args, parse_error = parse_factory_list_args()
         if parse_error:
             return ApiResponse.error(parse_error, 400)
 
-        current_user = get_current_user()
-        has_permission, error = check_factory_module_permission(current_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        _, error_response_data = get_factory_module_user_or_error()
+        if error_response_data:
+            return error_response_data
 
         result = FactoryService.get_factory_list(args)
-        return ApiResponse.success(
-            {
-                "items": factories_schema.dump(result["items"]),
-                "total": result["total"],
-                "page": result["page"],
-                "page_size": result["page_size"],
-                "pages": result["pages"],
-            }
-        )
+        return ApiResponse.success_page_result(result, factories_schema.dump(result["items"]))
 
     @login_required
     @permission_required("system.factories.create")
@@ -348,10 +372,9 @@ class FactoryList(Resource):
     @factory_ns.response(409, "工厂编码已存在", error_response)
     def post(self):
         """创建工厂接口，同时创建默认工厂管理员账号。"""
-        current_user = get_current_user()
-        has_permission, error = check_factory_module_permission(current_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        current_user, error_response_data = get_factory_module_user_or_error()
+        if error_response_data:
+            return error_response_data
 
         try:
             data = factory_create_schema.load(request.get_json() or {})
@@ -362,10 +385,7 @@ class FactoryList(Resource):
         if create_error:
             return ApiResponse.error(create_error, 409)
 
-        result = factory_schema.dump(factory)
-        result["admin_username"] = factory_admin.username
-        result["admin_password"] = "123456"
-        return ApiResponse.success(result, "创建成功", 201)
+        return ApiResponse.success(build_factory_create_payload(factory, factory_admin), "创建成功", 201)
 
 
 @factory_ns.route("/options")
@@ -375,19 +395,19 @@ class FactoryOptions(Resource):
     @factory_ns.expect(factory_filter_parser)
     @factory_ns.response(200, "成功", factory_options_response)
     @factory_ns.response(401, "未登录", unauthorized_response)
+    @factory_ns.response(403, "无权限", forbidden_response)
     def get(self):
         """查询工厂下拉选项接口，仅返回工厂 ID、名称和编码。"""
-        current_user = get_current_user()
-        has_permission, error = check_factory_module_permission(current_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        _, error_response_data = get_factory_module_user_or_error()
+        if error_response_data:
+            return error_response_data
 
         filters, parse_error = parse_factory_filter_args()
         if parse_error:
             return ApiResponse.error(parse_error, 400)
 
         factories = FactoryService.get_factory_options(name=filters["name"], status=filters["status"])
-        return ApiResponse.success([{"id": factory.id, "name": factory.name, "code": factory.code} for factory in factories])
+        return ApiResponse.success_list([serialize_factory_option(factory) for factory in factories])
 
 
 @factory_ns.route("/<int:factory_id>")
@@ -395,34 +415,34 @@ class FactoryDetail(Resource):
     @login_required
     @permission_required("system.factories.browse")
     @factory_ns.response(200, "成功", factory_item_response)
+    @factory_ns.response(403, "无权限", forbidden_response)
     @factory_ns.response(404, "工厂不存在", error_response)
     def get(self, factory_id):
         """查询单个工厂详情接口。"""
-        current_user = get_current_user()
-        has_permission, error = check_factory_module_permission(current_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        _, error_response_data = get_factory_module_user_or_error()
+        if error_response_data:
+            return error_response_data
 
-        factory = FactoryService.get_factory_by_id(factory_id)
-        if not factory:
-            return ApiResponse.error("工厂不存在", 404)
+        factory, error_response_data = get_factory_or_error(factory_id)
+        if error_response_data:
+            return error_response_data
         return ApiResponse.success(factory_schema.dump(factory))
 
     @login_required
     @permission_required("system.factories.update")
     @factory_ns.expect(factory_update_model)
     @factory_ns.response(200, "更新成功", factory_item_response)
+    @factory_ns.response(403, "无权限", forbidden_response)
     @factory_ns.response(404, "工厂不存在", error_response)
     def patch(self, factory_id):
         """更新工厂基础信息和服务到期信息接口。"""
-        current_user = get_current_user()
-        has_permission, error = check_factory_module_permission(current_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        _, error_response_data = get_factory_module_user_or_error()
+        if error_response_data:
+            return error_response_data
 
-        factory = FactoryService.get_factory_by_id(factory_id)
-        if not factory:
-            return ApiResponse.error("工厂不存在", 404)
+        factory, error_response_data = get_factory_or_error(factory_id)
+        if error_response_data:
+            return error_response_data
 
         try:
             data = factory_update_schema.load(request.get_json() or {})
@@ -440,14 +460,13 @@ class FactoryDetail(Resource):
     @factory_ns.response(409, "存在关联用户无法删除", error_response)
     def delete(self, factory_id):
         """删除工厂接口；删除前会校验是否仍存在关联用户。"""
-        current_user = get_current_user()
-        has_permission, error = check_factory_module_permission(current_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        _, error_response_data = get_factory_module_user_or_error()
+        if error_response_data:
+            return error_response_data
 
-        factory = FactoryService.get_factory_by_id(factory_id)
-        if not factory:
-            return ApiResponse.error("工厂不存在", 404)
+        factory, error_response_data = get_factory_or_error(factory_id)
+        if error_response_data:
+            return error_response_data
 
         success, delete_error = FactoryService.delete_factory(factory)
         if not success:
@@ -461,21 +480,21 @@ class FactoryUsers(Resource):
     @permission_required("system.factories.browse")
     @factory_ns.expect(factory_user_query_parser)
     @factory_ns.response(200, "成功", user_list_response)
+    @factory_ns.response(403, "无权限", forbidden_response)
     @factory_ns.response(404, "工厂不存在", error_response)
     def get(self, factory_id):
         """查询工厂用户列表接口，支持关系类型和协作方类型过滤。"""
-        current_user = get_current_user()
-        has_permission, error = check_factory_module_permission(current_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        _, error_response_data = get_factory_module_user_or_error()
+        if error_response_data:
+            return error_response_data
 
-        factory = FactoryService.get_factory_by_id(factory_id)
-        if not factory:
-            return ApiResponse.error("工厂不存在", 404)
+        _, error_response_data = get_factory_or_error(factory_id)
+        if error_response_data:
+            return error_response_data
 
         args = factory_user_query_parser.parse_args()
         result = FactoryService.get_factory_users(factory_id, args)
-        return ApiResponse.success(result)
+        return ApiResponse.success_page_result(result, result["items"])
 
     @login_required
     @permission_required("system.factories.update")
@@ -486,14 +505,13 @@ class FactoryUsers(Resource):
     @factory_ns.response(409, "用户已关联", error_response)
     def post(self, factory_id):
         """为工厂新增用户关系接口，支持 owner、employee、customer、collaborator。"""
-        current_user = get_current_user()
-        has_permission, error = check_factory_module_permission(current_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        current_user, error_response_data = get_factory_module_user_or_error()
+        if error_response_data:
+            return error_response_data
 
-        factory = FactoryService.get_factory_by_id(factory_id)
-        if not factory:
-            return ApiResponse.error("工厂不存在", 404)
+        _, error_response_data = get_factory_or_error(factory_id)
+        if error_response_data:
+            return error_response_data
 
         data = request.get_json() or {}
         user_id = data.get("user_id")
@@ -540,10 +558,9 @@ class FactoryUserDetail(Resource):
     @factory_ns.response(404, "关联不存在", error_response)
     def delete(self, factory_id, user_id):
         """移除工厂用户关系接口。"""
-        current_user = get_current_user()
-        has_permission, error = check_factory_module_permission(current_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        _, error_response_data = get_factory_module_user_or_error()
+        if error_response_data:
+            return error_response_data
 
         success, delete_error = FactoryService.remove_user_from_factory(factory_id, user_id)
         if not success:
@@ -556,17 +573,17 @@ class FactoryOwner(Resource):
     @login_required
     @permission_required("system.factories.browse")
     @factory_ns.response(200, "成功", user_item_response)
+    @factory_ns.response(403, "无权限", forbidden_response)
     @factory_ns.response(404, "工厂不存在", error_response)
     def get(self, factory_id):
         """查询工厂当前管理员账号接口。"""
-        current_user = get_current_user()
-        has_permission, error = check_factory_module_permission(current_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        _, error_response_data = get_factory_module_user_or_error()
+        if error_response_data:
+            return error_response_data
 
-        factory = FactoryService.get_factory_by_id(factory_id)
-        if not factory:
-            return ApiResponse.error("工厂不存在", 404)
+        _, error_response_data = get_factory_or_error(factory_id)
+        if error_response_data:
+            return error_response_data
 
         owner = FactoryService.get_factory_owner(factory_id)
         if not owner:
@@ -590,14 +607,13 @@ class FactoryOwnerResetPassword(Resource):
     @factory_ns.response(404, "工厂不存在", error_response)
     def post(self, factory_id):
         """重置工厂管理员密码接口。"""
-        current_user = get_current_user()
-        has_permission, error = check_factory_module_permission(current_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        _, error_response_data = get_factory_module_user_or_error()
+        if error_response_data:
+            return error_response_data
 
-        factory = FactoryService.get_factory_by_id(factory_id)
-        if not factory:
-            return ApiResponse.error("工厂不存在", 404)
+        _, error_response_data = get_factory_or_error(factory_id)
+        if error_response_data:
+            return error_response_data
 
         success, reset_error = FactoryService.reset_owner_password(factory_id)
         if not success:
@@ -614,14 +630,13 @@ class FactoryQRCode(Resource):
     @factory_ns.response(404, "工厂不存在", error_response)
     def post(self, factory_id):
         """生成工厂绑定二维码接口。"""
-        current_user = get_current_user()
-        has_permission, error = check_factory_module_permission(current_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        _, error_response_data = get_factory_module_user_or_error()
+        if error_response_data:
+            return error_response_data
 
-        factory = FactoryService.get_factory_by_id(factory_id)
-        if not factory:
-            return ApiResponse.error("工厂不存在", 404)
+        factory, error_response_data = get_factory_or_error(factory_id)
+        if error_response_data:
+            return error_response_data
 
         result = FactoryService.generate_qrcode(factory)
         return ApiResponse.success(result, "二维码生成成功")
@@ -641,9 +656,9 @@ class BindFactory(Resource):
         if not qrcode_key:
             return ApiResponse.error("无效的二维码", 400)
 
-        current_user = get_current_user()
-        if not current_user:
-            return ApiResponse.error("请先登录", 401)
+        current_user, error_response_data = require_current_user(message="请先登录", code=401)
+        if error_response_data:
+            return error_response_data
 
         result, bind_error = FactoryService.bind_user_to_factory(current_user.id, qrcode_key)
         if bind_error:

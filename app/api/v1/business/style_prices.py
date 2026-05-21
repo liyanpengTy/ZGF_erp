@@ -4,8 +4,7 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_user
-from app.api.common.factory_context import resolve_factory_context as resolve_business_factory_context
+from app.api.common.factory_context import resolve_read_factory_context, resolve_write_factory_context
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
 from app.constants.permissions import (
@@ -80,6 +79,54 @@ style_price_schema = StylePriceSchema()
 style_price_create_schema = StylePriceCreateSchema()
 
 
+def build_style_price_access_error(error):
+    """根据款号价格访问错误内容推导响应状态码。"""
+    return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
+
+
+def serialize_style_price(price):
+    """序列化款号价格记录并补充价格类型名称。"""
+    return StylePriceService.enrich_with_label(style_price_schema.dump(price), price)
+
+
+def get_accessible_price_style_or_error(style_id, require_write=False):
+    """查询当前上下文可访问的款号，用于价格记录读写前校验。"""
+    if require_write:
+        current_user, current_factory_id, error_response_obj = resolve_write_factory_context()
+    else:
+        current_user, current_factory_id, error_response_obj = resolve_read_factory_context(
+            allow_internal_without_factory=True,
+        )
+    if error_response_obj:
+        return None, None, None, error_response_obj
+
+    style, error = StylePriceService.check_style_permission(current_user, current_factory_id, style_id)
+    if error:
+        return None, None, None, build_style_price_access_error(error)
+    return current_user, current_factory_id, style, None
+
+
+def get_accessible_price_or_error(price_id, require_write=False):
+    """查询当前上下文可访问的价格记录。"""
+    if require_write:
+        current_user, current_factory_id, error_response_obj = resolve_write_factory_context()
+    else:
+        current_user, current_factory_id, error_response_obj = resolve_read_factory_context(
+            allow_internal_without_factory=True,
+        )
+    if error_response_obj:
+        return None, None, None, error_response_obj
+
+    price = StylePriceService.get_price_by_id(price_id)
+    if not price:
+        return None, None, None, ApiResponse.error('价格记录不存在', 404)
+
+    has_permission, error = StylePriceService.check_price_permission(current_user, current_factory_id, price)
+    if not has_permission:
+        return None, None, None, ApiResponse.error(error, 403)
+    return current_user, current_factory_id, price, None
+
+
 @style_price_ns.route('')
 class StylePriceList(Resource):
     @login_required
@@ -87,32 +134,16 @@ class StylePriceList(Resource):
     @style_price_ns.expect(style_price_query_parser)
     @style_price_ns.response(200, '查询成功', style_price_list_response)
     @style_price_ns.response(401, '未登录', unauthorized_response)
+    @style_price_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """查询款号价格分页列表接口。平台内部用户可不切工厂直接按款号查询。"""
         args = style_price_query_parser.parse_args()
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(
-            allow_internal_without_factory=True,
-        )
-        if error_response_obj:
-            return error_response_obj
-
-        style, error = StylePriceService.check_style_permission(current_user, current_factory_id, args['style_id'])
-        if error:
-            return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
+        _, _, style, error_response_data = get_accessible_price_style_or_error(args['style_id'])
+        if error_response_data:
+            return error_response_data
 
         result = StylePriceService.get_price_list(style.id, args)
-        items = []
-        for price in result['items']:
-            item = style_price_schema.dump(price)
-            items.append(StylePriceService.enrich_with_label(item, price))
-
-        return ApiResponse.success({
-            'items': items,
-            'total': result['total'],
-            'page': result['page'],
-            'page_size': result['page_size'],
-            'pages': result['pages'],
-        })
+        return ApiResponse.success_page_result(result, [serialize_style_price(price) for price in result['items']])
 
     @login_required
     @button_permission(PERM_BUSINESS_STYLE_PRICE_ADD)
@@ -124,24 +155,22 @@ class StylePriceList(Resource):
     @style_price_ns.response(404, '款号不存在', error_response)
     def post(self):
         """创建款号价格记录接口。写操作仍要求当前工厂上下文。"""
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
-        if error_response_obj:
-            return error_response_obj
-        if not current_user:
-            return ApiResponse.error('用户不存在')
+        _, _, _, error_response_data = get_accessible_price_style_or_error(
+            (request.get_json() or {}).get('style_id'),
+            require_write=True,
+        ) if (request.get_json() or {}).get('style_id') else (None, None, None, None)
 
         try:
             data = style_price_create_schema.load(request.get_json() or {})
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
 
-        _, error = StylePriceService.check_style_permission(current_user, current_factory_id, data['style_id'])
-        if error:
-            return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
+        _, _, _, error_response_data = get_accessible_price_style_or_error(data['style_id'], require_write=True)
+        if error_response_data:
+            return error_response_data
 
         price = StylePriceService.create_price(data)
-        result = style_price_schema.dump(price)
-        return ApiResponse.success(StylePriceService.enrich_with_label(result, price), '创建成功', 201)
+        return ApiResponse.success(serialize_style_price(price), '创建成功', 201)
 
 
 @style_price_ns.route('/<int:price_id>')
@@ -154,21 +183,10 @@ class StylePriceDetail(Resource):
     @style_price_ns.response(404, '价格记录不存在', error_response)
     def get(self, price_id):
         """查询款号价格详情接口。平台内部用户可跨工厂查看。"""
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(
-            allow_internal_without_factory=True,
-        )
-        if error_response_obj:
-            return error_response_obj
-
-        price = StylePriceService.get_price_by_id(price_id)
-        if not price:
-            return ApiResponse.error('价格记录不存在')
-        has_permission, error = StylePriceService.check_price_permission(current_user, current_factory_id, price)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
-
-        result = style_price_schema.dump(price)
-        return ApiResponse.success(StylePriceService.enrich_with_label(result, price))
+        _, _, price, error_response_data = get_accessible_price_or_error(price_id)
+        if error_response_data:
+            return error_response_data
+        return ApiResponse.success(serialize_style_price(price))
 
     @login_required
     @button_permission(PERM_BUSINESS_STYLE_PRICE_DELETE)
@@ -178,18 +196,9 @@ class StylePriceDetail(Resource):
     @style_price_ns.response(404, '价格记录不存在', error_response)
     def delete(self, price_id):
         """删除款号价格记录接口。写操作仍要求当前工厂上下文。"""
-        current_user, current_factory_id, error_response_obj = resolve_business_factory_context(require_write=True)
-        if error_response_obj:
-            return error_response_obj
-        if not current_user:
-            return ApiResponse.error('用户不存在')
-
-        price = StylePriceService.get_price_by_id(price_id)
-        if not price:
-            return ApiResponse.error('价格记录不存在')
-        has_permission, error = StylePriceService.check_price_permission(current_user, current_factory_id, price)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        _, _, price, error_response_data = get_accessible_price_or_error(price_id, require_write=True)
+        if error_response_data:
+            return error_response_data
 
         StylePriceService.delete_price(price)
         return ApiResponse.success(message='删除成功')

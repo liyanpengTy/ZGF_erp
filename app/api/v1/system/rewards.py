@@ -1,6 +1,6 @@
-"""奖励管理接口"""
+"""奖励管理接口。"""
 from flask_restx import Namespace, Resource, fields
-from app.api.common.auth import get_current_user
+from app.api.common.auth import require_current_user
 from app.utils.response import ApiResponse
 from app.api.common.parsers import page_parser
 from app.api.common.models import get_common_models
@@ -95,12 +95,12 @@ class RewardConfigList(Resource):
     @reward_ns.response(401, '未登录', unauthorized_response)
     @reward_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """获取奖励配置列表"""
+        """查询奖励配置列表接口，返回当前启用的邀请奖励规则。"""
         from app.models.system.reward_config import RewardConfig
 
         configs = RewardConfig.query.filter_by(is_deleted=0).order_by(RewardConfig.threshold).all()
 
-        return ApiResponse.success([c.to_dict() for c in configs])
+        return ApiResponse.success_list([c.to_dict() for c in configs])
 
 
 @reward_ns.route('/pending')
@@ -112,18 +112,12 @@ class PendingRewards(Resource):
     @reward_ns.response(401, '未登录', unauthorized_response)
     @reward_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """获取待发放奖励列表"""
+        """查询待发放奖励列表接口，支持按分页条件查看待处理奖励。"""
         args = reward_query_parser.parse_args()
 
         result = RewardService.get_pending_rewards(args)
 
-        return ApiResponse.success({
-            'items': [r.to_dict() for r in result['items']],
-            'total': result['total'],
-            'page': result['page'],
-            'page_size': result['page_size'],
-            'pages': result['pages']
-        })
+        return ApiResponse.success_page_result(result, [r.to_dict() for r in result['items']])
 
 
 @reward_ns.route('/<int:reward_id>/distribute')
@@ -131,11 +125,14 @@ class DistributeReward(Resource):
     @login_required
     @permission_required('system.rewards.distribute')
     @reward_ns.response(200, '发放成功', base_response)
+    @reward_ns.response(401, '未登录', unauthorized_response)
     @reward_ns.response(404, '奖励记录不存在', error_response)
     @reward_ns.response(403, '无权限', forbidden_response)
     def post(self, reward_id):
-        """发放奖励"""
-        current_user = get_current_user()
+        """发放奖励接口，用于确认单条奖励记录已完成发放。"""
+        current_user, error_response_data = require_current_user()
+        if error_response_data:
+            return error_response_data
 
         success, message = RewardService.distribute_reward(reward_id, current_user.id)
 
@@ -153,6 +150,6 @@ class RewardStatistics(Resource):
     @reward_ns.response(401, '未登录', unauthorized_response)
     @reward_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """获取奖励统计"""
+        """查询奖励统计接口，汇总奖励总数、待发放数和已发放数。"""
         stats = RewardService.get_reward_statistics()
         return ApiResponse.success(stats)

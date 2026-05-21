@@ -1,9 +1,9 @@
-"""工序序列化器"""
+"""工序相关序列化定义。"""
 from marshmallow import Schema, fields, validate
 
 
 class ProcessSchema(Schema):
-    """工序序列化器"""
+    """工序序列化器。"""
     id = fields.Int()
     name = fields.Str()
     code = fields.Str()
