@@ -46,8 +46,8 @@ style_option_query_parser.add_argument('category_id', type=int, location='args',
 style_option_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
 
 style_splice_item_model = style_ns.model('StyleSpliceItem', {
-    'sequence': fields.Integer(description='拼接顺序', example=1),
-    'description': fields.String(description='拼接描述', example='红色棉麻'),
+    'sequence': fields.Integer(description='拼接节位顺序', example=1),
+    'description': fields.String(description='拼接节位描述', example='红色棉麻'),
 })
 
 style_item_model = style_ns.model('StyleItem', {
@@ -89,10 +89,10 @@ style_option_model = style_ns.model('StyleOptionItem', {
 style_list_data = build_page_data_model(style_ns, 'StyleListData', style_item_model, items_description='款号列表')
 style_list_response = build_page_response_model(style_ns, 'StyleListResponse', base_response, style_list_data, '款号分页数据')
 style_item_response = style_ns.clone('StyleItemResponse', base_response, {
-    'data': fields.Nested(style_item_model, description='款号详情数据')
+    'data': fields.Nested(style_item_model, description='款号详情数据'),
 })
 style_options_response = style_ns.clone('StyleOptionsResponse', base_response, {
-    'data': fields.List(fields.Nested(style_option_model), description='款号下拉选项列表')
+    'data': fields.List(fields.Nested(style_option_model), description='款号下拉选项列表'),
 })
 
 style_create_model = style_ns.model('StyleCreate', {
@@ -145,13 +145,12 @@ style_update_model = style_ns.model('StyleUpdate', {
 })
 
 style_schema = StyleSchema()
-styles_schema = StyleSchema(many=True)
 style_create_schema = StyleCreateSchema()
 style_update_schema = StyleUpdateSchema()
 
 
 def get_style_request_context():
-    """获取款号接口通用的当前用户和工厂上下文。"""
+    """获取款号接口通用的当前用户与工厂上下文。"""
     current_user, error_response_data = require_current_user()
     if error_response_data:
         return None, None, error_response_data
@@ -166,7 +165,7 @@ def get_accessible_style_or_error(style_id):
 
     style = StyleService.get_style_by_id(style_id)
     if not style:
-        return None, None, None, ApiResponse.error('款号不存在')
+        return None, None, None, ApiResponse.error('款号不存在', 404)
 
     has_permission, error = StyleService.check_permission(current_user, current_factory_id, style)
     if not has_permission:
@@ -175,7 +174,7 @@ def get_accessible_style_or_error(style_id):
 
 
 def serialize_style(style):
-    """序列化单个款号，并补充分类名称。"""
+    """序列化单个款号，并补充分类型名称。"""
     item = style_schema.dump(style)
     item['category_name'] = style.category.name if style.category else None
     return item
@@ -248,7 +247,7 @@ class StyleOptions(Resource):
     @style_ns.response(401, '未登录', unauthorized_response)
     @style_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """查询款号下拉选项列表，供款号选择器直接使用。"""
+        """查询款号下拉选项接口，供款号选择器直接使用。"""
         current_user, current_factory_id, error_response_data = get_style_request_context()
         if error_response_data:
             return error_response_data
@@ -287,6 +286,7 @@ class StyleDetail(Resource):
         current_user, current_factory_id, style, error_response_data = get_accessible_style_or_error(style_id)
         if error_response_data:
             return error_response_data
+
         can_manage, error = StyleService.check_manage_permission(current_user, current_factory_id, style)
         if not can_manage:
             return ApiResponse.error(error, 403)
@@ -314,9 +314,11 @@ class StyleDetail(Resource):
         current_user, current_factory_id, style, error_response_data = get_accessible_style_or_error(style_id)
         if error_response_data:
             return error_response_data
+
         can_manage, error = StyleService.check_manage_permission(current_user, current_factory_id, style)
         if not can_manage:
             return ApiResponse.error(error, 403)
+
         success, error = StyleService.delete_style(style)
         if not success:
             return ApiResponse.error(error, 409)

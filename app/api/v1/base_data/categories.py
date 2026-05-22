@@ -55,8 +55,11 @@ category_item_model = category_ns.model('CategoryItem', {
     'remark': fields.String(description='备注'),
     'create_time': fields.String(description='创建时间'),
     'update_time': fields.String(description='更新时间'),
-    'children': fields.List(fields.Raw, description='递归子分类列表；结构与当前分类节点一致'),
 })
+category_item_model['children'] = fields.List(
+    fields.Nested(category_item_model),
+    description='递归子分类列表；结构与当前分类节点一致',
+)
 
 category_option_model = category_ns.model('CategoryOptionItem', {
     'id': fields.Integer(description='分类ID', example=1),
@@ -214,7 +217,7 @@ class CategoryDetail(Resource):
             return error_response_data
         category = CategoryService.get_category_by_id(category_id)
         if not category:
-            return ApiResponse.error('分类不存在')
+            return ApiResponse.error('分类不存在', 404)
 
         has_permission, error = CategoryService.check_permission(current_user, current_factory_id, category)
         if not has_permission:
@@ -236,7 +239,7 @@ class CategoryDetail(Resource):
             return error_response_data
         category = CategoryService.get_category_by_id(category_id)
         if not category:
-            return ApiResponse.error('分类不存在')
+            return ApiResponse.error('分类不存在', 404)
 
         can_manage, error = CategoryService.check_manage_permission(current_user, current_factory_id, category)
         if not can_manage:
@@ -266,7 +269,7 @@ class CategoryDetail(Resource):
             return error_response_data
         category = CategoryService.get_category_by_id(category_id)
         if not category:
-            return ApiResponse.error('分类不存在')
+            return ApiResponse.error('分类不存在', 404)
 
         can_manage, error = CategoryService.check_manage_permission(current_user, current_factory_id, category)
         if not can_manage:

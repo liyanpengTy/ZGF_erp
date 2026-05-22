@@ -39,7 +39,7 @@ build_page_data_model = common["build_page_data_model"]
 build_page_response_model = common["build_page_response_model"]
 
 bundle_query_parser = page_parser.copy()
-bundle_query_parser.add_argument("factory_id", type=int, location="args", help="工厂 ID；平台内部用户可选传")
+bundle_query_parser.add_argument("factory_id", type=int, location="args", help="工厂 ID，平台内部用户可选传")
 bundle_query_parser.add_argument("order_no", type=str, location="args", help="订单号")
 bundle_query_parser.add_argument("style_no", type=str, location="args", help="款号")
 bundle_query_parser.add_argument("cut_batch_no", type=int, location="args", help="床次")
@@ -59,7 +59,7 @@ bundle_query_parser.add_argument(
 )
 
 bundle_in_hand_stats_parser = new_query_parser()
-bundle_in_hand_stats_parser.add_argument("factory_id", type=int, location="args", help="工厂 ID；平台内部用户可选传")
+bundle_in_hand_stats_parser.add_argument("factory_id", type=int, location="args", help="工厂 ID，平台内部用户可选传")
 bundle_in_hand_stats_parser.add_argument("holder_user_id", type=int, location="args", help="持有人用户 ID")
 bundle_in_hand_stats_parser.add_argument("process_id", type=int, location="args", help="当前工序 ID")
 
@@ -166,7 +166,7 @@ bundle_issue_model = bundle_ns.model(
     "BundleIssueRequest",
     {
         "process_id": fields.Integer(required=True, description="领货工序 ID", example=1),
-        "holder_user_id": fields.Integer(description="领货人 ID；不传则默认当前登录人", example=15),
+        "holder_user_id": fields.Integer(description="领货人 ID，不传则默认当前登录人", example=15),
         "remark": fields.String(description="备注", example="车位领货"),
     },
 )
@@ -295,7 +295,7 @@ class BundleInHandStatistics(Resource):
     @bundle_ns.response(401, "未登录", unauthorized_response)
     @bundle_ns.response(403, "无权限", forbidden_response)
     def get(self):
-        """查询菲在手统计接口，支持按工厂、持有人、工序维度汇总。"""
+        """查询菲在手统计接口，支持按工厂、持有人和工序维度汇总。"""
         args = bundle_in_hand_stats_parser.parse_args()
         current_user, current_factory_id, error_response_obj = resolve_read_factory_context(
             query_factory_id=args.get("factory_id"),

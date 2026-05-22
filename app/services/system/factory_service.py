@@ -15,10 +15,11 @@ from app.models.auth.user import User
 from app.models.system.factory import Factory
 from app.models.system.user_factory import UserFactory
 from app.services.base.base_service import BaseService
+from app.services.system.role_service import RoleService
 
 
 class FactoryService(BaseService):
-    """工厂管理服务。"""
+    """封装工厂、工厂成员和绑定二维码的业务逻辑。"""
 
     @staticmethod
     def _sync_user_identity(user):
@@ -132,6 +133,7 @@ class FactoryService(BaseService):
         )
         user_factory.save()
         FactoryService._sync_user_identity(factory_admin)
+        RoleService.clear_permission_cache()
 
         factory_admin.is_paid = 1
         factory_admin.save()
@@ -177,7 +179,7 @@ class FactoryService(BaseService):
 
     @staticmethod
     def delete_factory(factory):
-        """软删除工厂；删除前要求先清理非 owner 关系。"""
+        """软删除工厂，删除前要求先清理非 owner 关系。"""
         user_count = UserFactory.query.filter_by(factory_id=factory.id, is_deleted=0).filter(
             UserFactory.relation_type != RELATION_TYPE_OWNER
         ).count()
@@ -191,6 +193,7 @@ class FactoryService(BaseService):
 
         factory.is_deleted = 1
         factory.save()
+        RoleService.clear_permission_cache()
         return True, None
 
     @staticmethod
@@ -294,6 +297,7 @@ class FactoryService(BaseService):
         )
         user_factory.save()
         FactoryService._sync_user_identity(user)
+        RoleService.clear_permission_cache()
         return user_factory, None
 
     @staticmethod
@@ -337,6 +341,7 @@ class FactoryService(BaseService):
             user.nickname = factory.name
             user.save()
         FactoryService._sync_user_identity(user)
+        RoleService.clear_permission_cache()
         return user_factory, None
 
     @staticmethod
@@ -354,6 +359,7 @@ class FactoryService(BaseService):
         user = User.query.filter_by(id=user_id, is_deleted=0).first()
         if user:
             FactoryService._sync_user_identity(user)
+        RoleService.clear_permission_cache()
         return True, None
 
     @staticmethod
@@ -422,6 +428,7 @@ class FactoryService(BaseService):
         user = User.query.filter_by(id=user_id, is_deleted=0).first()
         if user:
             FactoryService._sync_user_identity(user)
+        RoleService.clear_permission_cache()
 
         return {
             "factory_id": factory.id,

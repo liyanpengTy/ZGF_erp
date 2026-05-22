@@ -12,21 +12,36 @@ from app.models.system.role import Role, role_menu
 from app.models.system.user_factory import UserFactory
 from app.models.system.user_factory_role import UserFactoryRole
 from app.services.base.base_service import BaseService
+from app.utils.cache import SimpleTTLCache
 
 
 FACTORY_ROLE_FORBIDDEN_PERMISSION_PREFIXES = (
     'system.',
 )
+FACTORY_ADMIN_PERMISSION_CACHE = SimpleTTLCache(default_ttl=300)
 
 
 class RoleService(BaseService):
     """角色管理服务。"""
 
     @staticmethod
+    def clear_permission_cache():
+        """清空角色菜单变更后受影响的权限缓存。"""
+        from app.services.system.user_service import UserService
+
+        FACTORY_ADMIN_PERMISSION_CACHE.clear()
+        UserService.clear_permission_cache()
+
+    @staticmethod
     def has_factory_admin_permission(user, factory_id):
         """判断用户是否具备指定工厂的管理员能力。"""
         if not user or user.is_internal_user or not factory_id:
             return False
+
+        cache_key = (user.id, factory_id)
+        cached = FACTORY_ADMIN_PERMISSION_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
 
         owner_relation = UserFactory.query.filter_by(
             user_id=user.id,
@@ -36,6 +51,7 @@ class RoleService(BaseService):
             is_deleted=0,
         ).first()
         if owner_relation:
+            FACTORY_ADMIN_PERMISSION_CACHE.set(cache_key, True)
             return True
 
         admin_role = UserFactoryRole.query.join(Role, Role.id == UserFactoryRole.role_id).filter(
@@ -48,7 +64,9 @@ class RoleService(BaseService):
             Role.status == 1,
             Role.is_deleted == 0,
         ).first()
-        return admin_role is not None
+        result = admin_role is not None
+        FACTORY_ADMIN_PERMISSION_CACHE.set(cache_key, result)
+        return result
 
     @staticmethod
     def can_manage_role(current_user, role, current_factory_id=None):
@@ -206,6 +224,7 @@ class RoleService(BaseService):
             status=1,
         )
         role.save()
+        RoleService.clear_permission_cache()
         return role, None
 
     @staticmethod
@@ -229,6 +248,7 @@ class RoleService(BaseService):
             role.is_factory_admin = data['is_factory_admin']
 
         role.save()
+        RoleService.clear_permission_cache()
         return role, None
 
     @staticmethod
@@ -240,6 +260,7 @@ class RoleService(BaseService):
 
         role.is_deleted = 1
         role.save()
+        RoleService.clear_permission_cache()
         return True, None
 
     @staticmethod
@@ -272,6 +293,7 @@ class RoleService(BaseService):
         for menu_id in menu_ids:
             db.session.execute(role_menu.insert().values(role_id=role_id, menu_id=menu_id))
         db.session.commit()
+        RoleService.clear_permission_cache()
         return True, None
 
     @staticmethod

@@ -34,7 +34,7 @@ wage_query_parser.add_argument(
 )
 
 employee_wage_item_model = employee_wage_ns.model('EmployeeWageItem', {
-    'id': fields.Integer(description='薪资记录 ID', example=1),
+    'id': fields.Integer(description='工资记录 ID', example=1),
     'user_id': fields.Integer(description='员工 ID', example=2),
     'username': fields.String(description='用户名', example='factory_employee'),
     'nickname': fields.String(description='昵称', example='工厂员工'),
@@ -56,7 +56,7 @@ wage_list_data = build_page_data_model(employee_wage_ns, 'WageListData', employe
 wage_list_response = build_page_response_model(employee_wage_ns, 'WageListResponse', base_response, wage_list_data, '计薪分页数据')
 
 wage_item_response = employee_wage_ns.clone('WageItemResponse', base_response, {
-    'data': fields.Nested(employee_wage_item_model, description='薪资详情数据'),
+    'data': fields.Nested(employee_wage_item_model, description='工资详情数据'),
 })
 
 wage_calculate_result_model = employee_wage_ns.model('WageCalculateResult', {
@@ -119,7 +119,7 @@ wage_update_schema = EmployeeWageUpdateSchema()
 
 
 def build_wage_calculate_payload(user_id, process_id, wage_amount):
-    """构造计薪试算接口的返回数据。"""
+    """构造工资试算接口的返回数据。"""
     return {
         'user_id': user_id,
         'process_id': process_id,
@@ -128,7 +128,7 @@ def build_wage_calculate_payload(user_id, process_id, wage_amount):
 
 
 def check_wage_view_permission(current_user):
-    """校验计薪查看权限，限定为平台内部用户可访问。"""
+    """校验计薪查看权限，仅平台内部用户允许访问。"""
     if not current_user:
         return False, '用户不存在'
     if not current_user.is_internal_user:
@@ -137,7 +137,7 @@ def check_wage_view_permission(current_user):
 
 
 def check_wage_write_permission(current_user):
-    """校验计薪维护权限，限定为平台管理员可维护配置。"""
+    """校验计薪维护权限，仅平台管理员允许维护配置。"""
     if not current_user:
         return False, '用户不存在'
     if not current_user.is_platform_admin:
@@ -193,6 +193,7 @@ class EmployeeWageList(Resource):
         current_user, error_response_data = get_employee_wage_user_or_error()
         if error_response_data:
             return error_response_data
+
         has_permission, error = check_wage_write_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
@@ -222,6 +223,7 @@ class EmployeeWageDetail(Resource):
         current_user, error_response_data = get_employee_wage_user_or_error()
         if error_response_data:
             return error_response_data
+
         has_permission, error = check_wage_view_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
@@ -245,6 +247,7 @@ class EmployeeWageDetail(Resource):
         current_user, error_response_data = get_employee_wage_user_or_error()
         if error_response_data:
             return error_response_data
+
         has_permission, error = check_wage_write_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
@@ -275,6 +278,7 @@ class EmployeeWageDetail(Resource):
         current_user, error_response_data = get_employee_wage_user_or_error()
         if error_response_data:
             return error_response_data
+
         has_permission, error = check_wage_write_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)
@@ -300,6 +304,7 @@ class WageCalculate(Resource):
         current_user, error_response_data = get_employee_wage_user_or_error()
         if error_response_data:
             return error_response_data
+
         has_permission, error = check_wage_view_permission(current_user)
         if not has_permission:
             return ApiResponse.error(error, 403)

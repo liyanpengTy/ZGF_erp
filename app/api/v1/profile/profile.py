@@ -23,17 +23,17 @@ unauthorized_response = common['unauthorized_response']
 profile_update_model = profile_ns.model('ProfileUpdate', {
     'nickname': fields.String(description='昵称', example='新昵称'),
     'phone': fields.String(description='手机号', example='13800138000'),
-    'avatar': fields.String(description='头像 URL', example='/uploads/avatar/avatar.jpg')
+    'avatar': fields.String(description='头像 URL', example='/uploads/avatar/avatar.jpg'),
 })
 
 password_change_model = profile_ns.model('PasswordChange', {
     'old_password': fields.String(required=True, description='旧密码', example='123456'),
     'new_password': fields.String(required=True, description='新密码', example='654321'),
-    'confirm_password': fields.String(required=True, description='确认新密码', example='654321')
+    'confirm_password': fields.String(required=True, description='确认新密码', example='654321'),
 })
 
 user_info_model = profile_ns.model('ProfileUserInfo', {
-    'id': fields.Integer(description='用户ID'),
+    'id': fields.Integer(description='用户 ID'),
     'username': fields.String(description='用户名'),
     'nickname': fields.String(description='昵称'),
     'phone': fields.String(description='手机号'),
@@ -47,17 +47,17 @@ user_info_model = profile_ns.model('ProfileUserInfo', {
     'invited_count': fields.Integer(description='邀请人数'),
     'is_paid': fields.Integer(description='是否已付费'),
     'create_time': fields.String(description='创建时间'),
-    'last_login_time': fields.String(description='最后登录时间')
+    'last_login_time': fields.String(description='最后登录时间'),
 })
 
-profile_statistics_detail_model = profile_ns.model('Statistics', {
+profile_statistics_detail_model = profile_ns.model('ProfileStatisticsDetail', {
     'total_operations': fields.Integer(description='累计操作次数'),
     'total_logins': fields.Integer(description='累计登录次数'),
-    'today_logined': fields.Boolean(description='今日是否登录')
+    'today_logined': fields.Boolean(description='今日是否已登录'),
 })
 
 profile_stats_model = profile_ns.model('ProfileStats', {
-    'user_id': fields.Integer(description='用户ID'),
+    'user_id': fields.Integer(description='用户 ID'),
     'username': fields.String(description='用户名'),
     'nickname': fields.String(description='昵称'),
     'phone': fields.String(description='手机号'),
@@ -68,54 +68,54 @@ profile_stats_model = profile_ns.model('ProfileStats', {
     'subject_type_label': fields.String(description='主体类型名称'),
     'create_time': fields.String(description='创建时间'),
     'last_login_time': fields.String(description='最后登录时间'),
-    'statistics': fields.Nested(profile_statistics_detail_model, description='个人统计数据')
+    'statistics': fields.Nested(profile_statistics_detail_model, description='个人统计数据'),
 })
 
 avatar_response_data = profile_ns.model('AvatarResponseData', {
     'avatar': fields.String(description='头像相对路径'),
-    'url': fields.String(description='头像访问地址')
+    'url': fields.String(description='头像访问地址'),
 })
 
-profile_invited_user_model = profile_ns.model('InvitedUser', {
-    'id': fields.Integer(description='用户ID'),
+profile_invited_user_model = profile_ns.model('ProfileInvitedUser', {
+    'id': fields.Integer(description='用户 ID'),
     'username': fields.String(description='用户名'),
     'nickname': fields.String(description='昵称'),
-    'create_time': fields.String(description='创建时间')
+    'create_time': fields.String(description='创建时间'),
 })
 
 invite_info_model = profile_ns.model('InviteInfo', {
     'invite_code': fields.String(description='邀请码'),
     'invited_count': fields.Integer(description='邀请人数'),
-    'invited_users': fields.List(fields.Nested(profile_invited_user_model), description='邀请的用户列表')
+    'invited_users': fields.List(fields.Nested(profile_invited_user_model), description='被邀请用户列表'),
 })
 
 invite_reward_model = profile_ns.model('InviteReward', {
-    'need_count': fields.Integer(description='所需邀请人数'),
+    'need_count': fields.Integer(description='达成奖励所需邀请人数'),
     'current_count': fields.Integer(description='当前邀请人数'),
-    'progress': fields.Integer(description='进度百分比'),
+    'progress': fields.Integer(description='当前进度百分比'),
     'pending_rewards': fields.Integer(description='待发放奖励数量'),
     'reward_received': fields.Boolean(description='是否已领取奖励'),
-    'reward_type': fields.String(description='奖励类型')
+    'reward_type': fields.String(description='奖励类型'),
 })
 
 user_info_response = profile_ns.clone('ProfileUserInfoResponse', base_response, {
-    'data': fields.Nested(user_info_model, description='个人信息数据')
+    'data': fields.Nested(user_info_model, description='个人信息数据'),
 })
 
 profile_stats_response = profile_ns.clone('ProfileStatsResponse', base_response, {
-    'data': fields.Nested(profile_stats_model, description='个人统计数据')
+    'data': fields.Nested(profile_stats_model, description='个人统计数据'),
 })
 
 avatar_response = profile_ns.clone('AvatarResponse', base_response, {
-    'data': fields.Nested(avatar_response_data, description='头像上传结果数据')
+    'data': fields.Nested(avatar_response_data, description='头像上传结果'),
 })
 
 invite_info_response = profile_ns.clone('InviteInfoResponse', base_response, {
-    'data': fields.Nested(invite_info_model, description='邀请信息数据')
+    'data': fields.Nested(invite_info_model, description='邀请信息数据'),
 })
 
 invite_reward_response = profile_ns.clone('InviteRewardResponse', base_response, {
-    'data': fields.Nested(invite_reward_model, description='邀请奖励数据')
+    'data': fields.Nested(invite_reward_model, description='邀请奖励数据'),
 })
 
 user_schema = UserSchema()
@@ -124,7 +124,7 @@ password_change_schema = PasswordChangeSchema()
 
 
 def build_invite_info_payload(user, invited_users):
-    """构造邀请信息接口的返回数据。"""
+    """构造邀请信息接口返回数据。"""
     return {
         'invite_code': user.invite_code,
         'invited_count': user.invited_count,
@@ -133,15 +133,15 @@ def build_invite_info_payload(user, invited_users):
                 'id': invited_user.id,
                 'username': invited_user.username,
                 'nickname': invited_user.nickname,
-                'create_time': invited_user.create_time.isoformat() if invited_user.create_time else None
+                'create_time': invited_user.create_time.isoformat() if invited_user.create_time else None,
             }
             for invited_user in invited_users
-        ]
+        ],
     }
 
 
 def build_invite_reward_payload(user, pending_count, need_count=5):
-    """构造邀请奖励进度接口的返回数据。"""
+    """构造邀请奖励进度接口返回数据。"""
     current_count = user.invited_count
     progress = min(100, int(current_count / need_count * 100))
     return {
@@ -150,7 +150,7 @@ def build_invite_reward_payload(user, pending_count, need_count=5):
         'progress': progress,
         'pending_rewards': pending_count,
         'reward_received': False,
-        'reward_type': None
+        'reward_type': None,
     }
 
 
@@ -208,7 +208,7 @@ class ChangePassword(Resource):
             user,
             data['old_password'],
             data['new_password'],
-            data['confirm_password']
+            data['confirm_password'],
         )
         if not success:
             return ApiResponse.error(message, 400)
@@ -228,7 +228,7 @@ class UploadAvatar(Resource):
             return error_response_data
 
         if 'file' not in request.files:
-            return ApiResponse.error('请选择文件')
+            return ApiResponse.error('请选择文件', 400)
 
         file = request.files['file']
         result, error = ProfileService.upload_avatar(user, file)
@@ -258,7 +258,7 @@ class InviteInfo(Resource):
     @profile_ns.response(200, '成功', invite_info_response)
     @profile_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """查询邀请信息接口，返回邀请码、邀请人数和邀请用户列表。"""
+        """查询邀请信息接口，返回邀请码、邀请人数和被邀请用户列表。"""
         from app.models.auth.user import User
 
         user, error_response_data = require_current_user()
@@ -275,7 +275,7 @@ class InviteReward(Resource):
     @profile_ns.response(200, '成功', invite_reward_response)
     @profile_ns.response(401, '未登录', unauthorized_response)
     def get(self):
-        """查询邀请奖励进度接口，返回当前邀请进度和待发放奖励数。"""
+        """查询邀请奖励进度接口，返回当前邀请进度和待发放奖励数量。"""
         user, error_response_data = require_current_user()
         if error_response_data:
             return error_response_data
@@ -283,7 +283,7 @@ class InviteReward(Resource):
         pending_count = RewardRecord.query.filter_by(
             user_id=user.id,
             status='pending',
-            is_deleted=0
+            is_deleted=0,
         ).count()
 
         return ApiResponse.success(build_invite_reward_payload(user, pending_count))

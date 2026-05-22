@@ -124,7 +124,7 @@ def get_process_or_error(process_id):
     """根据工序 ID 查询工序，不存在时返回统一错误响应。"""
     process = ProcessService.get_process_by_id(process_id)
     if not process:
-        return None, ApiResponse.error('工序不存在')
+        return None, ApiResponse.error('工序不存在', 404)
     return process, None
 
 
@@ -369,7 +369,7 @@ class StyleProcessDetail(Resource):
 
         mapping = ProcessService.get_style_process_mapping_by_id(mapping_id)
         if not mapping or mapping.style_id != style_id:
-            return ApiResponse.error('工序关联不存在')
+            return ApiResponse.error('工序关联不存在', 404)
 
         ProcessService.delete_style_process(mapping)
         return ApiResponse.success(message='删除成功')

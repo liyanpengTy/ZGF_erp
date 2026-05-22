@@ -7,10 +7,17 @@ from marshmallow import ValidationError
 from app.api.common.auth import get_current_claims, require_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser
+from app.api.common.resource_helpers import ensure_permission_or_error, get_resource_or_error
+from app.constants.permissions import (
+    PERM_SYSTEM_MENU_ADD,
+    PERM_SYSTEM_MENU_DELETE,
+    PERM_SYSTEM_MENU_EDIT,
+    PERM_SYSTEM_MENU_QUERY,
+)
 from app.models.system.menu import Menu
 from app.schemas.system.menu import MenuCreateSchema, MenuSchema, MenuUpdateSchema
 from app.services import MenuService
-from app.utils.permissions import login_required
+from app.utils.permissions import login_required, permission_required
 from app.utils.response import ApiResponse
 
 menu_ns = Namespace('菜单管理-menus', description='菜单管理')
@@ -61,8 +68,11 @@ menu_item_model = menu_ns.model('MenuItem', {
     'status': fields.Integer(description='状态'),
     'create_time': fields.String(description='创建时间'),
     'update_time': fields.String(description='更新时间'),
-    'children': fields.List(fields.Raw, description='递归子菜单列表，结构与当前节点一致'),
 })
+menu_item_model['children'] = fields.List(
+    fields.Nested(menu_item_model),
+    description='递归子菜单列表，结构与当前节点一致',
+)
 
 menu_list_response = menu_ns.clone('MenuListResponse', base_response, {
     'data': fields.List(fields.Nested(menu_item_model), description='菜单树列表'),
@@ -86,6 +96,7 @@ def get_menu_user_or_error():
 @menu_ns.route('')
 class MenuList(Resource):
     @login_required
+    @permission_required(PERM_SYSTEM_MENU_QUERY)
     @menu_ns.expect(menu_query_parser)
     @menu_ns.response(200, '成功', menu_list_response)
     @menu_ns.response(401, '未登录', unauthorized_response)
@@ -98,14 +109,16 @@ class MenuList(Resource):
             return error_response_data
 
         has_permission, error = MenuService.check_admin_permission(current_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        permission_error = ensure_permission_or_error(has_permission, error, 403)
+        if permission_error:
+            return permission_error
 
         menus = MenuService.get_menu_list(args)
         menu_tree = MenuService.build_menu_tree(menus, menu_schema=menu_schema)
         return ApiResponse.success(menu_tree)
 
     @login_required
+    @permission_required(PERM_SYSTEM_MENU_ADD)
     @menu_ns.expect(menu_create_model)
     @menu_ns.response(201, '创建成功', menu_item_response)
     @menu_ns.response(400, '参数错误', error_response)
@@ -117,8 +130,9 @@ class MenuList(Resource):
             return error_response_data
 
         has_permission, error = MenuService.check_admin_permission(current_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        permission_error = ensure_permission_or_error(has_permission, error, 403)
+        if permission_error:
+            return permission_error
 
         try:
             data = menu_create_schema.load(request.get_json() or {})
@@ -135,6 +149,7 @@ class MenuList(Resource):
 @menu_ns.route('/<int:menu_id>')
 class MenuDetail(Resource):
     @login_required
+    @permission_required(PERM_SYSTEM_MENU_QUERY)
     @menu_ns.response(200, '成功', menu_item_response)
     @menu_ns.response(403, '无权限', forbidden_response)
     @menu_ns.response(404, '菜单不存在', error_response)
@@ -145,16 +160,18 @@ class MenuDetail(Resource):
             return error_response_data
 
         has_permission, error = MenuService.check_admin_permission(current_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        permission_error = ensure_permission_or_error(has_permission, error, 403)
+        if permission_error:
+            return permission_error
 
-        menu = MenuService.get_menu_by_id(menu_id)
-        if not menu:
-            return ApiResponse.error('菜单不存在')
+        menu, error_response_data = get_resource_or_error(lambda: MenuService.get_menu_by_id(menu_id), '菜单不存在')
+        if error_response_data:
+            return error_response_data
 
         return ApiResponse.success(menu_schema.dump(menu))
 
     @login_required
+    @permission_required(PERM_SYSTEM_MENU_EDIT)
     @menu_ns.expect(menu_update_model)
     @menu_ns.response(200, '更新成功', menu_item_response)
     @menu_ns.response(404, '菜单不存在', error_response)
@@ -166,12 +183,13 @@ class MenuDetail(Resource):
             return error_response_data
 
         has_permission, error = MenuService.check_admin_permission(current_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        permission_error = ensure_permission_or_error(has_permission, error, 403)
+        if permission_error:
+            return permission_error
 
-        menu = MenuService.get_menu_by_id(menu_id)
-        if not menu:
-            return ApiResponse.error('菜单不存在')
+        menu, error_response_data = get_resource_or_error(lambda: MenuService.get_menu_by_id(menu_id), '菜单不存在')
+        if error_response_data:
+            return error_response_data
 
         try:
             data = menu_update_schema.load(request.get_json() or {})
@@ -185,6 +203,7 @@ class MenuDetail(Resource):
         return ApiResponse.success(menu_schema.dump(menu), '更新成功')
 
     @login_required
+    @permission_required(PERM_SYSTEM_MENU_DELETE)
     @menu_ns.response(200, '删除成功', base_response)
     @menu_ns.response(404, '菜单不存在', error_response)
     @menu_ns.response(403, '无权限', forbidden_response)
@@ -196,12 +215,13 @@ class MenuDetail(Resource):
             return error_response_data
 
         has_permission, error = MenuService.check_admin_permission(current_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        permission_error = ensure_permission_or_error(has_permission, error, 403)
+        if permission_error:
+            return permission_error
 
-        menu = MenuService.get_menu_by_id(menu_id)
-        if not menu:
-            return ApiResponse.error('菜单不存在')
+        menu, error_response_data = get_resource_or_error(lambda: MenuService.get_menu_by_id(menu_id), '菜单不存在')
+        if error_response_data:
+            return error_response_data
 
         success, error = MenuService.delete_menu(menu)
         if not success:
@@ -213,6 +233,7 @@ class MenuDetail(Resource):
 @menu_ns.route('/tree')
 class MenuTree(Resource):
     @login_required
+    @permission_required(PERM_SYSTEM_MENU_QUERY)
     @menu_ns.response(200, '成功', menu_list_response)
     @menu_ns.response(401, '未登录', unauthorized_response)
     @menu_ns.response(403, '无权限', forbidden_response)
@@ -223,8 +244,9 @@ class MenuTree(Resource):
             return error_response_data
 
         has_permission, error = MenuService.check_admin_permission(current_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        permission_error = ensure_permission_or_error(has_permission, error, 403)
+        if permission_error:
+            return permission_error
 
         menus = Menu.query.filter_by(status=1, is_deleted=0).order_by(Menu.sort_order).all()
         menu_tree = MenuService.build_menu_tree(menus, menu_schema=menu_schema)

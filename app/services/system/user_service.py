@@ -1,6 +1,9 @@
 """用户管理服务。"""
 
+from collections import defaultdict
+
 from flask_jwt_extended import get_jwt
+from sqlalchemy import case
 
 from app.constants.identity import ROLE_SCOPE_FACTORY, ROLE_SCOPE_PLATFORM
 from app.extensions import bcrypt, db
@@ -12,6 +15,10 @@ from app.models.system.user_factory import UserFactory
 from app.models.system.user_factory_role import UserFactoryRole
 from app.services.base.base_service import BaseService
 from app.services.system.role_service import RoleService
+from app.utils.cache import SimpleTTLCache
+
+
+PERMISSION_CACHE = SimpleTTLCache(default_ttl=300)
 
 
 class UserService(BaseService):
@@ -36,21 +43,37 @@ class UserService(BaseService):
 
     @staticmethod
     def get_user_factory_relations(user_id):
-        """查询用户当前有效的工厂挂靠关系。"""
+        """查询单个用户当前有效的工厂挂靠关系。"""
+        return UserService.get_user_factory_relations_map([user_id]).get(user_id, [])
+
+    @staticmethod
+    def get_user_factory_relations_map(user_ids):
+        """批量查询用户工厂挂靠关系，避免列表接口出现 N+1。"""
+        if not user_ids:
+            return {}
+
+        relation_priority = case(
+            (UserFactory.relation_type == 'owner', 0),
+            (UserFactory.relation_type == 'employee', 1),
+            (UserFactory.relation_type == 'customer', 2),
+            (UserFactory.relation_type == 'collaborator', 3),
+            else_=99,
+        )
         relations = (
             UserFactory.query.join(Factory, Factory.id == UserFactory.factory_id)
             .filter(
-                UserFactory.user_id == user_id,
+                UserFactory.user_id.in_(user_ids),
                 UserFactory.status == 1,
                 UserFactory.is_deleted == 0,
                 Factory.is_deleted == 0,
             )
-            .order_by(UserFactory.id.desc())
+            .order_by(UserFactory.user_id.asc(), relation_priority.asc(), UserFactory.id.asc())
             .all()
         )
 
-        return [
-            {
+        relation_map = defaultdict(list)
+        for relation in relations:
+            relation_map[relation.user_id].append({
                 'factory_id': relation.factory_id,
                 'factory_name': relation.factory.name if relation.factory else None,
                 'factory_code': relation.factory.code if relation.factory else None,
@@ -60,27 +83,35 @@ class UserService(BaseService):
                 'collaborator_type_label': relation.collaborator_type_label,
                 'entry_date': relation.entry_date.isoformat() if relation.entry_date else None,
                 'leave_date': relation.leave_date.isoformat() if relation.leave_date else None,
-            }
-            for relation in relations
-        ]
+            })
+        return relation_map
 
     @staticmethod
     def get_user_role_bindings(user_id):
-        """查询用户当前绑定的全部角色。"""
+        """查询单个用户当前绑定的全部角色。"""
+        return UserService.get_user_role_bindings_map([user_id]).get(user_id, [])
+
+    @staticmethod
+    def get_user_role_bindings_map(user_ids):
+        """批量查询用户角色绑定，避免列表接口出现 N+1。"""
+        if not user_ids:
+            return {}
+
         records = (
             UserFactoryRole.query.join(Role, Role.id == UserFactoryRole.role_id)
             .filter(
-                UserFactoryRole.user_id == user_id,
+                UserFactoryRole.user_id.in_(user_ids),
                 UserFactoryRole.is_deleted == 0,
                 Role.status == 1,
                 Role.is_deleted == 0,
             )
-            .order_by(UserFactoryRole.factory_id.desc(), Role.sort_order.asc(), Role.id.asc())
+            .order_by(UserFactoryRole.user_id.asc(), UserFactoryRole.factory_id.desc(), Role.sort_order.asc(), Role.id.asc())
             .all()
         )
 
-        return [
-            {
+        role_map = defaultdict(list)
+        for record in records:
+            role_map[record.user_id].append({
                 'role_id': record.role.id,
                 'role_name': record.role.name,
                 'role_code': record.role.code,
@@ -89,15 +120,14 @@ class UserService(BaseService):
                 'scope_id': record.role.scope_id,
                 'factory_id': record.factory_id,
                 'is_factory_admin': record.role.is_factory_admin,
-            }
-            for record in records
-        ]
+            })
+        return role_map
 
     @staticmethod
-    def build_user_view(user):
+    def build_user_view(user, factory_relations=None, role_bindings=None):
         """组装用户展示数据，统一给列表、详情和创建结果复用。"""
-        factory_relations = UserService.get_user_factory_relations(user.id)
-        role_bindings = UserService.get_user_role_bindings(user.id)
+        factory_relations = factory_relations if factory_relations is not None else UserService.get_user_factory_relations(user.id)
+        role_bindings = role_bindings if role_bindings is not None else UserService.get_user_role_bindings(user.id)
         relation_types = [item['relation_type'] for item in factory_relations]
         primary_relation = factory_relations[0] if factory_relations else None
 
@@ -132,9 +162,15 @@ class UserService(BaseService):
         if not role_ids:
             return []
 
+        cache_key = ('permission_codes', tuple(sorted(set(role_ids))))
+        cached = PERMISSION_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
         menu_records = db.session.query(role_menu).filter(role_menu.c.role_id.in_(role_ids)).all()
         menu_ids = sorted({record.menu_id for record in menu_records})
         if not menu_ids:
+            PERMISSION_CACHE.set(cache_key, [])
             return []
 
         menus = Menu.query.filter(
@@ -144,7 +180,9 @@ class UserService(BaseService):
             Menu.status == 1,
             Menu.is_deleted == 0,
         ).all()
-        return sorted({menu.permission for menu in menus})
+        permissions = sorted({menu.permission for menu in menus})
+        PERMISSION_CACHE.set(cache_key, permissions)
+        return permissions
 
     @staticmethod
     def _get_current_context_role_ids(user):
@@ -181,8 +219,13 @@ class UserService(BaseService):
         return [record.role_id for record in records]
 
     @staticmethod
+    def clear_permission_cache():
+        """清空用户权限相关缓存。"""
+        PERMISSION_CACHE.clear()
+
+    @staticmethod
     def get_permission_summary(user_id):
-        """返回当前用户的角色绑定、当前上下文权限和全绑定权限并集。"""
+        """返回当前用户的角色绑定、当前上下文权限并集和全量权限并集。"""
         user = UserService.get_user_by_id(user_id)
         if not user:
             return {
@@ -197,17 +240,21 @@ class UserService(BaseService):
         current_factory_id = claims.get('factory_id')
 
         if user.is_platform_admin:
-            all_permissions = sorted(
-                {
-                    menu.permission
-                    for menu in Menu.query.filter(
-                        Menu.permission.isnot(None),
-                        Menu.permission != '',
-                        Menu.status == 1,
-                        Menu.is_deleted == 0,
-                    ).all()
-                }
-            )
+            cache_key = ('all_permissions', 'platform_admin')
+            all_permissions = PERMISSION_CACHE.get(cache_key)
+            if all_permissions is None:
+                all_permissions = sorted(
+                    {
+                        menu.permission
+                        for menu in Menu.query.filter(
+                            Menu.permission.isnot(None),
+                            Menu.permission != '',
+                            Menu.status == 1,
+                            Menu.is_deleted == 0,
+                        ).all()
+                    }
+                )
+                PERMISSION_CACHE.set(cache_key, all_permissions)
             return {
                 'current_factory_id': current_factory_id,
                 'current_permissions': all_permissions,
@@ -238,8 +285,8 @@ class UserService(BaseService):
                 )
                 if relation_type:
                     user_ids_query = user_ids_query.filter_by(relation_type=relation_type)
-                user_ids = user_ids_query.all()
-                query = query.filter(User.id.in_([user_id for user_id, in user_ids]))
+                user_ids = [user_id for user_id, in user_ids_query.all()]
+                query = query.filter(User.id.in_(user_ids))
             return query
 
         if factory_id and RoleService.has_factory_admin_permission(current_user, factory_id):
@@ -250,8 +297,8 @@ class UserService(BaseService):
             )
             if relation_type:
                 user_ids_query = user_ids_query.filter_by(relation_type=relation_type)
-            user_ids = user_ids_query.all()
-            return query.filter(User.id.in_([user_id for user_id, in user_ids]))
+            user_ids = [user_id for user_id, in user_ids_query.all()]
+            return query.filter(User.id.in_(user_ids))
 
         return query.filter(User.id == current_user.id)
 
@@ -286,8 +333,19 @@ class UserService(BaseService):
         )
 
         pagination = query.order_by(User.id.desc()).paginate(page=page, per_page=page_size, error_out=False)
+        user_ids = [user.id for user in pagination.items]
+        relation_map = UserService.get_user_factory_relations_map(user_ids)
+        role_map = UserService.get_user_role_bindings_map(user_ids)
+
         return {
-            'items': [UserService.build_user_view(user) for user in pagination.items],
+            'items': [
+                UserService.build_user_view(
+                    user,
+                    factory_relations=relation_map.get(user.id, []),
+                    role_bindings=role_map.get(user.id, []),
+                )
+                for user in pagination.items
+            ],
             'total': pagination.total,
             'page': page,
             'page_size': page_size,
@@ -444,7 +502,7 @@ class UserService(BaseService):
             db.session.execute(UserFactoryRole.__table__.delete().where(UserFactoryRole.user_id == user_id))
 
         for role_id in role_ids:
-            role = Role.query.get(role_id)
+            role = db.session.get(Role, role_id)
             user_factory_role = UserFactoryRole(
                 user_id=user_id,
                 factory_id=0 if role.is_platform_role else factory_id,
@@ -453,4 +511,5 @@ class UserService(BaseService):
             db.session.add(user_factory_role)
 
         db.session.commit()
+        RoleService.clear_permission_cache()
         return True, None

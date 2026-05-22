@@ -136,7 +136,7 @@ class ColorDetail(Resource):
             return error_response_data
         color = ColorService.get_color_by_id(color_id)
         if not color:
-            return ApiResponse.error('颜色不存在')
+            return ApiResponse.error('颜色不存在', 404)
 
         has_permission, error = ColorService.check_permission(current_user, current_factory_id, color)
         if not has_permission:
@@ -159,7 +159,7 @@ class ColorDetail(Resource):
             return error_response_data
         color = ColorService.get_color_by_id(color_id)
         if not color:
-            return ApiResponse.error('颜色不存在')
+            return ApiResponse.error('颜色不存在', 404)
         can_manage, error = ColorService.check_manage_permission(current_user, current_factory_id, color)
         if not can_manage:
             return ApiResponse.error(error, 403)
@@ -188,7 +188,7 @@ class ColorDetail(Resource):
             return error_response_data
         color = ColorService.get_color_by_id(color_id)
         if not color:
-            return ApiResponse.error('颜色不存在')
+            return ApiResponse.error('颜色不存在', 404)
         can_manage, error = ColorService.check_manage_permission(current_user, current_factory_id, color)
         if not can_manage:
             return ApiResponse.error(error, 403)

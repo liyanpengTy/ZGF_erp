@@ -36,7 +36,7 @@ unauthorized_response = common["unauthorized_response"]
 forbidden_response = common["forbidden_response"]
 
 bundle_template_factory_parser = new_query_parser()
-bundle_template_factory_parser.add_argument("factory_id", type=int, location="args", help="工厂 ID；平台内部用户可选传")
+bundle_template_factory_parser.add_argument("factory_id", type=int, location="args", help="工厂 ID，平台内部用户可选传")
 
 bundle_template_item_model = bundle_template_ns.model(
     "BundleTemplateItemView",
@@ -45,9 +45,9 @@ bundle_template_item_model = bundle_template_ns.model(
         "field_code": fields.String(description="字段编码", example="style_no"),
         "field_label": fields.String(description="字段显示名称", example="款号"),
         "sort_order": fields.Integer(description="排序值", example=1),
-        "is_visible": fields.Integer(description="是否显示：1-显示，0-隐藏", example=1),
-        "is_bold": fields.Integer(description="是否加粗：1-是，0-否", example=1),
-        "is_new_line": fields.Integer(description="是否换行：1-换行，0-同行", example=1),
+        "is_visible": fields.Integer(description="是否显示，1-显示，0-隐藏", example=1),
+        "is_bold": fields.Integer(description="是否加粗，1-是，0-否", example=1),
+        "is_new_line": fields.Integer(description="是否换行，1-换行，0-同行", example=1),
     },
 )
 
@@ -57,9 +57,9 @@ bundle_template_item_input_model = bundle_template_ns.model(
         "field_code": fields.String(required=True, description="字段编码", example="style_no"),
         "field_label": fields.String(required=True, description="字段显示名称", example="款号"),
         "sort_order": fields.Integer(description="排序值", example=1, default=1),
-        "is_visible": fields.Integer(description="是否显示：1-显示，0-隐藏", example=1, default=1),
-        "is_bold": fields.Integer(description="是否加粗：1-是，0-否", example=0, default=0),
-        "is_new_line": fields.Integer(description="是否换行：1-换行，0-同行", example=1, default=1),
+        "is_visible": fields.Integer(description="是否显示，1-显示，0-隐藏", example=1, default=1),
+        "is_bold": fields.Integer(description="是否加粗，1-是，0-否", example=0, default=0),
+        "is_new_line": fields.Integer(description="是否换行，1-换行，0-同行", example=1, default=1),
     },
 )
 
@@ -67,13 +67,13 @@ bundle_template_model = bundle_template_ns.model(
     "BundleTemplateView",
     {
         "id": fields.Integer(description="模板 ID"),
-        "factory_id": fields.Integer(description="工厂 ID；系统模板为空", allow_null=True),
+        "factory_id": fields.Integer(description="工厂 ID，系统模板为空", allow_null=True),
         "name": fields.String(description="模板名称", example="系统默认菲模板"),
-        "template_scope": fields.String(description="模板范围：system/factory", example="system"),
+        "template_scope": fields.String(description="模板范围，system/factory", example="system"),
         "scope_label": fields.String(description="模板范围名称", example="系统模板"),
         "version": fields.Integer(description="模板版本号", example=1),
-        "is_default": fields.Integer(description="是否默认模板：1-是，0-否", example=1),
-        "status": fields.Integer(description="状态：1-启用，0-停用", example=1),
+        "is_default": fields.Integer(description="是否默认模板，1-是，0-否", example=1),
+        "status": fields.Integer(description="状态，1-启用，0-停用", example=1),
         "remark": fields.String(description="备注", allow_null=True),
         "create_time": fields.String(description="创建时间"),
         "update_time": fields.String(description="更新时间"),
@@ -85,7 +85,7 @@ bundle_template_create_model = bundle_template_ns.model(
     "BundleTemplateCreate",
     {
         "name": fields.String(required=True, description="模板名称", example="工厂默认菲模板"),
-        "is_default": fields.Integer(description="是否设为默认模板：1-是，0-否", example=1, default=0),
+        "is_default": fields.Integer(description="是否设为默认模板，1-是，0-否", example=1, default=0),
         "remark": fields.String(description="备注", example="适用于裁床打印"),
         "items": fields.List(fields.Nested(bundle_template_item_input_model), required=True, description="模板字段项列表"),
     },
@@ -95,8 +95,8 @@ bundle_template_update_model = bundle_template_ns.model(
     "BundleTemplateUpdate",
     {
         "name": fields.String(description="模板名称", example="工厂新版菲模板"),
-        "is_default": fields.Integer(description="是否设为默认模板：1-是，0-否", example=0),
-        "status": fields.Integer(description="状态：1-启用，0-停用", example=1),
+        "is_default": fields.Integer(description="是否设为默认模板，1-是，0-否", example=0),
+        "status": fields.Integer(description="状态，1-启用，0-停用", example=1),
         "remark": fields.String(description="备注", example="移除尺码字段"),
         "items": fields.List(fields.Nested(bundle_template_item_input_model), description="完整模板字段项列表"),
     },
@@ -131,11 +131,11 @@ bundle_rule_model = bundle_template_ns.model(
     {
         "id": fields.Integer(description="规则 ID"),
         "factory_id": fields.Integer(description="工厂 ID"),
-        "reset_cycle": fields.String(description="床次重置周期：yearly/monthly", example="yearly"),
+        "reset_cycle": fields.String(description="床次重置周期，yearly/monthly", example="yearly"),
         "reset_cycle_label": fields.String(description="床次重置周期名称", example="按年重置"),
         "default_template_id": fields.Integer(description="默认模板 ID", allow_null=True),
         "bundle_code_prefix": fields.String(description="菲号前缀", example="FEI"),
-        "status": fields.Integer(description="状态：1-启用，0-停用", example=1),
+        "status": fields.Integer(description="状态，1-启用，0-停用", example=1),
         "remark": fields.String(description="备注", allow_null=True),
         "create_time": fields.String(description="创建时间"),
         "update_time": fields.String(description="更新时间"),
@@ -145,10 +145,10 @@ bundle_rule_model = bundle_template_ns.model(
 bundle_rule_update_model = bundle_template_ns.model(
     "FactoryBundleRuleUpdate",
     {
-        "reset_cycle": fields.String(description="床次重置周期：yearly/monthly", example="monthly"),
+        "reset_cycle": fields.String(description="床次重置周期，yearly/monthly", example="monthly"),
         "default_template_id": fields.Integer(description="默认模板 ID", example=2),
         "bundle_code_prefix": fields.String(description="菲号前缀", example="CUT"),
-        "status": fields.Integer(description="状态：1-启用，0-停用", example=1),
+        "status": fields.Integer(description="状态，1-启用，0-停用", example=1),
         "remark": fields.String(description="备注", example="每月重置床次"),
     },
 )

@@ -1,9 +1,11 @@
-"""员工计酬相关序列化定义。"""
+"""员工计薪相关序列化定义。"""
+
 from marshmallow import Schema, fields, validate
 
 
 class EmployeeWageSchema(Schema):
-    """员工计酬序列化器"""
+    """员工计薪序列化器。"""
+
     id = fields.Int()
     user_id = fields.Int()
     username = fields.Str()
@@ -23,21 +25,23 @@ class EmployeeWageSchema(Schema):
 
 
 class EmployeeWageCreateSchema(Schema):
-    """创建员工计酬参数"""
+    """创建员工计薪参数。"""
+
     user_id = fields.Int(required=True)
     process_id = fields.Int(required=True)
     wage_type = fields.Str(required=True, validate=validate.OneOf(['monthly', 'piece', 'base_piece', 'hourly']))
-    monthly_salary = fields.Float(default=0)
-    piece_rate = fields.Float(default=0)
-    base_salary = fields.Float(default=0)
-    base_piece_rate = fields.Float(default=0)
-    hourly_rate = fields.Float(default=0)
+    monthly_salary = fields.Float(load_default=0)
+    piece_rate = fields.Float(load_default=0)
+    base_salary = fields.Float(load_default=0)
+    base_piece_rate = fields.Float(load_default=0)
+    hourly_rate = fields.Float(load_default=0)
     effective_date = fields.Str(required=True, validate=validate.Regexp(r'^\d{4}-\d{2}-\d{2}$'))
     remark = fields.Str()
 
 
 class EmployeeWageUpdateSchema(Schema):
-    """更新员工计酬参数"""
+    """更新员工计薪参数。"""
+
     wage_type = fields.Str(validate=validate.OneOf(['monthly', 'piece', 'base_piece', 'hourly']))
     monthly_salary = fields.Float()
     piece_rate = fields.Float()

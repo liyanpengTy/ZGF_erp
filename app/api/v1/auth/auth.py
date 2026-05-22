@@ -250,7 +250,7 @@ class SwitchFactory(Resource):
 
         factory = user_factory.factory
         if not factory or factory.is_deleted == 1:
-            return ApiResponse.error('工厂不存在')
+            return ApiResponse.error('工厂不存在', 404)
 
         access_token, refresh_token = AuthService.create_tokens(
             user,

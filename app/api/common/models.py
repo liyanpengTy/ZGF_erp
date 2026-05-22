@@ -26,6 +26,24 @@ def build_page_response_model(ns, name, base_response, page_data_model, data_des
     )
 
 
+def build_named_quantity_model(
+    ns,
+    name,
+    name_description="名称",
+    quantity_description="数量",
+    name_example="示例",
+    quantity_example=1,
+):
+    """构建通用的名称-数量统计项模型。"""
+    return ns.model(
+        name,
+        {
+            "name": fields.String(description=name_description, example=name_example),
+            "quantity": fields.Integer(description=quantity_description, example=quantity_example),
+        },
+    )
+
+
 def get_common_models(ns):
     """返回接口通用响应模型定义。"""
     base_response = ns.model(
@@ -86,4 +104,5 @@ def get_common_models(ns):
         "page_response": page_response,
         "build_page_data_model": build_page_data_model,
         "build_page_response_model": build_page_response_model,
+        "build_named_quantity_model": build_named_quantity_model,
     }

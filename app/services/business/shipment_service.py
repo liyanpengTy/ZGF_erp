@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+from sqlalchemy import func
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.extensions import db
@@ -115,15 +116,20 @@ class ShipmentService(BaseService):
     @staticmethod
     def get_completed_quantity_map_for_order(order_id):
         """统计订单下各 SKU 的已完工数量。"""
-        completed_map = {}
-        bundles = ProductionBundle.query.filter_by(
-            order_id=order_id,
-            is_deleted=0,
-            status='completed',
-        ).all()
-        for bundle in bundles:
-            completed_map[bundle.order_detail_sku_id] = completed_map.get(bundle.order_detail_sku_id, 0) + (bundle.bundle_quantity or 0)
-        return completed_map
+        rows = (
+            db.session.query(
+                ProductionBundle.order_detail_sku_id,
+                func.coalesce(func.sum(ProductionBundle.bundle_quantity), 0),
+            )
+            .filter(
+                ProductionBundle.order_id == order_id,
+                ProductionBundle.is_deleted == 0,
+                ProductionBundle.status == 'completed',
+            )
+            .group_by(ProductionBundle.order_detail_sku_id)
+            .all()
+        )
+        return {sku_id: int(quantity or 0) for sku_id, quantity in rows}
 
     @staticmethod
     def get_shipped_quantity_map_for_order(order_id, exclude_shipment_id=None):
@@ -137,10 +143,15 @@ class ShipmentService(BaseService):
         if exclude_shipment_id is not None:
             query = query.filter(Shipment.id != exclude_shipment_id)
 
-        shipped_map = {}
-        for item in query.all():
-            shipped_map[item.order_detail_sku_id] = shipped_map.get(item.order_detail_sku_id, 0) + (item.quantity or 0)
-        return shipped_map
+        rows = (
+            query.with_entities(
+                ShipmentItem.order_detail_sku_id,
+                func.coalesce(func.sum(ShipmentItem.quantity), 0),
+            )
+            .group_by(ShipmentItem.order_detail_sku_id)
+            .all()
+        )
+        return {sku_id: int(quantity or 0) for sku_id, quantity in rows}
 
     @staticmethod
     def get_shipment_availability(order_id):

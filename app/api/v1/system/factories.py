@@ -84,7 +84,7 @@ add_user_model = factory_ns.model(
             choices=["owner", "employee", "customer", "collaborator"],
         ),
         "collaborator_type": fields.String(
-            description="协作方类型，仅 relation_type=collaborator 时使用",
+            description="协作方类型，仅在 relation_type=collaborator 时使用",
             choices=["button_partner", "shrink_partner", "print_partner", "other_partner"],
         ),
     },
@@ -103,7 +103,10 @@ qrcode_response = factory_ns.clone(
     {"data": fields.Nested(qrcode_response_data, description="二维码数据")},
 )
 
-bind_factory_model = factory_ns.model("BindFactory", {"key": fields.String(required=True, description="二维码标识")})
+bind_factory_model = factory_ns.model(
+    "BindFactory",
+    {"key": fields.String(required=True, description="二维码标识")},
+)
 bind_response_data = factory_ns.model(
     "BindResponseData",
     {
@@ -209,15 +212,31 @@ user_list_data = factory_ns.model(
     },
 )
 
-factory_list_response = factory_ns.clone("FactoryListResponse", base_response, {"data": fields.Nested(factory_list_data, description="工厂分页数据")})
-factory_item_response = factory_ns.clone("FactoryItemResponse", base_response, {"data": fields.Nested(factory_item_model, description="工厂详情数据")})
+factory_list_response = factory_ns.clone(
+    "FactoryListResponse",
+    base_response,
+    {"data": fields.Nested(factory_list_data, description="工厂分页数据")},
+)
+factory_item_response = factory_ns.clone(
+    "FactoryItemResponse",
+    base_response,
+    {"data": fields.Nested(factory_item_model, description="工厂详情数据")},
+)
 factory_create_response = factory_ns.clone(
     "FactoryCreateResponse",
     base_response,
     {"data": fields.Nested(factory_create_response_data, description="工厂创建结果数据")},
 )
-user_list_response = factory_ns.clone("FactoryUserListResponse", base_response, {"data": fields.Nested(user_list_data, description="工厂用户分页数据")})
-user_item_response = factory_ns.clone("FactoryUserItemResponse", base_response, {"data": fields.Nested(user_item_model, description="工厂用户详情数据")})
+user_list_response = factory_ns.clone(
+    "FactoryUserListResponse",
+    base_response,
+    {"data": fields.Nested(user_list_data, description="工厂用户分页数据")},
+)
+user_item_response = factory_ns.clone(
+    "FactoryUserItemResponse",
+    base_response,
+    {"data": fields.Nested(user_item_model, description="工厂用户详情数据")},
+)
 factory_options_response = factory_ns.clone(
     "FactoryOptionsResponse",
     base_response,
@@ -299,7 +318,10 @@ def parse_factory_list_args():
     if page_size < 1 or page_size > 100:
         return None, "page_size 必须在 1 到 100 之间"
 
-    is_empty_query = all(value in (None, "") for value in [raw_page, raw_page_size, request.args.get("name"), request.args.get("status")])
+    is_empty_query = all(
+        value in (None, "")
+        for value in [raw_page, raw_page_size, request.args.get("name"), request.args.get("status")]
+    )
     filters.update({"page": page, "page_size": page_size, "return_all": is_empty_query})
     return filters, None
 

@@ -7,6 +7,7 @@ from marshmallow import ValidationError
 from app.api.common.auth import get_current_factory_id, require_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
+from app.api.common.resource_helpers import ensure_permission_or_error, get_resource_or_error
 from app.schemas.system.role import RoleAssignMenuSchema, RoleCreateSchema, RoleSchema, RoleUpdateSchema
 from app.services import RoleService
 from app.utils.permissions import login_required
@@ -156,10 +157,7 @@ def get_required_role_user():
 
 def get_role_or_error(role_id):
     """根据角色 ID 查询角色，不存在时返回统一错误响应。"""
-    role = RoleService.get_role_by_id(role_id)
-    if not role:
-        return None, ApiResponse.error('角色不存在')
-    return role, None
+    return get_resource_or_error(lambda: RoleService.get_role_by_id(role_id), '角色不存在')
 
 
 def serialize_role_option(role):
@@ -270,8 +268,9 @@ class RoleDetail(Resource):
         role, error_response_data = get_role_or_error(role_id)
         if error_response_data:
             return error_response_data
-        if not RoleService.verify_role_permission(current_user, role):
-            return ApiResponse.error('无权限查看此角色', 403)
+        permission_error = ensure_permission_or_error(RoleService.verify_role_permission(current_user, role), '无权限查看此角色', 403)
+        if permission_error:
+            return permission_error
         return ApiResponse.success(role_schema.dump(role))
 
     @login_required
@@ -288,8 +287,13 @@ class RoleDetail(Resource):
         role, error_response_data = get_role_or_error(role_id)
         if error_response_data:
             return error_response_data
-        if not RoleService.can_manage_role(current_user, role, current_factory_id):
-            return ApiResponse.error('只有平台管理员或本工厂管理员可以更新角色', 403)
+        permission_error = ensure_permission_or_error(
+            RoleService.can_manage_role(current_user, role, current_factory_id),
+            '只有平台管理员或本工厂管理员可以更新角色',
+            403,
+        )
+        if permission_error:
+            return permission_error
 
         try:
             data = role_update_schema.load(request.get_json() or {})
@@ -315,8 +319,13 @@ class RoleDetail(Resource):
         role, error_response_data = get_role_or_error(role_id)
         if error_response_data:
             return error_response_data
-        if not RoleService.can_manage_role(current_user, role, current_factory_id):
-            return ApiResponse.error('只有平台管理员或本工厂管理员可以删除角色', 403)
+        permission_error = ensure_permission_or_error(
+            RoleService.can_manage_role(current_user, role, current_factory_id),
+            '只有平台管理员或本工厂管理员可以删除角色',
+            403,
+        )
+        if permission_error:
+            return permission_error
 
         success, error = RoleService.delete_role(role)
         if not success:
@@ -338,8 +347,9 @@ class RoleMenus(Resource):
         role, error_response_data = get_role_or_error(role_id)
         if error_response_data:
             return error_response_data
-        if not RoleService.verify_role_permission(current_user, role):
-            return ApiResponse.error('无权限查看', 403)
+        permission_error = ensure_permission_or_error(RoleService.verify_role_permission(current_user, role), '无权限查看', 403)
+        if permission_error:
+            return permission_error
 
         return ApiResponse.success_list(RoleService.get_role_menu_ids(role_id))
 
@@ -357,8 +367,13 @@ class RoleMenus(Resource):
         role, error_response_data = get_role_or_error(role_id)
         if error_response_data:
             return error_response_data
-        if not RoleService.can_manage_role(current_user, role, current_factory_id):
-            return ApiResponse.error('只有平台管理员或本工厂管理员可以分配权限', 403)
+        permission_error = ensure_permission_or_error(
+            RoleService.can_manage_role(current_user, role, current_factory_id),
+            '只有平台管理员或本工厂管理员可以分配权限',
+            403,
+        )
+        if permission_error:
+            return permission_error
 
         try:
             data = role_assign_menu_schema.load(request.get_json() or {})
@@ -385,8 +400,9 @@ class RoleUsers(Resource):
         role, error_response_data = get_role_or_error(role_id)
         if error_response_data:
             return error_response_data
-        if not RoleService.verify_role_permission(current_user, role):
-            return ApiResponse.error('无权限查看', 403)
+        permission_error = ensure_permission_or_error(RoleService.verify_role_permission(current_user, role), '无权限查看', 403)
+        if permission_error:
+            return permission_error
 
         user_ids = RoleService.get_role_users(role_id)
         from app.models.auth.user import User

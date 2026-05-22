@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+from sqlalchemy import func
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.extensions import db
@@ -288,13 +289,25 @@ class OrderService(BaseService):
                 detail_groups[detail.id]['sku_items'].append(item)
                 detail_groups[detail.id]['ordered_quantity'] += ordered_quantity
 
-        cutting_reports = WorkCuttingReport.query.filter_by(order_id=order.id, is_deleted=0).all()
-        for report in cutting_reports:
-            item = sku_items.get(report.order_detail_sku_id)
+        cutting_rows = (
+            db.session.query(
+                WorkCuttingReport.order_detail_sku_id,
+                func.coalesce(func.sum(WorkCuttingReport.cut_quantity), 0),
+                func.count(WorkCuttingReport.id),
+            )
+            .filter(
+                WorkCuttingReport.order_id == order.id,
+                WorkCuttingReport.is_deleted == 0,
+            )
+            .group_by(WorkCuttingReport.order_detail_sku_id)
+            .all()
+        )
+        for sku_id, cut_quantity, report_count in cutting_rows:
+            item = sku_items.get(sku_id)
             if not item:
                 continue
-            item['cut_quantity'] += report.cut_quantity or 0
-            item['cutting_report_count'] += 1
+            item['cut_quantity'] += int(cut_quantity or 0)
+            item['cutting_report_count'] += int(report_count or 0)
 
         bundles = ProductionBundle.query.options(
             selectinload(ProductionBundle.flows)

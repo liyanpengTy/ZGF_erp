@@ -5,6 +5,7 @@ from flask_restx import Namespace, Resource, fields
 from app.api.common.auth import require_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_with_date_parser
+from app.api.common.resource_helpers import ensure_permission_or_error, get_resource_or_error
 from app.schemas.system.log import LoginLogSchema, OperationLogSchema
 from app.services import LogService
 from app.utils.permissions import login_required
@@ -147,13 +148,14 @@ class OperationLogDetail(Resource):
         if error_response_data:
             return error_response_data
 
-        log = LogService.get_operation_log_by_id(log_id)
-        if not log:
-            return ApiResponse.error('日志不存在')
+        log, error_response_data = get_resource_or_error(lambda: LogService.get_operation_log_by_id(log_id), '日志不存在')
+        if error_response_data:
+            return error_response_data
 
         has_permission, error = LogService.check_operation_log_permission(current_user, log)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        permission_error = ensure_permission_or_error(has_permission, error, 403)
+        if permission_error:
+            return permission_error
 
         return ApiResponse.success(operation_log_schema.dump(log))
 
@@ -188,13 +190,14 @@ class LoginLogDetail(Resource):
         if error_response_data:
             return error_response_data
 
-        log = LogService.get_login_log_by_id(log_id)
-        if not log:
-            return ApiResponse.error('日志不存在')
+        log, error_response_data = get_resource_or_error(lambda: LogService.get_login_log_by_id(log_id), '日志不存在')
+        if error_response_data:
+            return error_response_data
 
         has_permission, error = LogService.check_login_log_permission(current_user, log)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        permission_error = ensure_permission_or_error(has_permission, error, 403)
+        if permission_error:
+            return permission_error
 
         return ApiResponse.success(login_log_schema.dump(log))
 

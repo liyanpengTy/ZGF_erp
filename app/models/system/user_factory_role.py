@@ -7,11 +7,15 @@ from app.models.base import BaseModel
 
 
 class UserFactoryRole(BaseModel):
-    """用户角色分配表，记录用户在平台或某个工厂上下文中的角色。"""
+    """记录用户在平台或工厂上下文中的角色绑定关系。"""
 
     __tablename__ = 'sys_user_factory_role'
     __table_args__ = (
         db.UniqueConstraint('user_id', 'factory_id', 'role_id', name='uk_user_factory_role'),
+        db.Index('idx_sys_user_factory_role_user_factory_deleted', 'user_id', 'factory_id', 'is_deleted'),
+        db.Index('idx_sys_user_factory_role_user_deleted', 'user_id', 'is_deleted'),
+        db.Index('idx_sys_user_factory_role_role_deleted', 'role_id', 'is_deleted'),
+        db.Index('idx_sys_user_factory_role_factory_deleted', 'factory_id', 'is_deleted'),
         {'comment': '用户角色分配表'},
     )
 
@@ -20,7 +24,7 @@ class UserFactoryRole(BaseModel):
     factory_id = db.Column(
         db.Integer,
         nullable=False,
-        comment='角色分配上下文ID：平台角色为0，工厂角色为工厂ID'
+        comment='角色分配上下文ID：平台角色为0，工厂角色为工厂ID',
     )
     role_id = db.Column(db.Integer, db.ForeignKey('sys_role.id'), nullable=False, comment='角色ID')
     create_time = db.Column(db.DateTime, default=datetime.now, comment='创建时间')

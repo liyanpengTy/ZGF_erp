@@ -130,7 +130,7 @@ class SizeDetail(Resource):
 
         size = SizeService.get_size_by_id(size_id)
         if not size:
-            return ApiResponse.error('尺码不存在')
+            return ApiResponse.error('尺码不存在', 404)
 
         has_permission, error = SizeService.check_permission(current_user, current_factory_id, size)
         if not has_permission:
@@ -154,7 +154,7 @@ class SizeDetail(Resource):
 
         size = SizeService.get_size_by_id(size_id)
         if not size:
-            return ApiResponse.error('尺码不存在')
+            return ApiResponse.error('尺码不存在', 404)
 
         can_manage, error = SizeService.check_manage_permission(current_user, current_factory_id, size)
         if not can_manage:
@@ -184,7 +184,7 @@ class SizeDetail(Resource):
             return error_response_data
         size = SizeService.get_size_by_id(size_id)
         if not size:
-            return ApiResponse.error('尺码不存在')
+            return ApiResponse.error('尺码不存在', 404)
         can_manage, error = SizeService.check_manage_permission(current_user, current_factory_id, size)
         if not can_manage:
             return ApiResponse.error(error, 403)

@@ -10,6 +10,7 @@ from marshmallow import ValidationError
 from app.api.common.auth import get_current_claims, get_current_factory_id, require_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
+from app.api.common.resource_helpers import ensure_permission_or_error, get_resource_or_error
 from app.extensions import bcrypt
 from app.models.auth.user import User
 from app.models.system.factory import Factory
@@ -65,6 +66,9 @@ user_option_query_parser.add_argument(
     help='平台身份',
     choices=['platform_admin', 'platform_staff', 'external_user'],
 )
+
+user_role_query_parser = new_query_parser()
+user_role_query_parser.add_argument('factory_id', type=int, location='args', help='角色查询上下文工厂ID；平台角色固定传 0')
 
 user_create_model = user_ns.model('UserCreate', {
     'username': fields.String(required=True, description='用户名', example='testuser'),
@@ -171,6 +175,23 @@ user_options_response = user_ns.clone('SystemUserOptionsResponse', base_response
     'data': fields.List(fields.Nested(user_option_model), description='用户下拉选项列表'),
 })
 
+user_role_item_model = user_ns.model('SystemUserRoleItem', {
+    'id': fields.Integer(description='角色ID', example=1),
+    'scope_type': fields.String(description='角色归属范围', example='factory'),
+    'scope_type_label': fields.String(description='角色归属范围名称', example='工厂角色'),
+    'scope_id': fields.Integer(description='角色归属主键', example=1),
+    'name': fields.String(description='角色名称', example='工厂管理员'),
+    'code': fields.String(description='角色编码', example='factory_admin'),
+    'description': fields.String(description='角色描述', example='拥有工厂内全部管理能力'),
+    'status': fields.Integer(description='状态', example=1),
+    'sort_order': fields.Integer(description='排序值', example=1),
+    'data_scope': fields.String(description='数据范围', example='own_related'),
+    'data_scope_label': fields.String(description='数据范围名称', example='本人及关联数据'),
+    'is_factory_admin': fields.Integer(description='是否工厂管理员角色', example=1),
+    'create_time': fields.String(description='创建时间', example='2026-05-20 10:00:00'),
+    'update_time': fields.String(description='更新时间', example='2026-05-20 10:00:00'),
+})
+
 permission_summary_model = user_ns.model('UserPermissionSummary', {
     'current_factory_id': fields.Integer(description='当前 JWT 上下文中的工厂ID；平台账号通常为空', example=1),
     'current_permissions': fields.List(fields.String, description='当前上下文下生效的权限并集', example=['business.orders.browse']),
@@ -182,8 +203,8 @@ permission_summary_response = user_ns.clone('UserPermissionSummaryResponse', bas
     'data': fields.Nested(permission_summary_model, description='权限汇总数据'),
 })
 
-user_test_response = user_ns.model('UserTestResponse', {
-    'message': fields.String(description='测试结果'),
+user_roles_response = user_ns.clone('UserRolesResponse', base_response, {
+    'data': fields.List(fields.Nested(user_role_item_model), description='用户角色列表'),
 })
 
 user_create_schema = UserCreateSchema()
@@ -199,10 +220,7 @@ def get_required_current_user():
 
 def get_target_user_or_error(user_id):
     """根据用户 ID 查询目标用户，不存在时返回统一错误响应。"""
-    target_user = UserService.get_user_by_id(user_id)
-    if not target_user:
-        return None, ApiResponse.error('用户不存在')
-    return target_user, None
+    return get_resource_or_error(lambda: UserService.get_user_by_id(user_id), '用户不存在')
 
 
 def get_active_factory_ids(user):
@@ -269,6 +287,35 @@ def check_user_write_permission(current_user, target_user):
     return check_user_permission(current_user, target_user)
 
 
+def resolve_user_role_context_factory_id(current_user, target_user, requested_factory_id=None):
+    """解析用户角色查询所使用的上下文工厂ID。"""
+    if target_user.is_internal_user:
+        if requested_factory_id not in (None, 0):
+            return None, '平台用户角色上下文只能是 0'
+        return 0, None
+
+    if requested_factory_id is not None:
+        return requested_factory_id, None
+
+    current_factory_id = get_current_claims().get('factory_id')
+    if current_factory_id:
+        return current_factory_id, None
+
+    active_factory_ids = get_active_factory_ids(target_user)
+    if len(active_factory_ids) == 1:
+        return active_factory_ids[0], None
+
+    if current_user.is_internal_user:
+        return None, '请通过 factory_id 指定工厂角色上下文'
+
+    managed_factory_id, error = resolve_manage_factory_id(current_user)
+    if error:
+        return None, error
+    if not is_target_user_in_factory(target_user, managed_factory_id):
+        return None, '只能查看本工厂用户角色'
+    return managed_factory_id, None
+
+
 @user_ns.route('')
 class UserList(Resource):
     @login_required
@@ -322,7 +369,7 @@ class UserList(Resource):
         if factory_id:
             factory = Factory.query.filter_by(id=factory_id, is_deleted=0).first()
             if not factory:
-                return ApiResponse.error('工厂不存在', 400)
+                return ApiResponse.error('工厂不存在', 404)
 
         invite_code = hashlib.md5(f"{data['username']}{datetime.now()}".encode()).hexdigest()[:8].upper()
         while User.query.filter_by(invite_code=invite_code).first():
@@ -393,8 +440,9 @@ class UserDetail(Resource):
             return error_response_data
 
         has_permission, error = check_user_permission(current_user, target_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        permission_error = ensure_permission_or_error(has_permission, error, 403)
+        if permission_error:
+            return permission_error
         return ApiResponse.success(UserService.build_user_view(target_user))
 
     @login_required
@@ -413,8 +461,9 @@ class UserDetail(Resource):
             return error_response_data
 
         has_permission, error = check_user_write_permission(current_user, target_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        permission_error = ensure_permission_or_error(has_permission, error, 403)
+        if permission_error:
+            return permission_error
 
         try:
             data = user_update_schema.load(request.get_json() or {})
@@ -439,8 +488,9 @@ class UserDetail(Resource):
             return error_response_data
 
         has_permission, error = check_user_write_permission(current_user, target_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        permission_error = ensure_permission_or_error(has_permission, error, 403)
+        if permission_error:
+            return permission_error
         if target_user.id == current_user.id:
             return ApiResponse.error('不能删除当前登录用户', 403)
 
@@ -466,8 +516,9 @@ class UserResetPassword(Resource):
             return error_response_data
 
         has_permission, error = check_user_write_permission(current_user, target_user)
-        if not has_permission:
-            return ApiResponse.error(error, 403)
+        permission_error = ensure_permission_or_error(has_permission, error, 403)
+        if permission_error:
+            return permission_error
 
         try:
             data = user_reset_password_schema.load(request.get_json() or {})
@@ -481,21 +532,29 @@ class UserResetPassword(Resource):
 @user_ns.route('/<int:user_id>/roles')
 class UserRoles(Resource):
     @login_required
-    @user_ns.response(200, '成功', base_response)
+    @user_ns.expect(user_role_query_parser)
+    @user_ns.response(200, '成功', user_roles_response)
     @user_ns.response(403, '无权限', forbidden_response)
     @user_ns.response(404, '用户不存在', error_response)
     def get(self, user_id):
-        """查询用户角色集合接口，返回当前工厂上下文下的角色列表。"""
-        user, error_response_data = get_target_user_or_error(user_id)
+        """查询用户角色集合接口，返回指定上下文下的角色列表。"""
+        current_user, error_response_data = get_required_current_user()
         if error_response_data:
             return error_response_data
 
-        claims = get_current_claims()
-        factory_id = claims.get('factory_id')
-        if user.is_internal_user and factory_id is None:
-            factory_id = 0
-        if factory_id is None:
-            return ApiResponse.error('请指定工厂', 400)
+        target_user, error_response_data = get_target_user_or_error(user_id)
+        if error_response_data:
+            return error_response_data
+
+        has_permission, error = check_user_permission(current_user, target_user)
+        permission_error = ensure_permission_or_error(has_permission, error, 403)
+        if permission_error:
+            return permission_error
+
+        args = user_role_query_parser.parse_args()
+        factory_id, error = resolve_user_role_context_factory_id(current_user, target_user, args.get('factory_id'))
+        if error:
+            return ApiResponse.error(error, 400)
 
         roles = UserService.get_user_roles(user_id, factory_id)
         return ApiResponse.success_list(role_schema.dump(roles))
@@ -554,9 +613,3 @@ class UserPermissions(Resource):
         return ApiResponse.success(UserService.get_permission_summary(current_user.id))
 
 
-@user_ns.route('/test')
-class Test(Resource):
-    @user_ns.response(200, '成功', user_test_response)
-    def get(self):
-        """联调使用的最小测试接口。"""
-        return {'message': 'test ok'}

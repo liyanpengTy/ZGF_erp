@@ -27,6 +27,7 @@ unauthorized_response = common['unauthorized_response']
 forbidden_response = common['forbidden_response']
 build_page_data_model = common['build_page_data_model']
 build_page_response_model = common['build_page_response_model']
+build_named_quantity_model = common['build_named_quantity_model']
 
 shipment_query_parser = page_with_date_parser.copy()
 shipment_query_parser.add_argument('factory_id', type=int, location='args', help='工厂 ID，可选；平台内部用户可按工厂筛选')
@@ -93,11 +94,20 @@ shipment_cancel_model = shipment_ns.model('ShipmentCancel', {
     'remark': fields.String(description='作废备注', example='录入错误，重新开单'),
 })
 
+shipment_total_item_model = build_named_quantity_model(
+    shipment_ns,
+    'ShipmentTotalItem',
+    name_description='汇总名称',
+    quantity_description='汇总数量',
+    name_example='已出货',
+    quantity_example=120,
+)
+
 shipment_list_statistics_model = shipment_ns.model('ShipmentListStatistics', {
     'shipment_count': fields.Integer(description='当前页出货单数量', example=3),
     'total_quantity': fields.Integer(description='当前页总出货数量', example=120),
-    'status_totals': fields.List(fields.Raw, description='按状态汇总'),
-    'customer_totals': fields.List(fields.Raw, description='按客户汇总'),
+    'status_totals': fields.List(fields.Nested(shipment_total_item_model), description='按状态汇总'),
+    'customer_totals': fields.List(fields.Nested(shipment_total_item_model), description='按客户汇总'),
 })
 
 shipment_list_data = build_page_data_model(
