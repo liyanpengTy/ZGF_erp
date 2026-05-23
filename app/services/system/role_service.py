@@ -69,19 +69,6 @@ class RoleService(BaseService):
         return result
 
     @staticmethod
-    def can_manage_role(current_user, role, current_factory_id=None):
-        """校验当前用户是否可以维护目标角色。"""
-        if not current_user or not role:
-            return False
-        if current_user.is_platform_admin:
-            return True
-        if not role.is_factory_role:
-            return False
-        if current_factory_id and role.scope_id != current_factory_id:
-            return False
-        return RoleService.has_factory_admin_permission(current_user, role.scope_id)
-
-    @staticmethod
     def normalize_scope(scope_type, scope_id):
         """归一化角色归属范围，避免平台角色误带工厂主键。"""
         if scope_type == ROLE_SCOPE_PLATFORM:
@@ -281,9 +268,7 @@ class RoleService(BaseService):
             if not menu:
                 return False, f'菜单ID {menu_id} 不存在'
             if (
-                current_user
-                and not current_user.is_platform_admin
-                and role.is_factory_role
+                role.is_factory_role
                 and menu.permission
                 and menu.permission.startswith(FACTORY_ROLE_FORBIDDEN_PERMISSION_PREFIXES)
             ):
@@ -302,18 +287,3 @@ class RoleService(BaseService):
         user_ids = db.session.query(UserFactoryRole.user_id).filter_by(role_id=role_id, is_deleted=0).all()
         return [user_id for user_id, in user_ids]
 
-    @staticmethod
-    def verify_role_permission(current_user, role):
-        """校验当前用户是否可以访问该角色。"""
-        if current_user.is_internal_user:
-            return True
-        if not role.is_factory_role:
-            return False
-
-        user_factory = UserFactory.query.filter_by(
-            user_id=current_user.id,
-            factory_id=role.scope_id,
-            status=1,
-            is_deleted=0,
-        ).first()
-        return user_factory is not None

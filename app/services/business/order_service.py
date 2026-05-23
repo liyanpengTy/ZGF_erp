@@ -2,9 +2,14 @@
 
 from datetime import datetime
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import joinedload, selectinload
 
+from app.constants.identity import (
+    ROLE_DATA_SCOPE_ALL,
+    ROLE_DATA_SCOPE_ASSIGNED,
+    ROLE_DATA_SCOPE_OWN_RELATED,
+)
 from app.extensions import db
 from app.models.business.bundle import ProductionBundle
 from app.models.business.cutting_report import WorkCuttingReport
@@ -22,6 +27,7 @@ from app.models.business.value_codec import encode_dynamic_value, is_scalar_valu
 from app.services.base.base_service import BaseService
 from app.services.business.bundle_service import BundleService
 from app.services.business.shipment_service import ShipmentService
+from app.services.system.user_service import UserService
 
 
 class OrderService(BaseService):
@@ -494,9 +500,25 @@ class OrderService(BaseService):
             if not current_factory_id:
                 return None
             query = query.filter_by(factory_id=current_factory_id)
+
+        target_factory_id = current_factory_id if not current_user.is_internal_user else factory_id
+        query = OrderService.apply_order_data_scope(query, current_user, current_factory_id=target_factory_id)
         if include_details:
             query = query.options(*OrderService.get_order_query_options())
         return query
+
+    @staticmethod
+    def apply_order_data_scope(query, current_user, current_factory_id=None):
+        """按当前用户数据范围收敛订单查询。"""
+        data_scope = UserService.get_current_data_scope(current_user, current_factory_id=current_factory_id)
+        if current_user.is_platform_admin or data_scope == ROLE_DATA_SCOPE_ALL:
+            return query
+
+        # 当前暂无独立“订单分配表”，先按创建人/客户这两类现有强关联字段落地。
+        if data_scope in {ROLE_DATA_SCOPE_ASSIGNED, ROLE_DATA_SCOPE_OWN_RELATED}:
+            return query.filter(or_(Order.create_by == current_user.id, Order.customer_id == current_user.id))
+
+        return query.filter(or_(Order.create_by == current_user.id, Order.customer_id == current_user.id))
 
     @staticmethod
     def get_order_by_id(order_id):
@@ -796,8 +818,17 @@ class OrderService(BaseService):
         """校验订单数据是否属于当前访问范围。"""
         if not current_user:
             return False, '用户不存在'
-        if current_user.is_internal_user:
-            return True, None
-        if order.factory_id != current_factory_id:
+        if not order:
+            return False, '订单不存在'
+
+        if not current_user.is_internal_user and order.factory_id != current_factory_id:
             return False, '无权限操作'
-        return True, None
+
+        scoped_query = OrderService.apply_order_data_scope(
+            Order.query.filter(Order.id == order.id, Order.is_deleted == 0),
+            current_user,
+            current_factory_id=order.factory_id,
+        )
+        if scoped_query.first():
+            return True, None
+        return False, '订单不在当前数据范围内'

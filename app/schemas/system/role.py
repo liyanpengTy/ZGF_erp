@@ -2,7 +2,10 @@
 
 from marshmallow import Schema, fields, validate
 
-from app.constants.identity import ROLE_SCOPE_FACTORY, ROLE_SCOPES
+from app.constants.identity import ROLE_SCOPE_FACTORY, ROLE_SCOPE_PLATFORM
+
+
+ACTIVE_ROLE_SCOPES = (ROLE_SCOPE_FACTORY, ROLE_SCOPE_PLATFORM)
 
 
 class RoleSchema(Schema):
@@ -27,7 +30,7 @@ class RoleSchema(Schema):
 class RoleCreateSchema(Schema):
     """创建角色参数。"""
 
-    scope_type = fields.Str(load_default=ROLE_SCOPE_FACTORY, validate=validate.OneOf(sorted(ROLE_SCOPES)))
+    scope_type = fields.Str(load_default=ROLE_SCOPE_FACTORY, validate=validate.OneOf(sorted(ACTIVE_ROLE_SCOPES)))
     scope_id = fields.Int(load_default=0, allow_none=True)
     name = fields.Str(required=True, validate=validate.Length(min=2, max=50))
     code = fields.Str(required=True, validate=validate.Length(min=2, max=50))

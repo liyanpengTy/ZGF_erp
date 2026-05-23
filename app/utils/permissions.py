@@ -135,6 +135,45 @@ def _has_menu_permission(role_ids, permission_code):
     return bool(menus)
 
 
+def has_any_permission(user, permission_codes, factory_id=None):
+    """校验当前用户是否至少拥有一项指定权限编码。"""
+    permission_codes = [code for code in (permission_codes or []) if code]
+    if not user:
+        return False, '用户不存在'
+    if user.status != 1:
+        return False, '账号已被禁用'
+    if user.is_platform_admin:
+        return True, None
+    if not permission_codes:
+        return False, '未指定权限编码'
+
+    claims = get_jwt()
+    platform_identity = claims.get('platform_identity') or user.platform_identity
+
+    if is_internal_platform_identity(platform_identity):
+        role_ids = _get_platform_role_ids(user.id)
+        if any(_has_menu_permission(role_ids, permission_code) for permission_code in permission_codes):
+            return True, None
+        return False, f"无权限: {' / '.join(permission_codes)}"
+
+    target_factory_id = factory_id or claims.get('factory_id')
+    if not target_factory_id:
+        return False, '当前未选择工厂上下文'
+
+    factory = Factory.query.filter_by(id=target_factory_id, is_deleted=0).first()
+    if not factory:
+        return False, '工厂不存在'
+
+    if any(is_write_permission(permission_code) for permission_code in permission_codes):
+        if factory.service_status in {'expired', 'disabled'}:
+            return False, '当前工厂已过期或被禁用，续期后可继续操作'
+
+    role_ids = _get_factory_role_ids(user.id, target_factory_id)
+    if any(_has_menu_permission(role_ids, permission_code) for permission_code in permission_codes):
+        return True, None
+    return False, f"无权限: {' / '.join(permission_codes)}"
+
+
 def permission_required(permission_code):
     """权限验证装饰器。"""
 
@@ -150,36 +189,38 @@ def permission_required(permission_code):
                 current_user_id = int(current_user_id)
 
             user = User.query.filter_by(id=current_user_id, is_deleted=0).first()
-            if not user:
-                return ApiResponse.unauthorized('用户不存在')
-            if user.status != 1:
-                return ApiResponse.unauthorized('账号已被禁用')
-            if user.is_platform_admin:
-                return fn(*args, **kwargs)
+            has_permission, error = has_any_permission(user, [permission_code])
+            if not has_permission:
+                if error in {'用户不存在', '账号已被禁用'}:
+                    return ApiResponse.unauthorized(error)
+                return ApiResponse.forbidden(error)
 
-            claims = get_jwt()
-            platform_identity = claims.get('platform_identity') or user.platform_identity
+            return fn(*args, **kwargs)
 
-            if is_internal_platform_identity(platform_identity):
-                role_ids = _get_platform_role_ids(user.id)
-                if not _has_menu_permission(role_ids, permission_code):
-                    return ApiResponse.forbidden(f'无权限: {permission_code}')
-                return fn(*args, **kwargs)
+        return wrapper
 
-            factory_id = claims.get('factory_id')
-            if not factory_id:
-                return ApiResponse.forbidden('当前未选择工厂上下文')
+    return decorator
 
-            factory = Factory.query.filter_by(id=factory_id, is_deleted=0).first()
-            if not factory:
-                return ApiResponse.forbidden('工厂不存在')
 
-            if is_write_permission(permission_code) and factory.service_status in {'expired', 'disabled'}:
-                return ApiResponse.forbidden('当前工厂已过期或被禁用，续期后可继续操作')
+def permission_required_any(permission_codes):
+    """权限装饰器，命中任一权限编码即可访问。"""
 
-            role_ids = _get_factory_role_ids(user.id, factory_id)
-            if not _has_menu_permission(role_ids, permission_code):
-                return ApiResponse.forbidden(f'无权限: {permission_code}')
+    def decorator(fn):
+        @wraps(fn)
+        @login_required
+        def wrapper(*args, **kwargs):
+            current_user_id = get_jwt_identity()
+            if isinstance(current_user_id, dict):
+                current_user_id = current_user_id.get('user_id')
+            else:
+                current_user_id = int(current_user_id)
+
+            user = User.query.filter_by(id=current_user_id, is_deleted=0).first()
+            has_permission, error = has_any_permission(user, permission_codes)
+            if not has_permission:
+                if error in {'用户不存在', '账号已被禁用'}:
+                    return ApiResponse.unauthorized(error)
+                return ApiResponse.forbidden(error)
 
             return fn(*args, **kwargs)
 

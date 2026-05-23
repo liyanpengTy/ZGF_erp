@@ -11,6 +11,22 @@ from app.api.common.auth import get_current_claims, get_current_factory_id, requ
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
 from app.api.common.resource_helpers import ensure_permission_or_error, get_resource_or_error
+from app.constants.identity import PLATFORM_IDENTITY_EXTERNAL
+from app.constants.permissions import (
+    PERM_FACTORY_MANAGEMENT_ROLE_EDIT,
+    PERM_FACTORY_MANAGEMENT_ROLE_QUERY,
+    PERM_FACTORY_MANAGEMENT_USER_ADD,
+    PERM_FACTORY_MANAGEMENT_USER_DELETE,
+    PERM_FACTORY_MANAGEMENT_USER_EDIT,
+    PERM_FACTORY_MANAGEMENT_USER_QUERY,
+    PERM_SYSTEM_FACTORY_MANAGE_ROLES,
+    PERM_SYSTEM_ROLE_EDIT,
+    PERM_SYSTEM_ROLE_QUERY,
+    PERM_SYSTEM_USER_ADD,
+    PERM_SYSTEM_USER_DELETE,
+    PERM_SYSTEM_USER_EDIT,
+    PERM_SYSTEM_USER_QUERY,
+)
 from app.extensions import bcrypt
 from app.models.auth.user import User
 from app.models.system.factory import Factory
@@ -18,7 +34,7 @@ from app.models.system.user_factory import UserFactory
 from app.schemas.auth.user import UserCreateSchema, UserResetPasswordSchema, UserUpdateSchema
 from app.schemas.system.role import RoleSchema
 from app.services import RoleService, UserService
-from app.utils.permissions import login_required
+from app.utils.permissions import has_any_permission, login_required, permission_required_any
 from app.utils.response import ApiResponse
 
 user_ns = Namespace('用户管理-users', description='用户管理')
@@ -28,6 +44,21 @@ base_response = common['base_response']
 error_response = common['error_response']
 unauthorized_response = common['unauthorized_response']
 forbidden_response = common['forbidden_response']
+USER_QUERY_PERMISSION_CODES = [PERM_SYSTEM_USER_QUERY, PERM_FACTORY_MANAGEMENT_USER_QUERY]
+USER_CREATE_PERMISSION_CODES = [PERM_SYSTEM_USER_ADD, PERM_FACTORY_MANAGEMENT_USER_ADD]
+USER_EDIT_PERMISSION_CODES = [PERM_SYSTEM_USER_EDIT, PERM_FACTORY_MANAGEMENT_USER_EDIT]
+USER_DELETE_PERMISSION_CODES = [PERM_SYSTEM_USER_DELETE, PERM_FACTORY_MANAGEMENT_USER_DELETE]
+USER_ROLE_QUERY_PERMISSION_CODES = [
+    PERM_SYSTEM_USER_QUERY,
+    PERM_FACTORY_MANAGEMENT_USER_QUERY,
+    PERM_SYSTEM_ROLE_QUERY,
+    PERM_FACTORY_MANAGEMENT_ROLE_QUERY,
+]
+USER_ROLE_ASSIGN_PERMISSION_CODES = [
+    PERM_SYSTEM_ROLE_EDIT,
+    PERM_FACTORY_MANAGEMENT_ROLE_EDIT,
+    PERM_SYSTEM_FACTORY_MANAGE_ROLES,
+]
 
 user_query_parser = page_parser.copy()
 user_query_parser.add_argument('username', type=str, location='args', help='用户名（模糊查询）')
@@ -194,6 +225,8 @@ user_role_item_model = user_ns.model('SystemUserRoleItem', {
 
 permission_summary_model = user_ns.model('UserPermissionSummary', {
     'current_factory_id': fields.Integer(description='当前 JWT 上下文中的工厂ID；平台账号通常为空', example=1),
+    'current_data_scope': fields.String(description='当前上下文生效的数据范围编码', example='all_factory'),
+    'current_data_scope_label': fields.String(description='当前上下文生效的数据范围名称', example='全工厂数据'),
     'current_permissions': fields.List(fields.String, description='当前上下文下生效的权限并集', example=['business.orders.browse']),
     'all_permissions': fields.List(fields.String, description='当前账号绑定的全部角色权限并集', example=['business.orders.browse', 'business.orders.create']),
     'role_bindings': fields.List(fields.Nested(user_role_binding_model), description='当前账号绑定的角色列表'),
@@ -211,6 +244,26 @@ user_create_schema = UserCreateSchema()
 user_update_schema = UserUpdateSchema()
 user_reset_password_schema = UserResetPasswordSchema()
 role_schema = RoleSchema(many=True)
+USER_SYSTEM_PERMISSION_MAP = {
+    'query': PERM_SYSTEM_USER_QUERY,
+    'create': PERM_SYSTEM_USER_ADD,
+    'edit': PERM_SYSTEM_USER_EDIT,
+    'delete': PERM_SYSTEM_USER_DELETE,
+}
+USER_FACTORY_PERMISSION_MAP = {
+    'query': PERM_FACTORY_MANAGEMENT_USER_QUERY,
+    'create': PERM_FACTORY_MANAGEMENT_USER_ADD,
+    'edit': PERM_FACTORY_MANAGEMENT_USER_EDIT,
+    'delete': PERM_FACTORY_MANAGEMENT_USER_DELETE,
+}
+ROLE_SYSTEM_PERMISSION_MAP = {
+    'query': PERM_SYSTEM_ROLE_QUERY,
+    'edit': PERM_SYSTEM_ROLE_EDIT,
+}
+ROLE_FACTORY_PERMISSION_MAP = {
+    'query': PERM_FACTORY_MANAGEMENT_ROLE_QUERY,
+    'edit': PERM_FACTORY_MANAGEMENT_ROLE_EDIT,
+}
 
 
 def get_required_current_user():
@@ -247,10 +300,8 @@ def resolve_manage_factory_id(current_user, requested_factory_id=None):
     """解析当前用户可管理的工厂ID。"""
     if not current_user:
         return None, '用户不存在'
-    if current_user.is_platform_admin:
-        return requested_factory_id, None
     if current_user.is_internal_user:
-        return None, '平台员工仅支持查看用户数据'
+        return requested_factory_id, None
 
     candidate_factory_id = requested_factory_id or get_current_factory_id()
     if candidate_factory_id and RoleService.has_factory_admin_permission(current_user, candidate_factory_id):
@@ -263,28 +314,104 @@ def resolve_manage_factory_id(current_user, requested_factory_id=None):
     return None, '只有工厂管理员可以维护本工厂用户'
 
 
-def check_user_permission(current_user, target_user):
-    """校验当前用户是否可以读取目标用户数据。"""
-    if current_user.is_internal_user:
-        return True, None
-    if target_user.id == current_user.id:
-        return True, None
-
-    for factory_id in get_active_factory_ids(current_user):
-        if RoleService.has_factory_admin_permission(current_user, factory_id) and is_target_user_in_factory(target_user, factory_id):
-            return True, None
-    return False, '无权限操作'
+def build_scoped_user_view(target_user, current_user, current_factory_id=None):
+    """按查看人上下文组装用户视图，避免外部用户看到无关工厂数据。"""
+    return UserService.build_user_view(
+        target_user,
+        viewer_user=current_user,
+        viewer_factory_id=current_factory_id,
+    )
 
 
-def check_user_write_permission(current_user, target_user):
-    """校验当前用户是否可以写入目标用户数据。"""
+def normalize_internal_user_filters(current_user, filters, action='query'):
+    """收敛平台内部普通用户的可见范围，避免其通过工厂模块越权查看平台账号。"""
+    if not current_user or not current_user.is_internal_user:
+        return dict(filters), None
+
+    normalized = dict(filters)
+    has_system_permission, _ = has_any_permission(current_user, [USER_SYSTEM_PERMISSION_MAP[action]])
+    if has_system_permission:
+        return normalized, None
+
+    if normalized.get('platform_identity') and normalized['platform_identity'] != PLATFORM_IDENTITY_EXTERNAL:
+        return None, '无权限查看平台内部用户'
+
+    normalized['platform_identity'] = PLATFORM_IDENTITY_EXTERNAL
+    return normalized, None
+
+
+def check_user_permission(current_user, target_user, action='query', current_factory_id=None):
+    """校验当前用户是否可以读取或维护目标用户数据。"""
+    if not current_user or not target_user:
+        return False, '用户不存在'
     if current_user.is_platform_admin:
         return True, None
+
+    action = 'delete' if action == 'delete' else ('edit' if action in {'edit', 'write'} else 'query')
+    system_permission_code = USER_SYSTEM_PERMISSION_MAP[action]
+    factory_permission_code = USER_FACTORY_PERMISSION_MAP[action]
+
     if current_user.is_internal_user:
-        return False, '平台员工仅支持查看用户数据'
+        if target_user.is_internal_user:
+            has_permission, error = has_any_permission(current_user, [system_permission_code])
+            if not has_permission:
+                return has_permission, error
+        else:
+            has_permission, error = has_any_permission(
+                current_user,
+                [system_permission_code, factory_permission_code],
+                factory_id=current_factory_id,
+            )
+            if not has_permission:
+                return has_permission, error
+        if not UserService.check_user_data_scope(current_user, target_user, current_factory_id=current_factory_id):
+            return False, '目标用户不在当前数据范围内'
+        return True, None
+
     if target_user.id == current_user.id:
         return True, None
-    return check_user_permission(current_user, target_user)
+
+    if not current_factory_id:
+        return False, '当前未选择工厂上下文'
+    if not RoleService.has_factory_admin_permission(current_user, current_factory_id):
+        return False, '只有工厂管理员可以操作本工厂用户'
+    if not is_target_user_in_factory(target_user, current_factory_id):
+        return False, '只能操作本工厂用户'
+    has_permission, error = has_any_permission(current_user, [factory_permission_code], factory_id=current_factory_id)
+    if not has_permission:
+        return has_permission, error
+    if not UserService.check_user_data_scope(current_user, target_user, current_factory_id=current_factory_id):
+        return False, '目标用户不在当前数据范围内'
+    return True, None
+
+
+def check_user_role_permission(current_user, target_user, action='query', factory_id=None):
+    """校验当前用户是否可以查看或分配目标用户的角色。"""
+    if not current_user or not target_user:
+        return False, '用户不存在'
+    if current_user.is_platform_admin:
+        return True, None
+
+    system_permission_code = ROLE_SYSTEM_PERMISSION_MAP[action]
+    factory_permission_code = ROLE_FACTORY_PERMISSION_MAP[action]
+
+    if target_user.is_internal_user or factory_id in (None, 0):
+        if not current_user.is_internal_user:
+            return False, '只有平台内部用户可以操作平台角色'
+        return has_any_permission(current_user, [system_permission_code])
+
+    if current_user.is_internal_user:
+        return has_any_permission(
+            current_user,
+            [system_permission_code, factory_permission_code, PERM_SYSTEM_FACTORY_MANAGE_ROLES],
+            factory_id=factory_id,
+        )
+
+    if not RoleService.has_factory_admin_permission(current_user, factory_id):
+        return False, '只有工厂管理员可以分配本工厂角色'
+    if not is_target_user_in_factory(target_user, factory_id):
+        return False, '只能给本工厂用户分配角色'
+    return has_any_permission(current_user, [factory_permission_code], factory_id=factory_id)
 
 
 def resolve_user_role_context_factory_id(current_user, target_user, requested_factory_id=None):
@@ -319,24 +446,32 @@ def resolve_user_role_context_factory_id(current_user, target_user, requested_fa
 @user_ns.route('')
 class UserList(Resource):
     @login_required
+    @permission_required_any(USER_QUERY_PERMISSION_CODES)
     @user_ns.expect(user_query_parser)
     @user_ns.response(200, '成功', user_list_response)
     @user_ns.response(401, '未登录', unauthorized_response)
     @user_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """按权限范围分页查询用户列表，返回工厂挂靠关系和角色绑定信息。"""
-        args = user_query_parser.parse_args()
         current_user, error_response_data = get_required_current_user()
         if error_response_data:
             return error_response_data
 
-        if not current_user.is_internal_user and not args.get('factory_id'):
-            args['factory_id'] = get_current_factory_id()
+        args = user_query_parser.parse_args()
+        current_factory_id = get_current_factory_id()
 
-        result = UserService.get_user_list(current_user, args)
+        if current_user.is_internal_user:
+            args, error = normalize_internal_user_filters(current_user, args)
+            if error:
+                return ApiResponse.error(error, 403)
+        elif not args.get('factory_id'):
+            args['factory_id'] = current_factory_id
+
+        result = UserService.get_user_list(current_user, args, viewer_factory_id=current_factory_id)
         return ApiResponse.success_page_result(result, result['items'])
 
     @login_required
+    @permission_required_any(USER_CREATE_PERMISSION_CODES)
     @user_ns.expect(user_create_model)
     @user_ns.response(201, '创建成功', user_item_response)
     @user_ns.response(400, '参数错误', error_response)
@@ -354,13 +489,18 @@ class UserList(Resource):
             return ApiResponse.error(str(exc.messages), 400)
 
         factory_id = data.get('factory_id')
-        platform_identity = data.get('platform_identity') or 'external_user'
+        platform_identity = data.get('platform_identity') or PLATFORM_IDENTITY_EXTERNAL
 
-        if not current_user.is_platform_admin:
+        if current_user.is_internal_user and not current_user.is_platform_admin:
+            if platform_identity != PLATFORM_IDENTITY_EXTERNAL:
+                return ApiResponse.error('只有平台管理员可以创建平台内部账号', 403)
+            if not factory_id:
+                return ApiResponse.error('创建外部用户时请指定工厂ID', 400)
+        elif not current_user.is_platform_admin:
             factory_id, error = resolve_manage_factory_id(current_user, factory_id)
             if error:
                 return ApiResponse.error(error, 403)
-            platform_identity = 'external_user'
+            platform_identity = PLATFORM_IDENTITY_EXTERNAL
 
         existing_user = UserService.get_user_by_username(data['username'])
         if existing_user:
@@ -400,12 +540,17 @@ class UserList(Resource):
             )
             user_factory.save()
 
-        return ApiResponse.success(UserService.build_user_view(user), '创建成功', 201)
+        return ApiResponse.success(
+            build_scoped_user_view(user, current_user, current_factory_id=factory_id or get_current_factory_id()),
+            '创建成功',
+            201,
+        )
 
 
 @user_ns.route('/options')
 class UserOptions(Resource):
     @login_required
+    @permission_required_any(USER_QUERY_PERMISSION_CODES)
     @user_ns.expect(user_option_query_parser)
     @user_ns.response(200, '成功', user_options_response)
     @user_ns.response(401, '未登录', unauthorized_response)
@@ -417,7 +562,11 @@ class UserOptions(Resource):
             return error_response_data
 
         args = user_option_query_parser.parse_args()
-        if not current_user.is_internal_user and not args.get('factory_id'):
+        if current_user.is_internal_user:
+            args, error = normalize_internal_user_filters(current_user, args)
+            if error:
+                return ApiResponse.error(error, 403)
+        elif not args.get('factory_id'):
             args['factory_id'] = get_current_factory_id()
 
         return ApiResponse.success_list(UserService.get_user_options(current_user, args))
@@ -426,6 +575,7 @@ class UserOptions(Resource):
 @user_ns.route('/<int:user_id>')
 class UserDetail(Resource):
     @login_required
+    @permission_required_any(USER_QUERY_PERMISSION_CODES)
     @user_ns.response(200, '成功', user_item_response)
     @user_ns.response(403, '无权限', forbidden_response)
     @user_ns.response(404, '用户不存在', error_response)
@@ -434,18 +584,20 @@ class UserDetail(Resource):
         current_user, error_response_data = get_required_current_user()
         if error_response_data:
             return error_response_data
+        current_factory_id = get_current_factory_id()
 
         target_user, error_response_data = get_target_user_or_error(user_id)
         if error_response_data:
             return error_response_data
 
-        has_permission, error = check_user_permission(current_user, target_user)
+        has_permission, error = check_user_permission(current_user, target_user, action='query', current_factory_id=current_factory_id)
         permission_error = ensure_permission_or_error(has_permission, error, 403)
         if permission_error:
             return permission_error
-        return ApiResponse.success(UserService.build_user_view(target_user))
+        return ApiResponse.success(build_scoped_user_view(target_user, current_user, current_factory_id=current_factory_id))
 
     @login_required
+    @permission_required_any(USER_EDIT_PERMISSION_CODES)
     @user_ns.expect(user_update_model)
     @user_ns.response(200, '更新成功', user_item_response)
     @user_ns.response(403, '无权限', forbidden_response)
@@ -455,12 +607,13 @@ class UserDetail(Resource):
         current_user, error_response_data = get_required_current_user()
         if error_response_data:
             return error_response_data
+        current_factory_id = get_current_factory_id()
 
         target_user, error_response_data = get_target_user_or_error(user_id)
         if error_response_data:
             return error_response_data
 
-        has_permission, error = check_user_write_permission(current_user, target_user)
+        has_permission, error = check_user_permission(current_user, target_user, action='edit', current_factory_id=current_factory_id)
         permission_error = ensure_permission_or_error(has_permission, error, 403)
         if permission_error:
             return permission_error
@@ -471,9 +624,13 @@ class UserDetail(Resource):
             return ApiResponse.error(str(exc.messages), 400)
 
         target_user = UserService.update_user(target_user, data)
-        return ApiResponse.success(UserService.build_user_view(target_user), '更新成功')
+        return ApiResponse.success(
+            build_scoped_user_view(target_user, current_user, current_factory_id=current_factory_id),
+            '更新成功',
+        )
 
     @login_required
+    @permission_required_any(USER_DELETE_PERMISSION_CODES)
     @user_ns.response(200, '删除成功', base_response)
     @user_ns.response(404, '用户不存在', error_response)
     @user_ns.response(403, '不能删除自己', forbidden_response)
@@ -482,12 +639,13 @@ class UserDetail(Resource):
         current_user, error_response_data = get_required_current_user()
         if error_response_data:
             return error_response_data
+        current_factory_id = get_current_factory_id()
 
         target_user, error_response_data = get_target_user_or_error(user_id)
         if error_response_data:
             return error_response_data
 
-        has_permission, error = check_user_write_permission(current_user, target_user)
+        has_permission, error = check_user_permission(current_user, target_user, action='delete', current_factory_id=current_factory_id)
         permission_error = ensure_permission_or_error(has_permission, error, 403)
         if permission_error:
             return permission_error
@@ -501,6 +659,7 @@ class UserDetail(Resource):
 @user_ns.route('/<int:user_id>/reset-password')
 class UserResetPassword(Resource):
     @login_required
+    @permission_required_any(USER_EDIT_PERMISSION_CODES)
     @user_ns.expect(user_reset_password_model)
     @user_ns.response(200, '重置成功', base_response)
     @user_ns.response(403, '无权限', forbidden_response)
@@ -510,12 +669,13 @@ class UserResetPassword(Resource):
         current_user, error_response_data = get_required_current_user()
         if error_response_data:
             return error_response_data
+        current_factory_id = get_current_factory_id()
 
         target_user, error_response_data = get_target_user_or_error(user_id)
         if error_response_data:
             return error_response_data
 
-        has_permission, error = check_user_write_permission(current_user, target_user)
+        has_permission, error = check_user_permission(current_user, target_user, action='edit', current_factory_id=current_factory_id)
         permission_error = ensure_permission_or_error(has_permission, error, 403)
         if permission_error:
             return permission_error
@@ -532,6 +692,7 @@ class UserResetPassword(Resource):
 @user_ns.route('/<int:user_id>/roles')
 class UserRoles(Resource):
     @login_required
+    @permission_required_any(USER_ROLE_QUERY_PERMISSION_CODES)
     @user_ns.expect(user_role_query_parser)
     @user_ns.response(200, '成功', user_roles_response)
     @user_ns.response(403, '无权限', forbidden_response)
@@ -546,20 +707,21 @@ class UserRoles(Resource):
         if error_response_data:
             return error_response_data
 
-        has_permission, error = check_user_permission(current_user, target_user)
-        permission_error = ensure_permission_or_error(has_permission, error, 403)
-        if permission_error:
-            return permission_error
-
         args = user_role_query_parser.parse_args()
         factory_id, error = resolve_user_role_context_factory_id(current_user, target_user, args.get('factory_id'))
         if error:
             return ApiResponse.error(error, 400)
 
+        has_permission, error = check_user_role_permission(current_user, target_user, action='query', factory_id=factory_id)
+        permission_error = ensure_permission_or_error(has_permission, error, 403)
+        if permission_error:
+            return permission_error
+
         roles = UserService.get_user_roles(user_id, factory_id)
         return ApiResponse.success_list(role_schema.dump(roles))
 
     @login_required
+    @permission_required_any(USER_ROLE_ASSIGN_PERMISSION_CODES)
     @user_ns.expect(user_assign_roles_model)
     @user_ns.response(200, '分配成功', base_response)
     @user_ns.response(403, '无权限', forbidden_response)
@@ -586,11 +748,9 @@ class UserRoles(Resource):
         if factory_id is None and not target_user.is_internal_user:
             return ApiResponse.error('请指定工厂ID', 400)
 
-        if not current_user.is_platform_admin:
-            if not RoleService.has_factory_admin_permission(current_user, factory_id):
-                return ApiResponse.error('只有平台管理员或本工厂管理员可以分配角色', 403)
-            if not is_target_user_in_factory(target_user, factory_id):
-                return ApiResponse.error('只能给本工厂用户分配角色', 403)
+        has_permission, error = check_user_role_permission(current_user, target_user, action='edit', factory_id=factory_id)
+        if not has_permission:
+            return ApiResponse.error(error, 403)
 
         success, error = UserService.assign_roles(user_id, role_ids, factory_id, current_user)
         if not success:

@@ -3,9 +3,21 @@
 from collections import defaultdict
 
 from flask_jwt_extended import get_jwt
-from sqlalchemy import case
+from sqlalchemy import case, or_
 
-from app.constants.identity import ROLE_SCOPE_FACTORY, ROLE_SCOPE_PLATFORM
+from app.constants.identity import (
+    ROLE_DATA_SCOPE_ALL,
+    ROLE_DATA_SCOPE_ASSIGNED,
+    ROLE_DATA_SCOPE_OWN_RELATED,
+    ROLE_DATA_SCOPE_SELF_ONLY,
+    ROLE_SCOPE_FACTORY,
+    ROLE_SCOPE_PLATFORM,
+)
+from app.constants.permissions import (
+    PERM_FACTORY_MANAGEMENT_ROLE_EDIT,
+    PERM_SYSTEM_FACTORY_MANAGE_ROLES,
+    PERM_SYSTEM_ROLE_EDIT,
+)
 from app.extensions import bcrypt, db
 from app.models.auth.user import User
 from app.models.system.factory import Factory
@@ -16,9 +28,22 @@ from app.models.system.user_factory_role import UserFactoryRole
 from app.services.base.base_service import BaseService
 from app.services.system.role_service import RoleService
 from app.utils.cache import SimpleTTLCache
+from app.utils.permissions import has_any_permission
 
 
 PERMISSION_CACHE = SimpleTTLCache(default_ttl=300)
+DATA_SCOPE_PRIORITY = {
+    ROLE_DATA_SCOPE_SELF_ONLY: 1,
+    ROLE_DATA_SCOPE_OWN_RELATED: 2,
+    ROLE_DATA_SCOPE_ASSIGNED: 3,
+    ROLE_DATA_SCOPE_ALL: 4,
+}
+DATA_SCOPE_LABELS = {
+    ROLE_DATA_SCOPE_ALL: '全工厂数据',
+    ROLE_DATA_SCOPE_ASSIGNED: '分配数据',
+    ROLE_DATA_SCOPE_OWN_RELATED: '本人关联数据',
+    ROLE_DATA_SCOPE_SELF_ONLY: '仅个人数据',
+}
 
 
 class UserService(BaseService):
@@ -124,10 +149,16 @@ class UserService(BaseService):
         return role_map
 
     @staticmethod
-    def build_user_view(user, factory_relations=None, role_bindings=None):
-        """组装用户展示数据，统一给列表、详情和创建结果复用。"""
+    def build_user_view(user, factory_relations=None, role_bindings=None, viewer_user=None, viewer_factory_id=None):
+        """组装用户展示数据，支持按查看人上下文收敛工厂关系与角色绑定。"""
         factory_relations = factory_relations if factory_relations is not None else UserService.get_user_factory_relations(user.id)
         role_bindings = role_bindings if role_bindings is not None else UserService.get_user_role_bindings(user.id)
+
+        if viewer_user and not viewer_user.is_internal_user and viewer_user.id != user.id:
+            visible_factory_ids = {viewer_factory_id} if viewer_factory_id else set()
+            factory_relations = [item for item in factory_relations if item['factory_id'] in visible_factory_ids]
+            role_bindings = [item for item in role_bindings if item['factory_id'] in visible_factory_ids]
+
         relation_types = [item['relation_type'] for item in factory_relations]
         primary_relation = factory_relations[0] if factory_relations else None
 
@@ -219,6 +250,101 @@ class UserService(BaseService):
         return [record.role_id for record in records]
 
     @staticmethod
+    def _get_current_context_roles(user, current_factory_id=None):
+        """按当前上下文返回生效角色对象列表，用于解析数据范围。"""
+        if user.is_platform_admin:
+            return []
+
+        claims = get_jwt()
+        if user.is_internal_user:
+            records = UserFactoryRole.query.join(Role, Role.id == UserFactoryRole.role_id).filter(
+                UserFactoryRole.user_id == user.id,
+                UserFactoryRole.factory_id == 0,
+                UserFactoryRole.is_deleted == 0,
+                Role.scope_type == ROLE_SCOPE_PLATFORM,
+                Role.scope_id == 0,
+                Role.status == 1,
+                Role.is_deleted == 0,
+            ).all()
+            return [record.role for record in records]
+
+        target_factory_id = current_factory_id or claims.get('factory_id')
+        if not target_factory_id:
+            return []
+
+        records = UserFactoryRole.query.join(Role, Role.id == UserFactoryRole.role_id).filter(
+            UserFactoryRole.user_id == user.id,
+            UserFactoryRole.factory_id == target_factory_id,
+            UserFactoryRole.is_deleted == 0,
+            Role.scope_type == ROLE_SCOPE_FACTORY,
+            Role.scope_id == target_factory_id,
+            Role.status == 1,
+            Role.is_deleted == 0,
+        ).all()
+        return [record.role for record in records]
+
+    @staticmethod
+    def get_current_data_scope(user, current_factory_id=None):
+        """返回当前用户在当前上下文中的最宽数据范围。"""
+        if not user:
+            return ROLE_DATA_SCOPE_SELF_ONLY
+        if user.is_platform_admin:
+            return ROLE_DATA_SCOPE_ALL
+
+        roles = UserService._get_current_context_roles(user, current_factory_id=current_factory_id)
+        if not roles:
+            return ROLE_DATA_SCOPE_SELF_ONLY
+
+        return max(
+            (role.data_scope or ROLE_DATA_SCOPE_OWN_RELATED for role in roles),
+            key=lambda scope: DATA_SCOPE_PRIORITY.get(scope, 0),
+        )
+
+    @staticmethod
+    def get_data_scope_label(data_scope):
+        """返回数据范围中文名称。"""
+        return DATA_SCOPE_LABELS.get(data_scope, data_scope)
+
+    @staticmethod
+    def apply_user_data_scope(query, current_user, current_factory_id=None):
+        """按当前用户数据范围收敛用户查询。"""
+        data_scope = UserService.get_current_data_scope(current_user, current_factory_id=current_factory_id)
+        if current_user.is_platform_admin or data_scope == ROLE_DATA_SCOPE_ALL:
+            return query
+        if data_scope == ROLE_DATA_SCOPE_ASSIGNED:
+            return query.filter(or_(User.id == current_user.id, User.created_by == current_user.id))
+        if data_scope == ROLE_DATA_SCOPE_OWN_RELATED:
+            return query.filter(
+                or_(
+                    User.id == current_user.id,
+                    User.created_by == current_user.id,
+                    User.invited_by == current_user.id,
+                )
+            )
+        return query.filter(User.id == current_user.id)
+
+    @staticmethod
+    def check_user_data_scope(current_user, target_user, current_factory_id=None):
+        """校验目标用户是否落在当前用户的数据范围内。"""
+        if not current_user or not target_user:
+            return False
+        if current_user.is_platform_admin:
+            return True
+
+        data_scope = UserService.get_current_data_scope(current_user, current_factory_id=current_factory_id)
+        if data_scope == ROLE_DATA_SCOPE_ALL:
+            return True
+        if data_scope == ROLE_DATA_SCOPE_ASSIGNED:
+            return target_user.id == current_user.id or target_user.created_by == current_user.id
+        if data_scope == ROLE_DATA_SCOPE_OWN_RELATED:
+            return (
+                target_user.id == current_user.id
+                or target_user.created_by == current_user.id
+                or target_user.invited_by == current_user.id
+            )
+        return target_user.id == current_user.id
+
+    @staticmethod
     def clear_permission_cache():
         """清空用户权限相关缓存。"""
         PERMISSION_CACHE.clear()
@@ -230,6 +356,8 @@ class UserService(BaseService):
         if not user:
             return {
                 'current_factory_id': None,
+                'current_data_scope': ROLE_DATA_SCOPE_SELF_ONLY,
+                'current_data_scope_label': UserService.get_data_scope_label(ROLE_DATA_SCOPE_SELF_ONLY),
                 'current_permissions': [],
                 'all_permissions': [],
                 'role_bindings': [],
@@ -257,6 +385,8 @@ class UserService(BaseService):
                 PERMISSION_CACHE.set(cache_key, all_permissions)
             return {
                 'current_factory_id': current_factory_id,
+                'current_data_scope': ROLE_DATA_SCOPE_ALL,
+                'current_data_scope_label': UserService.get_data_scope_label(ROLE_DATA_SCOPE_ALL),
                 'current_permissions': all_permissions,
                 'all_permissions': all_permissions,
                 'role_bindings': role_bindings,
@@ -264,8 +394,11 @@ class UserService(BaseService):
 
         all_role_ids = [item['role_id'] for item in role_bindings]
         current_role_ids = UserService._get_current_context_role_ids(user)
+        current_data_scope = UserService.get_current_data_scope(user, current_factory_id=current_factory_id)
         return {
             'current_factory_id': current_factory_id,
+            'current_data_scope': current_data_scope,
+            'current_data_scope_label': UserService.get_data_scope_label(current_data_scope),
             'current_permissions': UserService._get_permission_codes_by_role_ids(current_role_ids),
             'all_permissions': UserService._get_permission_codes_by_role_ids(all_role_ids),
             'role_bindings': role_bindings,
@@ -287,7 +420,7 @@ class UserService(BaseService):
                     user_ids_query = user_ids_query.filter_by(relation_type=relation_type)
                 user_ids = [user_id for user_id, in user_ids_query.all()]
                 query = query.filter(User.id.in_(user_ids))
-            return query
+            return UserService.apply_user_data_scope(query, current_user, current_factory_id=factory_id)
 
         if factory_id and RoleService.has_factory_admin_permission(current_user, factory_id):
             user_ids_query = db.session.query(UserFactory.user_id).filter_by(
@@ -298,9 +431,10 @@ class UserService(BaseService):
             if relation_type:
                 user_ids_query = user_ids_query.filter_by(relation_type=relation_type)
             user_ids = [user_id for user_id, in user_ids_query.all()]
-            return query.filter(User.id.in_(user_ids))
+            query = query.filter(User.id.in_(user_ids))
+            return UserService.apply_user_data_scope(query, current_user, current_factory_id=factory_id)
 
-        return query.filter(User.id == current_user.id)
+        return UserService.apply_user_data_scope(query.filter(User.id == current_user.id), current_user, current_factory_id=factory_id)
 
     @staticmethod
     def _apply_user_basic_filters(query, username='', status=None, platform_identity=None):
@@ -314,7 +448,7 @@ class UserService(BaseService):
         return query
 
     @staticmethod
-    def get_user_list(current_user, filters):
+    def get_user_list(current_user, filters, viewer_factory_id=None):
         """按当前登录人权限范围分页查询用户列表。"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
@@ -343,6 +477,8 @@ class UserService(BaseService):
                     user,
                     factory_relations=relation_map.get(user.id, []),
                     role_bindings=role_map.get(user.id, []),
+                    viewer_user=current_user,
+                    viewer_factory_id=viewer_factory_id,
                 )
                 for user in pagination.items
             ],
@@ -487,8 +623,20 @@ class UserService(BaseService):
 
         if not current_user.is_platform_admin:
             if assignment_factory_id == 0 or ROLE_SCOPE_PLATFORM in role_scope_types:
-                return False, '只有平台管理员可以分配平台角色'
-            if not RoleService.has_factory_admin_permission(current_user, assignment_factory_id):
+                if not current_user.is_internal_user:
+                    return False, '只有平台内部用户可以分配平台角色'
+                has_permission, _ = has_any_permission(current_user, [PERM_SYSTEM_ROLE_EDIT])
+                if not has_permission:
+                    return False, '无权限分配平台角色'
+            elif current_user.is_internal_user:
+                has_permission, _ = has_any_permission(
+                    current_user,
+                    [PERM_SYSTEM_ROLE_EDIT, PERM_FACTORY_MANAGEMENT_ROLE_EDIT, PERM_SYSTEM_FACTORY_MANAGE_ROLES],
+                    factory_id=assignment_factory_id,
+                )
+                if not has_permission:
+                    return False, '无权限分配工厂角色'
+            elif not RoleService.has_factory_admin_permission(current_user, assignment_factory_id):
                 return False, '只有平台管理员或本工厂管理员可以分配工厂角色'
 
         if assignment_factory_id is not None:

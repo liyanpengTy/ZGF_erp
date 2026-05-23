@@ -8,9 +8,19 @@ from app.api.common.auth import get_current_factory_id, require_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
 from app.api.common.resource_helpers import ensure_permission_or_error, get_resource_or_error
+from app.constants.permissions import (
+    PERM_FACTORY_MANAGEMENT_ROLE_ADD,
+    PERM_FACTORY_MANAGEMENT_ROLE_DELETE,
+    PERM_FACTORY_MANAGEMENT_ROLE_EDIT,
+    PERM_FACTORY_MANAGEMENT_ROLE_QUERY,
+    PERM_SYSTEM_ROLE_ADD,
+    PERM_SYSTEM_ROLE_DELETE,
+    PERM_SYSTEM_ROLE_EDIT,
+    PERM_SYSTEM_ROLE_QUERY,
+)
 from app.schemas.system.role import RoleAssignMenuSchema, RoleCreateSchema, RoleSchema, RoleUpdateSchema
 from app.services import RoleService
-from app.utils.permissions import login_required
+from app.utils.permissions import has_any_permission, login_required, permission_required_any
 from app.utils.response import ApiResponse
 
 role_ns = Namespace('角色管理-roles', description='角色管理')
@@ -20,6 +30,23 @@ base_response = common['base_response']
 error_response = common['error_response']
 unauthorized_response = common['unauthorized_response']
 forbidden_response = common['forbidden_response']
+ROLE_SCOPE_CHOICES = ['platform', 'factory']
+ROLE_QUERY_PERMISSION_CODES = [PERM_SYSTEM_ROLE_QUERY, PERM_FACTORY_MANAGEMENT_ROLE_QUERY]
+ROLE_CREATE_PERMISSION_CODES = [PERM_SYSTEM_ROLE_ADD, PERM_FACTORY_MANAGEMENT_ROLE_ADD]
+ROLE_EDIT_PERMISSION_CODES = [PERM_SYSTEM_ROLE_EDIT, PERM_FACTORY_MANAGEMENT_ROLE_EDIT]
+ROLE_DELETE_PERMISSION_CODES = [PERM_SYSTEM_ROLE_DELETE, PERM_FACTORY_MANAGEMENT_ROLE_DELETE]
+ROLE_SYSTEM_PERMISSION_MAP = {
+    'query': PERM_SYSTEM_ROLE_QUERY,
+    'create': PERM_SYSTEM_ROLE_ADD,
+    'edit': PERM_SYSTEM_ROLE_EDIT,
+    'delete': PERM_SYSTEM_ROLE_DELETE,
+}
+ROLE_FACTORY_PERMISSION_MAP = {
+    'query': PERM_FACTORY_MANAGEMENT_ROLE_QUERY,
+    'create': PERM_FACTORY_MANAGEMENT_ROLE_ADD,
+    'edit': PERM_FACTORY_MANAGEMENT_ROLE_EDIT,
+    'delete': PERM_FACTORY_MANAGEMENT_ROLE_DELETE,
+}
 
 role_query_parser = page_parser.copy()
 role_query_parser.add_argument('name', type=str, location='args', help='角色名称（模糊查询）')
@@ -28,8 +55,8 @@ role_query_parser.add_argument(
     'scope_type',
     type=str,
     location='args',
-    help='角色归属范围',
-    choices=['platform', 'factory', 'partner_subject'],
+    help='角色归属范围；当前接口仅开放平台角色和工厂角色',
+    choices=ROLE_SCOPE_CHOICES,
 )
 role_query_parser.add_argument('scope_id', type=int, location='args', help='角色归属主键；工厂角色传工厂ID')
 
@@ -40,15 +67,15 @@ role_option_query_parser.add_argument(
     'scope_type',
     type=str,
     location='args',
-    help='角色归属范围',
-    choices=['platform', 'factory', 'partner_subject'],
+    help='角色归属范围；当前接口仅开放平台角色和工厂角色',
+    choices=ROLE_SCOPE_CHOICES,
 )
 role_option_query_parser.add_argument('scope_id', type=int, location='args', help='角色归属主键；工厂角色传工厂ID')
 
 role_create_model = role_ns.model('RoleCreate', {
     'scope_type': fields.String(
-        description='角色归属范围；工厂管理员创建时可不传，后端会固定为 factory',
-        choices=['platform', 'factory', 'partner_subject'],
+        description='角色归属范围；当前仅开放 platform 和 factory，工厂管理员创建时可不传，后端会固定为 factory',
+        choices=ROLE_SCOPE_CHOICES,
         example='factory',
     ),
     'scope_id': fields.Integer(
@@ -60,7 +87,7 @@ role_create_model = role_ns.model('RoleCreate', {
     'description': fields.String(description='角色说明', example='工厂管理员角色'),
     'sort_order': fields.Integer(description='排序', default=0, example=1),
     'data_scope': fields.String(
-        description='数据范围',
+        description='数据范围；当前已联动用户与订单查询，其他业务模块将继续按该字段收敛数据',
         choices=['all_factory', 'assigned', 'own_related', 'self_only'],
         example='all_factory',
     ),
@@ -73,7 +100,7 @@ role_update_model = role_ns.model('RoleUpdate', {
     'status': fields.Integer(description='状态', example=1, choices=[0, 1]),
     'sort_order': fields.Integer(description='排序', example=1),
     'data_scope': fields.String(
-        description='数据范围',
+        description='数据范围；当前已联动用户与订单查询，其他业务模块将继续按该字段收敛数据',
         choices=['all_factory', 'assigned', 'own_related', 'self_only'],
     ),
     'is_factory_admin': fields.Integer(description='是否工厂管理员角色', choices=[0, 1]),
@@ -93,8 +120,8 @@ role_item_model = role_ns.model('RoleItem', {
     'description': fields.String(description='角色说明'),
     'status': fields.Integer(description='状态'),
     'sort_order': fields.Integer(description='排序值'),
-    'data_scope': fields.String(description='数据范围'),
-    'data_scope_label': fields.String(description='数据范围名称'),
+    'data_scope': fields.String(description='数据范围编码，当前已联动部分业务查询'),
+    'data_scope_label': fields.String(description='数据范围名称，当前已联动部分业务查询'),
     'is_factory_admin': fields.Integer(description='是否工厂管理员角色'),
     'create_time': fields.String(description='创建时间'),
     'update_time': fields.String(description='更新时间'),
@@ -184,19 +211,94 @@ def serialize_role_user(user):
     }
 
 
+def normalize_role_filters(current_user, filters):
+    """按当前用户实际按钮权限收敛角色查询范围，避免工厂模块权限越权看到平台角色。"""
+    normalized = dict(filters)
+    if not current_user or not current_user.is_internal_user:
+        return normalized, None
+
+    has_system_permission, _ = has_any_permission(current_user, [ROLE_SYSTEM_PERMISSION_MAP['query']])
+    if has_system_permission:
+        return normalized, None
+
+    if normalized.get('scope_type') == 'platform':
+        return None, '无权限查看平台角色'
+
+    normalized['scope_type'] = 'factory'
+    return normalized, None
+
+
+def check_role_scope_permission(current_user, role, action, current_factory_id=None):
+    """按角色归属范围和当前登录人上下文校验角色访问权限。"""
+    if not current_user or not role:
+        return False, '角色不存在'
+
+    if role.scope_type == 'platform':
+        if not current_user.is_internal_user:
+            return False, '只有平台内部用户可以访问平台角色'
+        return has_any_permission(current_user, [ROLE_SYSTEM_PERMISSION_MAP[action]])
+
+    if role.scope_type == 'factory':
+        if current_user.is_internal_user:
+            return has_any_permission(
+                current_user,
+                [ROLE_SYSTEM_PERMISSION_MAP[action], ROLE_FACTORY_PERMISSION_MAP[action]],
+                factory_id=role.scope_id,
+            )
+        if current_factory_id and role.scope_id != current_factory_id:
+            return False, '无权跨工厂操作角色'
+        if not RoleService.has_factory_admin_permission(current_user, role.scope_id):
+            return False, '只有本工厂管理员可以操作角色'
+        return has_any_permission(current_user, [ROLE_FACTORY_PERMISSION_MAP[action]], factory_id=role.scope_id)
+
+    return False, '当前接口暂不支持该角色范围'
+
+
+def check_role_create_permission(current_user, scope_type, scope_id=None, current_factory_id=None):
+    """按待创建角色的归属范围校验创建权限。"""
+    if not current_user:
+        return False, '用户不存在'
+
+    if scope_type == 'platform':
+        if not current_user.is_internal_user:
+            return False, '只有平台内部用户可以创建平台角色'
+        return has_any_permission(current_user, [ROLE_SYSTEM_PERMISSION_MAP['create']])
+
+    if scope_type == 'factory':
+        target_factory_id = scope_id or current_factory_id
+        if not target_factory_id:
+            return False, '工厂角色必须指定 scope_id'
+        if current_user.is_internal_user:
+            return has_any_permission(
+                current_user,
+                [ROLE_SYSTEM_PERMISSION_MAP['create'], ROLE_FACTORY_PERMISSION_MAP['create']],
+                factory_id=target_factory_id,
+            )
+        if current_factory_id and target_factory_id != current_factory_id:
+            return False, '无权跨工厂创建角色'
+        if not RoleService.has_factory_admin_permission(current_user, target_factory_id):
+            return False, '只有本工厂管理员可以创建工厂角色'
+        return has_any_permission(current_user, [ROLE_FACTORY_PERMISSION_MAP['create']], factory_id=target_factory_id)
+
+    return False, '当前接口暂不支持该角色范围'
+
+
 @role_ns.route('')
 class RoleList(Resource):
     @login_required
+    @permission_required_any(ROLE_QUERY_PERMISSION_CODES)
     @role_ns.expect(role_query_parser)
     @role_ns.response(200, '成功', role_list_response)
     @role_ns.response(401, '未登录', unauthorized_response)
     @role_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """查询角色分页列表接口，支持按归属范围、状态和名称筛选。"""
-        args = role_query_parser.parse_args()
         current_user, error_response_data = get_required_role_user()
         if error_response_data:
             return error_response_data
+        args, error = normalize_role_filters(current_user, role_query_parser.parse_args())
+        if error:
+            return ApiResponse.error(error, 403)
 
         result, error = RoleService.get_role_list(current_user, args, get_current_factory_id())
         if error:
@@ -205,6 +307,7 @@ class RoleList(Resource):
         return ApiResponse.success_page_result(result, roles_schema.dump(result['items']))
 
     @login_required
+    @permission_required_any(ROLE_CREATE_PERMISSION_CODES)
     @role_ns.expect(role_create_model)
     @role_ns.response(201, '创建成功', role_item_response)
     @role_ns.response(400, '参数错误', error_response)
@@ -222,11 +325,19 @@ class RoleList(Resource):
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
 
-        if not current_user.is_platform_admin:
-            if not RoleService.has_factory_admin_permission(current_user, current_factory_id):
-                return ApiResponse.error('只有平台管理员或工厂管理员可以创建角色', 403)
+        if not current_user.is_internal_user:
             data['scope_type'] = 'factory'
             data['scope_id'] = current_factory_id
+
+        has_permission, error = check_role_create_permission(
+            current_user,
+            data.get('scope_type'),
+            data.get('scope_id'),
+            current_factory_id=current_factory_id,
+        )
+        permission_error = ensure_permission_or_error(has_permission, error, 403)
+        if permission_error:
+            return permission_error
 
         role, error = RoleService.create_role(data)
         if error:
@@ -237,6 +348,7 @@ class RoleList(Resource):
 @role_ns.route('/options')
 class RoleOptions(Resource):
     @login_required
+    @permission_required_any(ROLE_QUERY_PERMISSION_CODES)
     @role_ns.expect(role_option_query_parser)
     @role_ns.response(200, '成功', role_options_response)
     @role_ns.response(401, '未登录', unauthorized_response)
@@ -246,8 +358,11 @@ class RoleOptions(Resource):
         current_user, error_response_data = get_required_role_user()
         if error_response_data:
             return error_response_data
+        args, error = normalize_role_filters(current_user, role_option_query_parser.parse_args())
+        if error:
+            return ApiResponse.error(error, 403)
 
-        roles, error = RoleService.get_role_options(current_user, role_option_query_parser.parse_args(), get_current_factory_id())
+        roles, error = RoleService.get_role_options(current_user, args, get_current_factory_id())
         if error:
             return ApiResponse.error(error, 403 if error == '无权限查看角色' else 400)
 
@@ -257,6 +372,7 @@ class RoleOptions(Resource):
 @role_ns.route('/<int:role_id>')
 class RoleDetail(Resource):
     @login_required
+    @permission_required_any(ROLE_QUERY_PERMISSION_CODES)
     @role_ns.response(200, '成功', role_item_response)
     @role_ns.response(403, '无权限', forbidden_response)
     @role_ns.response(404, '角色不存在', error_response)
@@ -268,12 +384,14 @@ class RoleDetail(Resource):
         role, error_response_data = get_role_or_error(role_id)
         if error_response_data:
             return error_response_data
-        permission_error = ensure_permission_or_error(RoleService.verify_role_permission(current_user, role), '无权限查看此角色', 403)
+        has_permission, error = check_role_scope_permission(current_user, role, 'query', current_factory_id=get_current_factory_id())
+        permission_error = ensure_permission_or_error(has_permission, error or '无权限查看此角色', 403)
         if permission_error:
             return permission_error
         return ApiResponse.success(role_schema.dump(role))
 
     @login_required
+    @permission_required_any(ROLE_EDIT_PERMISSION_CODES)
     @role_ns.expect(role_update_model)
     @role_ns.response(200, '更新成功', role_item_response)
     @role_ns.response(404, '角色不存在', error_response)
@@ -287,11 +405,8 @@ class RoleDetail(Resource):
         role, error_response_data = get_role_or_error(role_id)
         if error_response_data:
             return error_response_data
-        permission_error = ensure_permission_or_error(
-            RoleService.can_manage_role(current_user, role, current_factory_id),
-            '只有平台管理员或本工厂管理员可以更新角色',
-            403,
-        )
+        has_permission, error = check_role_scope_permission(current_user, role, 'edit', current_factory_id=current_factory_id)
+        permission_error = ensure_permission_or_error(has_permission, error or '无权限更新角色', 403)
         if permission_error:
             return permission_error
 
@@ -306,6 +421,7 @@ class RoleDetail(Resource):
         return ApiResponse.success(role_schema.dump(role), '更新成功')
 
     @login_required
+    @permission_required_any(ROLE_DELETE_PERMISSION_CODES)
     @role_ns.response(200, '删除成功', base_response)
     @role_ns.response(404, '角色不存在', error_response)
     @role_ns.response(403, '无权限', forbidden_response)
@@ -319,11 +435,8 @@ class RoleDetail(Resource):
         role, error_response_data = get_role_or_error(role_id)
         if error_response_data:
             return error_response_data
-        permission_error = ensure_permission_or_error(
-            RoleService.can_manage_role(current_user, role, current_factory_id),
-            '只有平台管理员或本工厂管理员可以删除角色',
-            403,
-        )
+        has_permission, error = check_role_scope_permission(current_user, role, 'delete', current_factory_id=current_factory_id)
+        permission_error = ensure_permission_or_error(has_permission, error or '无权限删除角色', 403)
         if permission_error:
             return permission_error
 
@@ -336,6 +449,7 @@ class RoleDetail(Resource):
 @role_ns.route('/<int:role_id>/menus')
 class RoleMenus(Resource):
     @login_required
+    @permission_required_any(ROLE_QUERY_PERMISSION_CODES)
     @role_ns.response(200, '成功', menu_ids_response)
     @role_ns.response(403, '无权限', forbidden_response)
     @role_ns.response(404, '角色不存在', error_response)
@@ -347,13 +461,15 @@ class RoleMenus(Resource):
         role, error_response_data = get_role_or_error(role_id)
         if error_response_data:
             return error_response_data
-        permission_error = ensure_permission_or_error(RoleService.verify_role_permission(current_user, role), '无权限查看', 403)
+        has_permission, error = check_role_scope_permission(current_user, role, 'query', current_factory_id=get_current_factory_id())
+        permission_error = ensure_permission_or_error(has_permission, error or '无权限查看', 403)
         if permission_error:
             return permission_error
 
         return ApiResponse.success_list(RoleService.get_role_menu_ids(role_id))
 
     @login_required
+    @permission_required_any(ROLE_EDIT_PERMISSION_CODES)
     @role_ns.expect(role_assign_menu_model)
     @role_ns.response(200, '分配成功', base_response)
     @role_ns.response(404, '角色或菜单不存在', error_response)
@@ -367,11 +483,8 @@ class RoleMenus(Resource):
         role, error_response_data = get_role_or_error(role_id)
         if error_response_data:
             return error_response_data
-        permission_error = ensure_permission_or_error(
-            RoleService.can_manage_role(current_user, role, current_factory_id),
-            '只有平台管理员或本工厂管理员可以分配权限',
-            403,
-        )
+        has_permission, error = check_role_scope_permission(current_user, role, 'edit', current_factory_id=current_factory_id)
+        permission_error = ensure_permission_or_error(has_permission, error or '无权限分配权限', 403)
         if permission_error:
             return permission_error
 
@@ -389,6 +502,7 @@ class RoleMenus(Resource):
 @role_ns.route('/<int:role_id>/users')
 class RoleUsers(Resource):
     @login_required
+    @permission_required_any(ROLE_QUERY_PERMISSION_CODES)
     @role_ns.response(200, '成功', role_users_response)
     @role_ns.response(403, '无权限', forbidden_response)
     @role_ns.response(404, '角色不存在', error_response)
@@ -400,7 +514,8 @@ class RoleUsers(Resource):
         role, error_response_data = get_role_or_error(role_id)
         if error_response_data:
             return error_response_data
-        permission_error = ensure_permission_or_error(RoleService.verify_role_permission(current_user, role), '无权限查看', 403)
+        has_permission, error = check_role_scope_permission(current_user, role, 'query', current_factory_id=get_current_factory_id())
+        permission_error = ensure_permission_or_error(has_permission, error or '无权限查看', 403)
         if permission_error:
             return permission_error
 
