@@ -30,11 +30,3 @@ def require_current_user(message='用户不存在', code=401):
     if not current_user:
         return None, ApiResponse.error(message, code)
     return current_user, None
-
-
-def require_current_user_and_factory(message='用户不存在', code=401):
-    """获取当前登录用户与工厂上下文，不存在时返回统一错误响应。"""
-    current_user, error_response = require_current_user(message, code)
-    if error_response:
-        return None, None, error_response
-    return current_user, get_current_factory_id(), None

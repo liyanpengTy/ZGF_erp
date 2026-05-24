@@ -7,7 +7,8 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_claims, get_current_factory_id, require_current_user
+from app.api.common.auth import get_current_claims, require_current_user
+from app.api.common.factory_context import resolve_read_factory_context
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
 from app.api.common.resource_helpers import ensure_permission_or_error, get_resource_or_error
@@ -271,6 +272,14 @@ def get_required_current_user():
     return require_current_user()
 
 
+def get_user_request_context(query_factory_id=None, allow_internal_without_factory=False):
+    """解析用户接口所需的工厂上下文，并统一校验工厂访问权限。"""
+    return resolve_read_factory_context(
+        query_factory_id=query_factory_id,
+        allow_internal_without_factory=allow_internal_without_factory,
+    )
+
+
 def get_target_user_or_error(user_id):
     """根据用户 ID 查询目标用户，不存在时返回统一错误响应。"""
     return get_resource_or_error(lambda: UserService.get_user_by_id(user_id), '用户不存在')
@@ -303,7 +312,7 @@ def resolve_manage_factory_id(current_user, requested_factory_id=None):
     if current_user.is_internal_user:
         return requested_factory_id, None
 
-    candidate_factory_id = requested_factory_id or get_current_factory_id()
+    candidate_factory_id = requested_factory_id or get_current_claims().get('factory_id')
     if candidate_factory_id and RoleService.has_factory_admin_permission(current_user, candidate_factory_id):
         return candidate_factory_id, None
 
@@ -453,12 +462,13 @@ class UserList(Resource):
     @user_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """按权限范围分页查询用户列表，返回工厂挂靠关系和角色绑定信息。"""
-        current_user, error_response_data = get_required_current_user()
+        args = user_query_parser.parse_args()
+        current_user, current_factory_id, error_response_data = get_user_request_context(
+            query_factory_id=args.get('factory_id'),
+            allow_internal_without_factory=True,
+        )
         if error_response_data:
             return error_response_data
-
-        args = user_query_parser.parse_args()
-        current_factory_id = get_current_factory_id()
 
         if current_user.is_internal_user:
             args, error = normalize_internal_user_filters(current_user, args)
@@ -541,7 +551,7 @@ class UserList(Resource):
             user_factory.save()
 
         return ApiResponse.success(
-            build_scoped_user_view(user, current_user, current_factory_id=factory_id or get_current_factory_id()),
+            build_scoped_user_view(user, current_user, current_factory_id=factory_id or get_current_claims().get('factory_id')),
             '创建成功',
             201,
         )
@@ -557,17 +567,20 @@ class UserOptions(Resource):
     @user_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """查询轻量用户选项列表，供客户、员工、协作用户等选择器直接使用。"""
-        current_user, error_response_data = get_required_current_user()
+        args = user_option_query_parser.parse_args()
+        current_user, current_factory_id, error_response_data = get_user_request_context(
+            query_factory_id=args.get('factory_id'),
+            allow_internal_without_factory=True,
+        )
         if error_response_data:
             return error_response_data
 
-        args = user_option_query_parser.parse_args()
         if current_user.is_internal_user:
             args, error = normalize_internal_user_filters(current_user, args)
             if error:
                 return ApiResponse.error(error, 403)
         elif not args.get('factory_id'):
-            args['factory_id'] = get_current_factory_id()
+            args['factory_id'] = current_factory_id
 
         return ApiResponse.success_list(UserService.get_user_options(current_user, args))
 
@@ -581,10 +594,11 @@ class UserDetail(Resource):
     @user_ns.response(404, '用户不存在', error_response)
     def get(self, user_id):
         """查看单个用户详情，返回工厂挂靠关系和角色绑定信息。"""
-        current_user, error_response_data = get_required_current_user()
+        current_user, current_factory_id, error_response_data = get_user_request_context(
+            allow_internal_without_factory=True,
+        )
         if error_response_data:
             return error_response_data
-        current_factory_id = get_current_factory_id()
 
         target_user, error_response_data = get_target_user_or_error(user_id)
         if error_response_data:
@@ -604,10 +618,11 @@ class UserDetail(Resource):
     @user_ns.response(404, '用户不存在', error_response)
     def patch(self, user_id):
         """更新用户昵称、手机号和状态，并返回完整用户视图。"""
-        current_user, error_response_data = get_required_current_user()
+        current_user, current_factory_id, error_response_data = get_user_request_context(
+            allow_internal_without_factory=True,
+        )
         if error_response_data:
             return error_response_data
-        current_factory_id = get_current_factory_id()
 
         target_user, error_response_data = get_target_user_or_error(user_id)
         if error_response_data:
@@ -636,10 +651,11 @@ class UserDetail(Resource):
     @user_ns.response(403, '不能删除自己', forbidden_response)
     def delete(self, user_id):
         """删除用户；当前登录用户不允许删除自己。"""
-        current_user, error_response_data = get_required_current_user()
+        current_user, current_factory_id, error_response_data = get_user_request_context(
+            allow_internal_without_factory=True,
+        )
         if error_response_data:
             return error_response_data
-        current_factory_id = get_current_factory_id()
 
         target_user, error_response_data = get_target_user_or_error(user_id)
         if error_response_data:
@@ -666,10 +682,11 @@ class UserResetPassword(Resource):
     @user_ns.response(404, '用户不存在', error_response)
     def post(self, user_id):
         """重置指定用户密码接口。"""
-        current_user, error_response_data = get_required_current_user()
+        current_user, current_factory_id, error_response_data = get_user_request_context(
+            allow_internal_without_factory=True,
+        )
         if error_response_data:
             return error_response_data
-        current_factory_id = get_current_factory_id()
 
         target_user, error_response_data = get_target_user_or_error(user_id)
         if error_response_data:

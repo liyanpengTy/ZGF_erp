@@ -4,7 +4,7 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_factory_id, require_current_user
+from app.api.common.factory_context import resolve_read_factory_context, resolve_write_factory_context
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_with_date_parser
 from app.constants.permissions import (
@@ -138,20 +138,12 @@ shipment_cancel_schema = ShipmentCancelSchema()
 
 def get_shipment_request_context():
     """获取出货单接口通用的当前用户和工厂上下文。"""
-    current_user, error_response_data = require_current_user()
-    if error_response_data:
-        return None, None, error_response_data
-    return current_user, get_current_factory_id(), None
+    return resolve_read_factory_context(allow_internal_without_factory=True)
 
 
 def require_shipment_write_context():
     """校验出货单写操作必须存在工厂上下文。"""
-    current_user, current_factory_id, error_response_data = get_shipment_request_context()
-    if error_response_data:
-        return None, None, error_response_data
-    if not current_factory_id:
-        return None, None, ApiResponse.error('当前缺少工厂上下文，请先切换工厂', 400)
-    return current_user, current_factory_id, None
+    return resolve_write_factory_context()
 
 
 def get_accessible_shipment_or_error(shipment_id):
@@ -170,6 +162,21 @@ def get_accessible_shipment_or_error(shipment_id):
     return current_user, current_factory_id, shipment, None
 
 
+def get_writable_shipment_or_error(shipment_id):
+    """查询当前工厂下可写入的出货单，不存在或超出数据范围时返回统一错误响应。"""
+    current_user, current_factory_id, error_response_data = require_shipment_write_context()
+    if error_response_data:
+        return None, None, None, error_response_data
+
+    shipment = ShipmentService.get_shipment_by_id(shipment_id)
+    if not shipment or shipment.factory_id != current_factory_id:
+        return None, None, None, ApiResponse.error('出货单不存在', 404)
+    has_permission, error = ShipmentService.check_permission(current_user, current_factory_id, shipment)
+    if not has_permission:
+        return None, None, None, ApiResponse.error(error, 403)
+    return current_user, current_factory_id, shipment, None
+
+
 @shipment_ns.route('')
 class ShipmentList(Resource):
     @login_required
@@ -180,11 +187,14 @@ class ShipmentList(Resource):
     @shipment_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """查询出货单分页列表接口。平台内部用户可直接全局查询，外部用户仍按当前工厂范围查询。"""
-        current_user, current_factory_id, error_response_data = get_shipment_request_context()
+        args = shipment_query_parser.parse_args()
+        current_user, current_factory_id, error_response_data = resolve_read_factory_context(
+            query_factory_id=args.get('factory_id'),
+            allow_internal_without_factory=True,
+        )
         if error_response_data:
             return error_response_data
 
-        args = shipment_query_parser.parse_args()
         result = ShipmentService.get_shipment_list(current_user, current_factory_id, args)
         return ApiResponse.success_page_result(
             result,
@@ -244,13 +254,9 @@ class ShipmentCancel(Resource):
     @shipment_ns.response(404, '出货单不存在', error_response)
     def post(self, shipment_id):
         """作废出货单接口。写操作仍要求明确当前工厂上下文，并且仅允许作废所属工厂的出货单。"""
-        current_user, current_factory_id, error_response_data = require_shipment_write_context()
+        current_user, _, shipment, error_response_data = get_writable_shipment_or_error(shipment_id)
         if error_response_data:
             return error_response_data
-
-        shipment = ShipmentService.get_shipment_by_id(shipment_id)
-        if not shipment or shipment.factory_id != current_factory_id:
-            return ApiResponse.error('出货单不存在', 404)
 
         try:
             data = shipment_cancel_schema.load(request.get_json() or {})

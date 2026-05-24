@@ -18,6 +18,17 @@ class ColorService(BaseService):
         return Color.query.filter_by(factory_id=factory_id, code=code, is_deleted=0).first()
 
     @staticmethod
+    def _build_color_query(current_user, current_factory_id, factory_only=0):
+        """按当前用户与工厂上下文构造颜色查询。"""
+        return ColorService.build_factory_scope_query(
+            Color.query.filter_by(is_deleted=0),
+            Color,
+            current_user,
+            current_factory_id=current_factory_id,
+            factory_only=factory_only,
+        )
+
+    @staticmethod
     def get_color_list(current_user, current_factory_id, filters):
         """分页查询颜色列表。"""
         page = filters.get('page', 1)
@@ -27,13 +38,7 @@ class ColorService(BaseService):
         status = filters.get('status')
         factory_only = filters.get('factory_only', 0)
 
-        query = Color.query.filter_by(is_deleted=0)
-        if factory_only:
-            query = query.filter(Color.factory_id == (current_factory_id or -1))
-        elif current_factory_id:
-            query = query.filter((Color.factory_id == 0) | (Color.factory_id == current_factory_id))
-        else:
-            query = query.filter(Color.factory_id == 0)
+        query = ColorService._build_color_query(current_user, current_factory_id, factory_only)
 
         if name:
             query = query.filter(Color.name.like(f'%{name}%'))

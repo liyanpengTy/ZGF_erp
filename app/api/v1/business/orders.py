@@ -10,7 +10,7 @@ from app.constants.permissions import (
     PERM_BUSINESS_ORDER_EDIT,
     PERM_BUSINESS_ORDER_QUERY,
 )
-from app.api.common.auth import get_current_factory_id, require_current_user
+from app.api.common.factory_context import resolve_read_factory_context, resolve_write_factory_context
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_with_date_parser
 from app.schemas.business.order import OrderCreateSchema, OrderSchema, OrderStatusUpdateSchema, OrderUpdateSchema
@@ -453,17 +453,21 @@ order_update_schema = OrderUpdateSchema()
 order_status_update_schema = OrderStatusUpdateSchema()
 
 
-def get_order_request_context():
+def get_order_request_context(query_factory_id=None, require_write=False, allow_internal_without_factory=False):
     """获取订单接口通用的当前用户与工厂上下文。"""
-    current_user, error_response_data = require_current_user()
-    if error_response_data:
-        return None, None, error_response_data
-    return current_user, get_current_factory_id(), None
+    if require_write:
+        return resolve_write_factory_context()
+    return resolve_read_factory_context(
+        query_factory_id=query_factory_id,
+        allow_internal_without_factory=allow_internal_without_factory,
+    )
 
 
 def get_accessible_order_or_error(order_id):
     """查询当前上下文可访问的订单，不可访问时返回统一错误响应。"""
-    current_user, current_factory_id, error_response_data = get_order_request_context()
+    current_user, current_factory_id, error_response_data = get_order_request_context(
+        allow_internal_without_factory=True,
+    )
     if error_response_data:
         return None, None, None, error_response_data
 
@@ -572,7 +576,10 @@ class OrderList(Resource):
     def get(self):
         """查询订单分页列表接口，支持按订单号、客户、状态和工厂维度筛选。"""
         args = order_query_parser.parse_args()
-        current_user, current_factory_id, error_response_data = get_order_request_context()
+        current_user, current_factory_id, error_response_data = get_order_request_context(
+            query_factory_id=args.get('factory_id'),
+            allow_internal_without_factory=True,
+        )
         if error_response_data:
             return error_response_data
 
@@ -592,7 +599,7 @@ class OrderList(Resource):
     @order_ns.response(403, '无权限', forbidden_response)
     def post(self):
         """创建订单接口，支持普通款、颜色尺码矩阵和拼接配置明细。"""
-        current_user, current_factory_id, error_response_data = get_order_request_context()
+        current_user, current_factory_id, error_response_data = get_order_request_context(require_write=True)
         if error_response_data:
             return error_response_data
 
@@ -618,11 +625,15 @@ class OrderOptions(Resource):
     @order_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """查询订单下拉选项接口，供订单选择器直接使用。"""
-        current_user, current_factory_id, error_response_data = get_order_request_context()
+        args = order_option_query_parser.parse_args()
+        current_user, current_factory_id, error_response_data = get_order_request_context(
+            query_factory_id=args.get('factory_id'),
+            allow_internal_without_factory=True,
+        )
         if error_response_data:
             return error_response_data
 
-        orders = OrderService.get_order_options(current_user, current_factory_id, order_option_query_parser.parse_args())
+        orders = OrderService.get_order_options(current_user, current_factory_id, args)
         return ApiResponse.success_list([serialize_order_option(order) for order in orders])
 
 

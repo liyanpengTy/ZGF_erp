@@ -71,6 +71,24 @@ class BaseService:
         return True
 
     @staticmethod
+    def build_factory_scope_query(query, model, current_user, current_factory_id=None, factory_only=0):
+        """按当前用户与工厂上下文统一构造工厂维度查询范围。"""
+        if factory_only:
+            if current_factory_id:
+                return query.filter(model.factory_id == current_factory_id)
+            if current_user and current_user.is_internal_user:
+                return query.filter(model.factory_id != 0)
+            return query.filter(model.factory_id == -1)
+
+        if current_factory_id:
+            return query.filter((model.factory_id == 0) | (model.factory_id == current_factory_id))
+
+        if current_user and current_user.is_internal_user:
+            return query
+
+        return query.filter(model.factory_id == 0)
+
+    @staticmethod
     def hard_delete(obj):
         """硬删除"""
         db.session.delete(obj)

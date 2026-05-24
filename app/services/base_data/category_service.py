@@ -18,15 +18,15 @@ class CategoryService(BaseService):
         return Category.query.filter_by(factory_id=factory_id, code=code, is_deleted=0).first()
 
     @staticmethod
-    def _build_category_query(current_factory_id, factory_only=0, category_type=None):
+    def _build_category_query(current_user, current_factory_id, factory_only=0, category_type=None):
         """按当前工厂上下文构造分类查询。"""
-        query = Category.query.filter_by(is_deleted=0)
-        if factory_only:
-            query = query.filter(Category.factory_id == (current_factory_id or -1))
-        elif current_factory_id:
-            query = query.filter((Category.factory_id == 0) | (Category.factory_id == current_factory_id))
-        else:
-            query = query.filter(Category.factory_id == 0)
+        query = CategoryService.build_factory_scope_query(
+            Category.query.filter_by(is_deleted=0),
+            Category,
+            current_user,
+            current_factory_id=current_factory_id,
+            factory_only=factory_only,
+        )
 
         if category_type:
             query = query.filter_by(category_type=category_type)
@@ -43,7 +43,7 @@ class CategoryService(BaseService):
         factory_only = filters.get('factory_only', 0)
         category_type = filters.get('category_type')
 
-        query = CategoryService._build_category_query(current_factory_id, factory_only, category_type)
+        query = CategoryService._build_category_query(current_user, current_factory_id, factory_only, category_type)
 
         if name:
             query = query.filter(Category.name.like(f'%{name}%'))
@@ -66,7 +66,7 @@ class CategoryService(BaseService):
         }
 
     @staticmethod
-    def get_category_options(current_factory_id, filters):
+    def get_category_options(current_user, current_factory_id, filters):
         """查询轻量分类选项列表，供下拉选择器使用。"""
         name = filters.get('name', '')
         parent_id = filters.get('parent_id')
@@ -74,7 +74,7 @@ class CategoryService(BaseService):
         factory_only = filters.get('factory_only', 0)
         category_type = filters.get('category_type')
 
-        query = CategoryService._build_category_query(current_factory_id, factory_only, category_type)
+        query = CategoryService._build_category_query(current_user, current_factory_id, factory_only, category_type)
         if name:
             query = query.filter(Category.name.like(f'%{name}%'))
         if parent_id is not None:
@@ -87,7 +87,7 @@ class CategoryService(BaseService):
     @staticmethod
     def get_category_tree(current_user, current_factory_id, category_type=None):
         """查询分类树。"""
-        query = CategoryService._build_category_query(current_factory_id, factory_only=0, category_type=category_type)
+        query = CategoryService._build_category_query(current_user, current_factory_id, factory_only=0, category_type=category_type)
         categories = query.order_by(Category.sort_order.asc(), Category.id.asc()).all()
         return CategoryService.build_tree(categories)
 

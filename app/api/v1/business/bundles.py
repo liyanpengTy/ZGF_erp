@@ -28,7 +28,7 @@ from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
-bundle_ns = Namespace("bundles", description="菲查询、流转与打印管理")
+bundle_ns = Namespace("菲管理-bundles", description="菲查询、流转与打印管理")
 
 common = get_common_models(bundle_ns)
 base_response = common["base_response"]
@@ -283,6 +283,9 @@ def get_writable_bundle_or_error(bundle_id):
     bundle = BundleService.get_bundle_by_id(bundle_id)
     if not bundle or bundle.factory_id != current_factory_id:
         return None, None, None, ApiResponse.error("菲不存在", 404)
+    has_permission, error = BundleService.check_permission(current_user, current_factory_id, bundle)
+    if not has_permission:
+        return None, None, None, ApiResponse.error(error, 403)
     return current_user, current_factory_id, bundle, None
 
 

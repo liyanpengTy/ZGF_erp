@@ -20,6 +20,7 @@ from app.models.business.process import Process
 from app.models.business.style import Style
 from app.models.system.user_factory import UserFactory
 from app.services.base.base_service import BaseService
+from app.services.system.user_service import UserService
 
 
 class BundleTemplateService(BaseService):
@@ -400,10 +401,25 @@ class BundleService(BaseService):
         if current_user and current_user.is_internal_user:
             if factory_id:
                 query = query.filter_by(factory_id=factory_id)
-            return query
+            return BundleService.apply_bundle_data_scope(query, current_user, current_factory_id=factory_id)
         if not current_factory_id:
             return query.filter(ProductionBundle.id == 0)
-        return query.filter_by(factory_id=current_factory_id)
+        query = query.filter_by(factory_id=current_factory_id)
+        return BundleService.apply_bundle_data_scope(query, current_user, current_factory_id=current_factory_id)
+
+    @staticmethod
+    def apply_bundle_data_scope(query, current_user, current_factory_id=None):
+        """按当前用户数据范围收敛菲查询。"""
+        data_scope = UserService.get_current_data_scope(current_user, current_factory_id=current_factory_id)
+        if current_user.is_platform_admin or data_scope == "all_factory":
+            return query
+
+        own_related_filter = or_(
+            ProductionBundle.current_holder_user_id == current_user.id,
+            ProductionBundle.cutting_report.has(report_user_id=current_user.id),
+            ProductionBundle.order.has(customer_id=current_user.id),
+        )
+        return query.filter(own_related_filter)
 
     @staticmethod
     def get_bundle_list(current_user, current_factory_id, filters):
@@ -443,13 +459,24 @@ class BundleService(BaseService):
         """校验当前用户是否可以查看指定菲。"""
         if not current_user:
             return False, "用户不存在"
-        if current_user.is_internal_user:
-            return True, None
-        if not current_factory_id:
+        if not bundle:
+            return False, "菲不存在"
+        if not current_user.is_internal_user and not current_factory_id:
             return False, "当前缺少工厂上下文，请先切换工厂"
-        if bundle.factory_id != current_factory_id:
+        if not current_user.is_internal_user and bundle.factory_id != current_factory_id:
             return False, "无权查看当前菲数据"
-        return True, None
+
+        scoped_query = BundleService.apply_bundle_data_scope(
+            ProductionBundle.query.filter(
+                ProductionBundle.id == bundle.id,
+                ProductionBundle.is_deleted == 0,
+            ),
+            current_user,
+            current_factory_id=bundle.factory_id,
+        )
+        if scoped_query.first():
+            return True, None
+        return False, "当前菲不在数据范围内"
 
     @staticmethod
     def build_template_context(bundle):

@@ -18,6 +18,17 @@ class SizeService(BaseService):
         return Size.query.filter_by(factory_id=factory_id, code=code, is_deleted=0).first()
 
     @staticmethod
+    def _build_size_query(current_user, current_factory_id, factory_only=0):
+        """按当前用户与工厂上下文构造尺码查询。"""
+        return SizeService.build_factory_scope_query(
+            Size.query.filter_by(is_deleted=0),
+            Size,
+            current_user,
+            current_factory_id=current_factory_id,
+            factory_only=factory_only,
+        )
+
+    @staticmethod
     def get_size_list(current_user, current_factory_id, filters):
         """分页查询尺码列表。"""
         page = filters.get('page', 1)
@@ -26,13 +37,7 @@ class SizeService(BaseService):
         status = filters.get('status')
         factory_only = filters.get('factory_only', 0)
 
-        query = Size.query.filter_by(is_deleted=0)
-        if factory_only:
-            query = query.filter(Size.factory_id == (current_factory_id or -1))
-        elif current_factory_id:
-            query = query.filter((Size.factory_id == 0) | (Size.factory_id == current_factory_id))
-        else:
-            query = query.filter(Size.factory_id == 0)
+        query = SizeService._build_size_query(current_user, current_factory_id, factory_only)
 
         if name:
             query = query.filter(Size.name.like(f'%{name}%'))

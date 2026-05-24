@@ -14,7 +14,7 @@ from app.services import FactoryService
 from app.utils.permissions import login_required, permission_required
 from app.utils.response import ApiResponse
 
-factory_ns = Namespace("factories", description="工厂管理")
+factory_ns = Namespace("工厂管理-factories", description="工厂管理")
 
 common = get_common_models(factory_ns)
 base_response = common["base_response"]

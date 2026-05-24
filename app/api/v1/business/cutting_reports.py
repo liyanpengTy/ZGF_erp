@@ -18,7 +18,7 @@ from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
-cutting_report_ns = Namespace("cutting-reports", description="裁床报工与菲生成管理")
+cutting_report_ns = Namespace("裁床报工-cutting-reports", description="裁床报工与菲生成管理")
 
 common = get_common_models(cutting_report_ns)
 base_response = common["base_response"]
@@ -156,6 +156,9 @@ def get_writable_cutting_report_or_error(report_id):
     report = CuttingReportService.get_cutting_report_by_id(report_id)
     if not report or report.factory_id != current_factory_id:
         return None, None, None, ApiResponse.error("裁床报工不存在", 404)
+    has_permission, error = CuttingReportService.check_permission(current_user, current_factory_id, report)
+    if not has_permission:
+        return None, None, None, ApiResponse.error(error, 403)
     return current_user, current_factory_id, report, None
 
 
@@ -198,7 +201,7 @@ class CuttingReportList(Resource):
         except ValidationError as exc:
             return ApiResponse.error(str(exc.messages), 400)
 
-        report, error = CuttingReportService.create_cutting_report(current_factory_id, current_user.id, data)
+        report, error = CuttingReportService.create_cutting_report(current_user, current_factory_id, data)
         if error:
             return ApiResponse.error(error, 400)
 

@@ -10,7 +10,7 @@ from app.constants.permissions import (
     PERM_BASE_SIZE_EDIT,
     PERM_BASE_SIZE_QUERY,
 )
-from app.api.common.auth import require_current_user_and_factory
+from app.api.common.factory_context import resolve_read_factory_context, resolve_write_factory_context
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
 from app.schemas.base_data.size import SizeCreateSchema, SizeSchema, SizeUpdateSchema
@@ -33,6 +33,7 @@ size_query_parser = page_parser.copy()
 size_query_parser.add_argument('name', type=str, location='args', help='尺码名称')
 size_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
 size_query_parser.add_argument('factory_only', type=int, location='args', help='是否只查询工厂自定义数据', choices=[0, 1])
+size_query_parser.add_argument('factory_id', type=int, location='args', help='工厂 ID，平台内部用户可按工厂筛选')
 
 size_item_model = size_ns.model('SizeItem', {
     'id': fields.Integer(description='尺码ID'),
@@ -69,6 +70,21 @@ size_create_schema = SizeCreateSchema()
 size_update_schema = SizeUpdateSchema()
 
 
+def get_size_request_context(query_factory_id=None, require_write=False):
+    """统一解析尺码接口的当前用户与工厂上下文。"""
+    if not require_write:
+        return resolve_read_factory_context(query_factory_id=query_factory_id, allow_internal_without_factory=True)
+
+    current_user, current_factory_id, error_response_data = resolve_read_factory_context(
+        allow_internal_without_factory=True,
+    )
+    if error_response_data:
+        return None, None, error_response_data
+    if current_user and current_user.is_internal_user and not current_factory_id:
+        return current_user, current_factory_id, None
+    return resolve_write_factory_context()
+
+
 @size_ns.route('')
 class SizeList(Resource):
     @login_required
@@ -80,7 +96,7 @@ class SizeList(Resource):
     def get(self):
         """查询尺码分页列表接口，支持按名称、状态和工厂可见范围筛选。"""
         args = size_query_parser.parse_args()
-        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        current_user, current_factory_id, error_response_data = get_size_request_context(args.get('factory_id'))
         if error_response_data:
             return error_response_data
 
@@ -97,7 +113,7 @@ class SizeList(Resource):
     @size_ns.response(409, '尺码已存在', error_response)
     def post(self):
         """创建尺码接口，用于新增系统尺码或工厂自定义尺码。"""
-        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        current_user, current_factory_id, error_response_data = get_size_request_context(require_write=True)
         if error_response_data:
             return error_response_data
 
@@ -124,7 +140,7 @@ class SizeDetail(Resource):
     @size_ns.response(404, '尺码不存在', error_response)
     def get(self, size_id):
         """查询尺码详情接口，返回单个尺码完整信息。"""
-        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        current_user, current_factory_id, error_response_data = get_size_request_context()
         if error_response_data:
             return error_response_data
 
@@ -148,7 +164,7 @@ class SizeDetail(Resource):
     @size_ns.response(404, '尺码不存在', error_response)
     def patch(self, size_id):
         """更新尺码接口，可修改尺码名称、编码、排序和状态。"""
-        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        current_user, current_factory_id, error_response_data = get_size_request_context(require_write=True)
         if error_response_data:
             return error_response_data
 
@@ -179,7 +195,7 @@ class SizeDetail(Resource):
     @size_ns.response(404, '尺码不存在', error_response)
     def delete(self, size_id):
         """删除尺码接口，用于移除未被业务引用的尺码数据。"""
-        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        current_user, current_factory_id, error_response_data = get_size_request_context(require_write=True)
         if error_response_data:
             return error_response_data
         size = SizeService.get_size_by_id(size_id)

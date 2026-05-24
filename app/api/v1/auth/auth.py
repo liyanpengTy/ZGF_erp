@@ -16,7 +16,7 @@ from app.services import AuthService, LoginResponseBuilder
 from app.utils.permissions import login_required, refresh_required
 from app.utils.response import ApiResponse
 
-auth_ns = Namespace('认证管理-auth', description='认证管理')
+  
 
 common = get_common_models(auth_ns)
 base_response = common['base_response']

@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+from sqlalchemy import or_
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.extensions import db
@@ -10,6 +11,7 @@ from app.models.business.cutting_report import WorkCuttingReport
 from app.models.business.order import Order, OrderDetail, OrderDetailSku
 from app.services.base.base_service import BaseService
 from app.services.business.bundle_service import BundleService, BundleTemplateService
+from app.services.system.user_service import UserService
 
 
 class CuttingReportService(BaseService):
@@ -46,10 +48,24 @@ class CuttingReportService(BaseService):
         if current_user and current_user.is_internal_user:
             if factory_id:
                 query = query.filter_by(factory_id=factory_id)
-            return query
+            return CuttingReportService.apply_cutting_report_data_scope(query, current_user, current_factory_id=factory_id)
         if not current_factory_id:
             return query.filter(WorkCuttingReport.id == 0)
-        return query.filter_by(factory_id=current_factory_id)
+        query = query.filter_by(factory_id=current_factory_id)
+        return CuttingReportService.apply_cutting_report_data_scope(query, current_user, current_factory_id=current_factory_id)
+
+    @staticmethod
+    def apply_cutting_report_data_scope(query, current_user, current_factory_id=None):
+        """按当前用户数据范围收敛裁床报工查询。"""
+        data_scope = UserService.get_current_data_scope(current_user, current_factory_id=current_factory_id)
+        if current_user.is_platform_admin or data_scope == "all_factory":
+            return query
+
+        own_related_filter = or_(
+            WorkCuttingReport.report_user_id == current_user.id,
+            WorkCuttingReport.order.has(customer_id=current_user.id),
+        )
+        return query.filter(own_related_filter)
 
     @staticmethod
     def get_cutting_report_list(current_user, current_factory_id, filters):
@@ -90,13 +106,24 @@ class CuttingReportService(BaseService):
         """校验当前用户是否可以查看指定裁床报工。"""
         if not current_user:
             return False, "用户不存在"
-        if current_user.is_internal_user:
-            return True, None
-        if not current_factory_id:
+        if not report:
+            return False, "裁床报工不存在"
+        if not current_user.is_internal_user and not current_factory_id:
             return False, "当前缺少工厂上下文，请先切换工厂"
-        if report.factory_id != current_factory_id:
+        if not current_user.is_internal_user and report.factory_id != current_factory_id:
             return False, "无权查看当前裁床报工数据"
-        return True, None
+
+        scoped_query = CuttingReportService.apply_cutting_report_data_scope(
+            WorkCuttingReport.query.filter(
+                WorkCuttingReport.id == report.id,
+                WorkCuttingReport.is_deleted == 0,
+            ),
+            current_user,
+            current_factory_id=report.factory_id,
+        )
+        if scoped_query.first():
+            return True, None
+        return False, "当前裁床报工不在数据范围内"
 
     @staticmethod
     def get_order_sku(order_detail_sku_id, factory_id):
@@ -125,11 +152,21 @@ class CuttingReportService(BaseService):
         return bundles, None
 
     @staticmethod
-    def create_cutting_report(factory_id, current_user_id, data):
+    def create_cutting_report(current_user, factory_id, data):
         """创建裁床报工，并按模板自动生成对应的菲。"""
         order_sku = CuttingReportService.get_order_sku(data["order_detail_sku_id"], factory_id)
         if not order_sku:
             return None, "订单 SKU 不存在或不属于当前工厂"
+
+        order = order_sku.detail.order
+        has_scope = UserService.check_creator_customer_data_scope(
+            current_user,
+            creator_user_id=order.create_by,
+            customer_user_id=order.customer_id,
+            current_factory_id=factory_id,
+        )
+        if not has_scope:
+            return None, "当前订单不在当前数据范围内，不能创建裁床报工"
 
         bundles, error = CuttingReportService.normalize_bundles(data)
         if error:
@@ -152,7 +189,7 @@ class CuttingReportService(BaseService):
             style_id=order_sku.detail.style_id,
             color_id=order_sku.color_id,
             size_id=order_sku.size_id,
-            report_user_id=current_user_id,
+            report_user_id=current_user.id,
             cut_batch_no=cut_batch_no,
             cut_date=cut_date,
             cut_quantity=data["cut_quantity"],
@@ -191,7 +228,7 @@ class CuttingReportService(BaseService):
                 bundle,
                 action_type="create",
                 quantity=bundle.bundle_quantity,
-                user_id=current_user_id,
+                user_id=current_user.id,
                 remark="裁床报工自动生成菲",
             )
 

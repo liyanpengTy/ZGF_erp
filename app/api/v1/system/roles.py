@@ -4,7 +4,8 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import get_current_factory_id, require_current_user
+from app.api.common.auth import require_current_user
+from app.api.common.factory_context import resolve_read_factory_context
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
 from app.api.common.resource_helpers import ensure_permission_or_error, get_resource_or_error
@@ -182,6 +183,14 @@ def get_required_role_user():
     return require_current_user()
 
 
+def get_role_request_context(query_factory_id=None, allow_internal_without_factory=False):
+    """解析角色接口所需的工厂上下文，并统一校验工厂访问权限。"""
+    return resolve_read_factory_context(
+        query_factory_id=query_factory_id,
+        allow_internal_without_factory=allow_internal_without_factory,
+    )
+
+
 def get_role_or_error(role_id):
     """根据角色 ID 查询角色，不存在时返回统一错误响应。"""
     return get_resource_or_error(lambda: RoleService.get_role_by_id(role_id), '角色不存在')
@@ -293,14 +302,24 @@ class RoleList(Resource):
     @role_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """查询角色分页列表接口，支持按归属范围、状态和名称筛选。"""
-        current_user, error_response_data = get_required_role_user()
+        current_user, current_factory_id, error_response_data = get_role_request_context(
+            allow_internal_without_factory=True,
+        )
         if error_response_data:
             return error_response_data
+
         args, error = normalize_role_filters(current_user, role_query_parser.parse_args())
         if error:
             return ApiResponse.error(error, 403)
 
-        result, error = RoleService.get_role_list(current_user, args, get_current_factory_id())
+        current_user, current_factory_id, error_response_data = get_role_request_context(
+            query_factory_id=args.get('scope_id') if args.get('scope_type') == 'factory' else None,
+            allow_internal_without_factory=True,
+        )
+        if error_response_data:
+            return error_response_data
+
+        result, error = RoleService.get_role_list(current_user, args, current_factory_id)
         if error:
             return ApiResponse.error(error, 403 if error == '无权限查看角色' else 400)
 
@@ -315,8 +334,9 @@ class RoleList(Resource):
     @role_ns.response(409, '角色编码或名称已存在', error_response)
     def post(self):
         """按归属范围创建角色，支持平台角色和工厂角色。"""
-        current_user, error_response_data = get_required_role_user()
-        current_factory_id = get_current_factory_id()
+        current_user, current_factory_id, error_response_data = get_role_request_context(
+            allow_internal_without_factory=True,
+        )
         if error_response_data:
             return error_response_data
 
@@ -355,14 +375,24 @@ class RoleOptions(Resource):
     @role_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """查询角色下拉选项列表，供角色选择器直接使用。"""
-        current_user, error_response_data = get_required_role_user()
+        current_user, current_factory_id, error_response_data = get_role_request_context(
+            allow_internal_without_factory=True,
+        )
         if error_response_data:
             return error_response_data
+
         args, error = normalize_role_filters(current_user, role_option_query_parser.parse_args())
         if error:
             return ApiResponse.error(error, 403)
 
-        roles, error = RoleService.get_role_options(current_user, args, get_current_factory_id())
+        current_user, current_factory_id, error_response_data = get_role_request_context(
+            query_factory_id=args.get('scope_id') if args.get('scope_type') == 'factory' else None,
+            allow_internal_without_factory=True,
+        )
+        if error_response_data:
+            return error_response_data
+
+        roles, error = RoleService.get_role_options(current_user, args, current_factory_id)
         if error:
             return ApiResponse.error(error, 403 if error == '无权限查看角色' else 400)
 
@@ -378,13 +408,15 @@ class RoleDetail(Resource):
     @role_ns.response(404, '角色不存在', error_response)
     def get(self, role_id):
         """查询角色详情接口，返回角色范围、数据权限和扩展配置。"""
-        current_user, error_response_data = get_required_role_user()
+        current_user, current_factory_id, error_response_data = get_role_request_context(
+            allow_internal_without_factory=True,
+        )
         if error_response_data:
             return error_response_data
         role, error_response_data = get_role_or_error(role_id)
         if error_response_data:
             return error_response_data
-        has_permission, error = check_role_scope_permission(current_user, role, 'query', current_factory_id=get_current_factory_id())
+        has_permission, error = check_role_scope_permission(current_user, role, 'query', current_factory_id=current_factory_id)
         permission_error = ensure_permission_or_error(has_permission, error or '无权限查看此角色', 403)
         if permission_error:
             return permission_error
@@ -398,8 +430,9 @@ class RoleDetail(Resource):
     @role_ns.response(403, '无权限', forbidden_response)
     def patch(self, role_id):
         """更新角色名称、数据范围和工厂管理员标识。"""
-        current_user, error_response_data = get_required_role_user()
-        current_factory_id = get_current_factory_id()
+        current_user, current_factory_id, error_response_data = get_role_request_context(
+            allow_internal_without_factory=True,
+        )
         if error_response_data:
             return error_response_data
         role, error_response_data = get_role_or_error(role_id)
@@ -428,8 +461,9 @@ class RoleDetail(Resource):
     @role_ns.response(409, '角色已被使用', error_response)
     def delete(self, role_id):
         """删除角色；删除前会检查是否仍被用户占用。"""
-        current_user, error_response_data = get_required_role_user()
-        current_factory_id = get_current_factory_id()
+        current_user, current_factory_id, error_response_data = get_role_request_context(
+            allow_internal_without_factory=True,
+        )
         if error_response_data:
             return error_response_data
         role, error_response_data = get_role_or_error(role_id)
@@ -455,13 +489,15 @@ class RoleMenus(Resource):
     @role_ns.response(404, '角色不存在', error_response)
     def get(self, role_id):
         """查询角色菜单权限接口，返回当前角色已绑定的菜单 ID 集合。"""
-        current_user, error_response_data = get_required_role_user()
+        current_user, current_factory_id, error_response_data = get_role_request_context(
+            allow_internal_without_factory=True,
+        )
         if error_response_data:
             return error_response_data
         role, error_response_data = get_role_or_error(role_id)
         if error_response_data:
             return error_response_data
-        has_permission, error = check_role_scope_permission(current_user, role, 'query', current_factory_id=get_current_factory_id())
+        has_permission, error = check_role_scope_permission(current_user, role, 'query', current_factory_id=current_factory_id)
         permission_error = ensure_permission_or_error(has_permission, error or '无权限查看', 403)
         if permission_error:
             return permission_error
@@ -476,8 +512,9 @@ class RoleMenus(Resource):
     @role_ns.response(403, '无权限', forbidden_response)
     def post(self, role_id):
         """重建角色菜单权限绑定关系。"""
-        current_user, error_response_data = get_required_role_user()
-        current_factory_id = get_current_factory_id()
+        current_user, current_factory_id, error_response_data = get_role_request_context(
+            allow_internal_without_factory=True,
+        )
         if error_response_data:
             return error_response_data
         role, error_response_data = get_role_or_error(role_id)
@@ -508,13 +545,15 @@ class RoleUsers(Resource):
     @role_ns.response(404, '角色不存在', error_response)
     def get(self, role_id):
         """查询角色用户列表接口，返回当前角色下的关联用户。"""
-        current_user, error_response_data = get_required_role_user()
+        current_user, current_factory_id, error_response_data = get_role_request_context(
+            allow_internal_without_factory=True,
+        )
         if error_response_data:
             return error_response_data
         role, error_response_data = get_role_or_error(role_id)
         if error_response_data:
             return error_response_data
-        has_permission, error = check_role_scope_permission(current_user, role, 'query', current_factory_id=get_current_factory_id())
+        has_permission, error = check_role_scope_permission(current_user, role, 'query', current_factory_id=current_factory_id)
         permission_error = ensure_permission_or_error(has_permission, error or '无权限查看', 403)
         if permission_error:
             return permission_error

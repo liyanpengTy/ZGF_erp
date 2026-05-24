@@ -345,6 +345,21 @@ class UserService(BaseService):
         return target_user.id == current_user.id
 
     @staticmethod
+    def check_creator_customer_data_scope(current_user, creator_user_id=None, customer_user_id=None, current_factory_id=None):
+        """校验带有创建人和客户归属的业务数据是否落在当前用户数据范围内。"""
+        if not current_user:
+            return False
+        if current_user.is_platform_admin:
+            return True
+
+        data_scope = UserService.get_current_data_scope(current_user, current_factory_id=current_factory_id)
+        if data_scope == ROLE_DATA_SCOPE_ALL:
+            return True
+
+        related_user_ids = {user_id for user_id in (creator_user_id, customer_user_id) if user_id}
+        return current_user.id in related_user_ids
+
+    @staticmethod
     def clear_permission_cache():
         """清空用户权限相关缓存。"""
         PERMISSION_CACHE.clear()

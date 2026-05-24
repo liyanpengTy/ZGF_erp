@@ -4,7 +4,7 @@ from flask import request
 from flask_restx import Namespace, Resource, fields
 from marshmallow import ValidationError
 
-from app.api.common.auth import require_current_user_and_factory
+from app.api.common.factory_context import resolve_read_factory_context, resolve_write_factory_context
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
 from app.constants.permissions import (
@@ -31,6 +31,7 @@ build_page_response_model = common['build_page_response_model']
 
 category_query_parser = page_parser.copy()
 category_query_parser.add_argument('name', type=str, location='args', help='分类名称')
+category_query_parser.add_argument('factory_id', type=int, location='args', help='工厂 ID，平台内部用户可按工厂筛选')
 category_query_parser.add_argument('parent_id', type=int, location='args', help='父分类ID')
 category_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
 category_query_parser.add_argument('factory_only', type=int, location='args', help='是否只查工厂自定义分类', choices=[0, 1])
@@ -38,6 +39,7 @@ category_query_parser.add_argument('category_type', type=str, location='args', h
 
 category_option_query_parser = new_query_parser()
 category_option_query_parser.add_argument('name', type=str, location='args', help='分类名称')
+category_option_query_parser.add_argument('factory_id', type=int, location='args', help='工厂 ID，平台内部用户可按工厂筛选')
 category_option_query_parser.add_argument('parent_id', type=int, location='args', help='父分类ID')
 category_option_query_parser.add_argument('status', type=int, location='args', help='状态', choices=[0, 1])
 category_option_query_parser.add_argument('factory_only', type=int, location='args', help='是否只查工厂自定义分类', choices=[0, 1])
@@ -123,6 +125,21 @@ def serialize_category_option(category):
     }
 
 
+def get_category_request_context(query_factory_id=None, require_write=False):
+    """统一解析分类接口的当前用户与工厂上下文。"""
+    if not require_write:
+        return resolve_read_factory_context(query_factory_id=query_factory_id, allow_internal_without_factory=True)
+
+    current_user, current_factory_id, error_response_data = resolve_read_factory_context(
+        allow_internal_without_factory=True,
+    )
+    if error_response_data:
+        return None, None, error_response_data
+    if current_user and current_user.is_internal_user and not current_factory_id:
+        return current_user, current_factory_id, None
+    return resolve_write_factory_context()
+
+
 @category_ns.route('')
 class CategoryList(Resource):
     @login_required
@@ -133,11 +150,12 @@ class CategoryList(Resource):
     @category_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """查询分类分页列表接口，支持按分类类型、状态和工厂可见范围筛选。"""
-        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        args = category_query_parser.parse_args()
+        current_user, current_factory_id, error_response_data = get_category_request_context(args.get('factory_id'))
         if error_response_data:
             return error_response_data
 
-        result = CategoryService.get_category_list(current_user, current_factory_id, category_query_parser.parse_args())
+        result = CategoryService.get_category_list(current_user, current_factory_id, args)
         return ApiResponse.success_page_result(result, categories_schema.dump(result['items']))
 
     @login_required
@@ -150,7 +168,7 @@ class CategoryList(Resource):
     @category_ns.response(409, '分类已存在', error_response)
     def post(self):
         """创建分类接口，用于新增平台公共分类或工厂自定义分类。"""
-        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        current_user, current_factory_id, error_response_data = get_category_request_context(require_write=True)
         if error_response_data:
             return error_response_data
 
@@ -177,11 +195,12 @@ class CategoryOptions(Resource):
     @category_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """查询分类下拉选项列表，供分类选择器直接使用。"""
-        _, current_factory_id, error_response_data = require_current_user_and_factory()
+        args = category_option_query_parser.parse_args()
+        current_user, current_factory_id, error_response_data = get_category_request_context(args.get('factory_id'))
         if error_response_data:
             return error_response_data
 
-        categories = CategoryService.get_category_options(current_factory_id, category_option_query_parser.parse_args())
+        categories = CategoryService.get_category_options(current_user, current_factory_id, args)
         return ApiResponse.success_list([serialize_category_option(category) for category in categories])
 
 
@@ -194,11 +213,17 @@ class CategoryTree(Resource):
     @category_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """查询分类树接口，返回树形结构供分类配置与选择使用。"""
-        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        current_user, current_factory_id, error_response_data = get_category_request_context(
+            request.args.get('factory_id', type=int)
+        )
         if error_response_data:
             return error_response_data
 
-        tree = CategoryService.get_category_tree(current_user, current_factory_id, request.args.get('category_type'))
+        tree = CategoryService.get_category_tree(
+            current_user,
+            current_factory_id,
+            request.args.get('category_type'),
+        )
         return ApiResponse.success(tree)
 
 
@@ -212,7 +237,9 @@ class CategoryDetail(Resource):
     @category_ns.response(404, '分类不存在', error_response)
     def get(self, category_id):
         """查询分类详情接口，返回单个分类的完整信息。"""
-        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        current_user, current_factory_id, error_response_data = get_category_request_context(
+            request.args.get('factory_id', type=int)
+        )
         if error_response_data:
             return error_response_data
         category = CategoryService.get_category_by_id(category_id)
@@ -234,7 +261,7 @@ class CategoryDetail(Resource):
     @category_ns.response(404, '分类不存在', error_response)
     def patch(self, category_id):
         """更新分类接口，可调整名称、编码、父级、排序和状态。"""
-        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        current_user, current_factory_id, error_response_data = get_category_request_context(require_write=True)
         if error_response_data:
             return error_response_data
         category = CategoryService.get_category_by_id(category_id)
@@ -264,7 +291,7 @@ class CategoryDetail(Resource):
     @category_ns.response(409, '分类存在子项或被引用', error_response)
     def delete(self, category_id):
         """删除分类接口，存在子项或被业务引用时会阻止删除。"""
-        current_user, current_factory_id, error_response_data = require_current_user_and_factory()
+        current_user, current_factory_id, error_response_data = get_category_request_context(require_write=True)
         if error_response_data:
             return error_response_data
         category = CategoryService.get_category_by_id(category_id)

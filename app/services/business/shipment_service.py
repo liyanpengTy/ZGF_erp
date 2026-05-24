@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.extensions import db
@@ -10,6 +10,7 @@ from app.models.business.bundle import ProductionBundle
 from app.models.business.order import Order, OrderDetail, OrderDetailSku
 from app.models.business.shipment import Shipment, ShipmentItem
 from app.services.base.base_service import BaseService
+from app.services.system.user_service import UserService
 
 
 class ShipmentService(BaseService):
@@ -58,7 +59,21 @@ class ShipmentService(BaseService):
             if not current_factory_id:
                 return None
             query = query.filter_by(factory_id=current_factory_id)
-        return query
+        target_factory_id = factory_id if current_user.is_internal_user else current_factory_id
+        return ShipmentService.apply_shipment_data_scope(query, current_user, current_factory_id=target_factory_id)
+
+    @staticmethod
+    def apply_shipment_data_scope(query, current_user, current_factory_id=None):
+        """按当前用户数据范围收敛出货单查询。"""
+        data_scope = UserService.get_current_data_scope(current_user, current_factory_id=current_factory_id)
+        if current_user.is_platform_admin or data_scope == "all_factory":
+            return query
+
+        own_related_filter = or_(
+            Shipment.customer_id == current_user.id,
+            Shipment.create_by == current_user.id,
+        )
+        return query.filter(own_related_filter)
 
     @staticmethod
     def get_shipment_list(current_user, current_factory_id, filters):
@@ -107,11 +122,22 @@ class ShipmentService(BaseService):
         """校验当前用户是否可以查看指定出货单。"""
         if not current_user:
             return False, '用户不存在'
-        if current_user.is_internal_user:
-            return True, None
-        if shipment.factory_id != current_factory_id:
+        if not shipment:
+            return False, '出货单不存在'
+        if not current_user.is_internal_user and shipment.factory_id != current_factory_id:
             return False, '无权限操作'
-        return True, None
+
+        scoped_query = ShipmentService.apply_shipment_data_scope(
+            Shipment.query.filter(
+                Shipment.id == shipment.id,
+                Shipment.is_deleted == 0,
+            ),
+            current_user,
+            current_factory_id=shipment.factory_id,
+        )
+        if scoped_query.first():
+            return True, None
+        return False, '出货单不在当前数据范围内'
 
     @staticmethod
     def get_completed_quantity_map_for_order(order_id):
@@ -231,6 +257,15 @@ class ShipmentService(BaseService):
         ).first()
         if not order:
             return None, '订单不存在或不属于当前工厂'
+
+        has_scope = UserService.check_creator_customer_data_scope(
+            current_user,
+            creator_user_id=order.create_by,
+            customer_user_id=order.customer_id,
+            current_factory_id=current_factory_id,
+        )
+        if not has_scope:
+            return None, '当前订单不在当前数据范围内，不能创建出货单'
 
         normalized_items, error = ShipmentService.validate_shipment_items(order, data.get('items') or [])
         if error:

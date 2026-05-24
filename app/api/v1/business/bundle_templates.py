@@ -27,7 +27,7 @@ from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
-bundle_template_ns = Namespace("bundle-templates", description="菲模板与菲规则管理")
+bundle_template_ns = Namespace("菲模板-bundle-templates", description="菲模板与菲规则管理")
 
 common = get_common_models(bundle_template_ns)
 base_response = common["base_response"]

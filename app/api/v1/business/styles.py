@@ -10,7 +10,7 @@ from app.constants.permissions import (
     PERM_BUSINESS_STYLE_EDIT,
     PERM_BUSINESS_STYLE_QUERY,
 )
-from app.api.common.auth import get_current_factory_id, require_current_user
+from app.api.common.factory_context import resolve_read_factory_context, resolve_write_factory_context
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
 from app.schemas.business.style import StyleCreateSchema, StyleSchema, StyleUpdateSchema
@@ -149,17 +149,21 @@ style_create_schema = StyleCreateSchema()
 style_update_schema = StyleUpdateSchema()
 
 
-def get_style_request_context():
+def get_style_request_context(query_factory_id=None, require_write=False, allow_internal_without_factory=False):
     """获取款号接口通用的当前用户与工厂上下文。"""
-    current_user, error_response_data = require_current_user()
-    if error_response_data:
-        return None, None, error_response_data
-    return current_user, get_current_factory_id(), None
+    if require_write:
+        return resolve_write_factory_context()
+    return resolve_read_factory_context(
+        query_factory_id=query_factory_id,
+        allow_internal_without_factory=allow_internal_without_factory,
+    )
 
 
 def get_accessible_style_or_error(style_id):
     """查询当前上下文可访问的款号，不可访问时返回统一错误响应。"""
-    current_user, current_factory_id, error_response_data = get_style_request_context()
+    current_user, current_factory_id, error_response_data = get_style_request_context(
+        allow_internal_without_factory=True,
+    )
     if error_response_data:
         return None, None, None, error_response_data
 
@@ -204,7 +208,10 @@ class StyleList(Resource):
     def get(self):
         """查询款号分页列表接口，支持按款号、名称、客户款号和分类筛选。"""
         args = style_query_parser.parse_args()
-        current_user, current_factory_id, error_response_data = get_style_request_context()
+        current_user, current_factory_id, error_response_data = get_style_request_context(
+            query_factory_id=args.get('factory_id'),
+            allow_internal_without_factory=True,
+        )
         if error_response_data:
             return error_response_data
 
@@ -221,7 +228,7 @@ class StyleList(Resource):
     @style_ns.response(409, '款号已存在', error_response)
     def post(self):
         """创建款号接口，支持维护图片、自定义属性和拼接配置。"""
-        current_user, current_factory_id, error_response_data = get_style_request_context()
+        current_user, current_factory_id, error_response_data = get_style_request_context(require_write=True)
         if error_response_data:
             return error_response_data
 
@@ -248,11 +255,15 @@ class StyleOptions(Resource):
     @style_ns.response(403, '无权限', forbidden_response)
     def get(self):
         """查询款号下拉选项接口，供款号选择器直接使用。"""
-        current_user, current_factory_id, error_response_data = get_style_request_context()
+        args = style_option_query_parser.parse_args()
+        current_user, current_factory_id, error_response_data = get_style_request_context(
+            query_factory_id=args.get('factory_id'),
+            allow_internal_without_factory=True,
+        )
         if error_response_data:
             return error_response_data
 
-        styles = StyleService.get_style_options(current_user, current_factory_id, style_option_query_parser.parse_args())
+        styles = StyleService.get_style_options(current_user, current_factory_id, args)
         return ApiResponse.success_list([serialize_style_option(style) for style in styles])
 
 
