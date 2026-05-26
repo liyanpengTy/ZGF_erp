@@ -2,8 +2,8 @@
 
 from app.extensions import db
 from app.models.business.process import Process, StyleProcessMapping
-from app.models.business.style import Style
 from app.services.base.base_service import BaseService
+from app.services.business.style_service import StyleService
 
 
 class ProcessService(BaseService):
@@ -21,7 +21,7 @@ class ProcessService(BaseService):
 
     @staticmethod
     def _build_process_query():
-        """构建工序查询对象，统一过滤软删除数据。"""
+        """构建工序查询对象，统一过滤逻辑删除数据。"""
         return Process.query.filter_by(is_deleted=0)
 
     @staticmethod
@@ -102,7 +102,7 @@ class ProcessService(BaseService):
 
     @staticmethod
     def delete_process(process):
-        """删除工序前先校验是否仍被款号工序映射引用。"""
+        """删除工序前校验是否仍被款号工序映射引用。"""
         ref_count = StyleProcessMapping.query.filter_by(process_id=process.id, is_deleted=0).count()
         if ref_count > 0:
             return False, f'当前有 {ref_count} 个款号引用该工序，无法删除'
@@ -112,7 +112,7 @@ class ProcessService(BaseService):
 
     @staticmethod
     def get_style_processes(style_id):
-        """查询指定款号的工序映射列表。"""
+        """查询指定款号下的工序映射列表。"""
         return StyleProcessMapping.query.filter_by(style_id=style_id, is_deleted=0).order_by(
             StyleProcessMapping.sequence,
         ).all()
@@ -158,7 +158,7 @@ class ProcessService(BaseService):
 
     @staticmethod
     def delete_style_process(mapping):
-        """软删除款号工序映射。"""
+        """逻辑删除款号工序映射。"""
         mapping.is_deleted = 1
         mapping.save()
         return True, None
@@ -170,14 +170,14 @@ class ProcessService(BaseService):
             StyleProcessMapping.query.filter_by(style_id=style_id, is_deleted=0).update({'is_deleted': 1})
 
             new_mappings = []
-            for idx, item in enumerate(mappings_data):
+            for index, item in enumerate(mappings_data):
                 process = ProcessService.get_process_by_id(item['process_id'])
                 if not process:
                     continue
                 mapping = StyleProcessMapping(
                     style_id=style_id,
                     process_id=item['process_id'],
-                    sequence=item.get('sequence', idx + 1),
+                    sequence=item.get('sequence', index + 1),
                     remark=item.get('remark', ''),
                 )
                 new_mappings.append(mapping)
@@ -194,12 +194,4 @@ class ProcessService(BaseService):
     @staticmethod
     def check_style_permission(current_user, current_factory_id, style_id):
         """校验当前用户是否可以访问指定款号。"""
-        if current_user and current_user.is_internal_user:
-            style = Style.query.filter_by(id=style_id, is_deleted=0).first()
-        else:
-            if not current_factory_id:
-                return None, '请先切换到工厂上下文'
-            style = Style.query.filter_by(id=style_id, factory_id=current_factory_id, is_deleted=0).first()
-        if not style:
-            return None, '款号不存在或无权限'
-        return style, None
+        return StyleService.get_accessible_style(current_user, current_factory_id, style_id)

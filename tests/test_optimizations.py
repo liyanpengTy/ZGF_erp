@@ -10,6 +10,18 @@ from app.models.base import apply_audit_fields
 from app.api.v1.system.roles import get_role_or_error
 from app.api.v1.system.users import get_target_user_or_error
 from app.api.common.resource_helpers import ensure_permission_or_error, get_resource_or_error
+from app.constants.identity import (
+    ROLE_DATA_SCOPE_ALL,
+    ROLE_DATA_SCOPE_ASSIGNED,
+    ROLE_DATA_SCOPE_OWN_RELATED,
+    ROLE_DATA_SCOPE_SELF_ONLY,
+)
+from app.services.business.data_scope_service import BusinessDataScopeService
+from app.services.business.style_elastic_service import StyleElasticService
+from app.services.business.style_price_service import StylePriceService
+from app.services.business.style_process_service import StyleProcessService
+from app.services.business.style_service import StyleService
+from app.services.system.employee_wage_service import EmployeeWageService
 from app.services.system.factory_service import FactoryService
 from app.services.system.role_service import FACTORY_ADMIN_PERMISSION_CACHE, RoleService
 from app.services.system.user_service import PERMISSION_CACHE, UserService
@@ -46,6 +58,25 @@ class OptimizationTests(unittest.TestCase):
         cache.set('demo', 'value')
         cache.clear()
         self.assertIsNone(cache.get('demo'))
+
+    def test_employee_wage_calculate_uses_factory_dimension(self):
+        """工资试算应按工厂维度读取当前生效配置。"""
+        wage_config = SimpleNamespace(wage_type='piece', piece_rate=1.5)
+
+        with patch.object(EmployeeWageService, 'get_current_wage', return_value=wage_config) as mock_get_current_wage:
+            wage_amount = EmployeeWageService.calculate_wage(
+                factory_id=9,
+                user_id=2,
+                process_id=3,
+                quantity=100,
+                work_hours=0,
+                work_days=1,
+                total_work_days=22,
+                work_date='2026-05-01',
+            )
+
+        self.assertEqual(wage_amount, 150.0)
+        mock_get_current_wage.assert_called_once_with(9, 2, 3, '2026-05-01')
 
     def test_sanitize_payload_masks_sensitive_fields(self):
         payload = {
@@ -258,7 +289,7 @@ class OptimizationTests(unittest.TestCase):
 
     def test_get_permission_summary_for_external_user_returns_current_and_all_permissions(self):
         """外部用户权限汇总应区分当前上下文权限和全部角色权限。"""
-        user = SimpleNamespace(id=8, is_platform_admin=False)
+        user = SimpleNamespace(id=8, is_platform_admin=False, is_internal_user=False)
         role_bindings = [{'role_id': 2}, {'role_id': 3}]
 
         with patch.object(UserService, 'get_user_by_id', return_value=user), patch.object(
@@ -266,6 +297,10 @@ class OptimizationTests(unittest.TestCase):
             'get_user_role_bindings',
             return_value=role_bindings,
         ), patch('app.services.system.user_service.get_jwt', return_value={'factory_id': 12}), patch.object(
+            UserService,
+            'get_current_data_scope',
+            return_value=ROLE_DATA_SCOPE_OWN_RELATED,
+        ), patch.object(
             UserService,
             '_get_current_context_role_ids',
             return_value=[2],
@@ -315,6 +350,141 @@ class OptimizationTests(unittest.TestCase):
 
         self.assertEqual(error_response[0]['code'], 403)
 
+
+    def test_business_data_scope_service_uses_assigned_filter(self):
+        """assigned 数据范围应优先命中 assigned 过滤条件。"""
+        current_user = SimpleNamespace(id=9, is_platform_admin=False)
+        query = MagicMock()
+        filtered_query = MagicMock()
+        query.filter.return_value = filtered_query
+
+        with patch(
+            'app.services.business.data_scope_service.UserService.get_current_data_scope',
+            return_value=ROLE_DATA_SCOPE_ASSIGNED,
+        ):
+            result = BusinessDataScopeService.apply_scope(
+                query,
+                current_user,
+                current_factory_id=1,
+                assigned_filter='assigned-filter',
+                own_related_filter='own-filter',
+                self_only_filter='self-filter',
+            )
+
+        self.assertIs(result, filtered_query)
+        query.filter.assert_called_once_with('assigned-filter')
+
+    def test_business_data_scope_service_uses_own_related_filter(self):
+        """own_related 数据范围应使用本人关联过滤条件。"""
+        current_user = SimpleNamespace(id=9, is_platform_admin=False)
+        query = MagicMock()
+        filtered_query = MagicMock()
+        query.filter.return_value = filtered_query
+
+        with patch(
+            'app.services.business.data_scope_service.UserService.get_current_data_scope',
+            return_value=ROLE_DATA_SCOPE_OWN_RELATED,
+        ):
+            result = BusinessDataScopeService.apply_scope(
+                query,
+                current_user,
+                current_factory_id=1,
+                assigned_filter='assigned-filter',
+                own_related_filter='own-filter',
+                self_only_filter='self-filter',
+            )
+
+        self.assertIs(result, filtered_query)
+        query.filter.assert_called_once_with('own-filter')
+
+    def test_business_data_scope_service_uses_self_filter_for_self_only(self):
+        """self_only 数据范围应使用个人数据过滤条件。"""
+        current_user = SimpleNamespace(id=9, is_platform_admin=False)
+        query = MagicMock()
+        filtered_query = MagicMock()
+        query.filter.return_value = filtered_query
+
+        with patch(
+            'app.services.business.data_scope_service.UserService.get_current_data_scope',
+            return_value=ROLE_DATA_SCOPE_SELF_ONLY,
+        ):
+            result = BusinessDataScopeService.apply_scope(
+                query,
+                current_user,
+                current_factory_id=1,
+                assigned_filter='assigned-filter',
+                own_related_filter='own-filter',
+                self_only_filter='self-filter',
+            )
+
+        self.assertIs(result, filtered_query)
+        query.filter.assert_called_once_with('self-filter')
+
+    def test_business_data_scope_service_returns_original_query_for_all_scope(self):
+        """all 数据范围下不应追加任何过滤。"""
+        current_user = SimpleNamespace(id=9, is_platform_admin=False)
+        query = MagicMock()
+
+        with patch(
+            'app.services.business.data_scope_service.UserService.get_current_data_scope',
+            return_value=ROLE_DATA_SCOPE_ALL,
+        ):
+            result = BusinessDataScopeService.apply_scope(query, current_user, current_factory_id=1)
+
+        self.assertIs(result, query)
+        query.filter.assert_not_called()
+
+    def test_business_data_scope_service_creator_customer_scope(self):
+        """创建人/客户归属校验应复用统一业务 helper。"""
+        current_user = SimpleNamespace(id=9, is_platform_admin=False)
+
+        with patch(
+            'app.services.business.data_scope_service.UserService.get_current_data_scope',
+            return_value=ROLE_DATA_SCOPE_OWN_RELATED,
+        ):
+            allowed = BusinessDataScopeService.check_creator_customer_scope(
+                current_user,
+                current_factory_id=1,
+                creator_user_id=8,
+                customer_user_id=9,
+            )
+            denied = BusinessDataScopeService.check_creator_customer_scope(
+                current_user,
+                current_factory_id=1,
+                creator_user_id=8,
+                customer_user_id=7,
+            )
+
+        self.assertTrue(allowed)
+        self.assertFalse(denied)
+
+    def test_style_price_service_delegates_style_permission_to_style_service(self):
+        """款号价格服务应统一复用款号访问解析。"""
+        current_user = SimpleNamespace(id=9)
+        expected_style = SimpleNamespace(id=3)
+
+        with patch.object(StyleService, 'get_accessible_style', return_value=(expected_style, None)) as mock_get_style:
+            style, error = StylePriceService.check_style_permission(current_user, 1, 3)
+
+        self.assertIs(style, expected_style)
+        self.assertIsNone(error)
+        mock_get_style.assert_called_once_with(current_user, 1, 3)
+
+    def test_style_process_and_elastic_permission_use_style_service(self):
+        """款号工艺与橡筋服务应统一委托给款号访问解析。"""
+        current_user = SimpleNamespace(id=9)
+        process = SimpleNamespace(style_id=7)
+        elastic = SimpleNamespace(style_id=7)
+
+        with patch.object(StyleService, 'get_accessible_style', return_value=(SimpleNamespace(id=7), None)) as mock_get_style:
+            process_allowed, process_error = StyleProcessService.check_process_permission(current_user, 1, process)
+            elastic_allowed, elastic_error = StyleElasticService.check_elastic_permission(current_user, 1, elastic)
+
+        self.assertTrue(process_allowed)
+        self.assertIsNone(process_error)
+        self.assertTrue(elastic_allowed)
+        self.assertIsNone(elastic_error)
+        self.assertEqual(mock_get_style.call_count, 2)
 
 if __name__ == '__main__':
     unittest.main()

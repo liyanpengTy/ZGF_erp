@@ -7,6 +7,8 @@ class EmployeeWageSchema(Schema):
     """员工计薪序列化器。"""
 
     id = fields.Int()
+    factory_id = fields.Int()
+    factory_name = fields.Str()
     user_id = fields.Int()
     username = fields.Str()
     nickname = fields.Str()
@@ -19,7 +21,7 @@ class EmployeeWageSchema(Schema):
     base_salary = fields.Float()
     base_piece_rate = fields.Float()
     hourly_rate = fields.Float()
-    effective_date = fields.DateTime(format='%Y-%m-%d')
+    effective_date = fields.Date(format='%Y-%m-%d')
     remark = fields.Str()
     create_time = fields.DateTime(format='%Y-%m-%d %H:%M:%S')
 
@@ -27,6 +29,7 @@ class EmployeeWageSchema(Schema):
 class EmployeeWageCreateSchema(Schema):
     """创建员工计薪参数。"""
 
+    factory_id = fields.Int(required=True)
     user_id = fields.Int(required=True)
     process_id = fields.Int(required=True)
     wage_type = fields.Str(required=True, validate=validate.OneOf(['monthly', 'piece', 'base_piece', 'hourly']))
@@ -42,6 +45,7 @@ class EmployeeWageCreateSchema(Schema):
 class EmployeeWageUpdateSchema(Schema):
     """更新员工计薪参数。"""
 
+    factory_id = fields.Int()
     wage_type = fields.Str(validate=validate.OneOf(['monthly', 'piece', 'base_piece', 'hourly']))
     monthly_salary = fields.Float()
     piece_rate = fields.Float()

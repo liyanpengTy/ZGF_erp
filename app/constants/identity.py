@@ -1,4 +1,4 @@
-"""身份、关系和权限范围常量。"""
+"""身份、关系与数据范围常量。"""
 
 PLATFORM_IDENTITY_ADMIN = 'platform_admin'
 PLATFORM_IDENTITY_STAFF = 'platform_staff'
@@ -83,7 +83,7 @@ def is_internal_platform_identity(platform_identity):
 
 
 def infer_subject_type(platform_identity, relation_types=None):
-    """根据平台身份和工厂关系推导主体类型。"""
+    """根据平台身份和工厂关系推断主体类型。"""
     relation_types = set(relation_types or [])
     if RELATION_TYPE_OWNER in relation_types:
         return SUBJECT_TYPE_FACTORY
@@ -95,5 +95,5 @@ def infer_subject_type(platform_identity, relation_types=None):
 
 
 def is_write_permission(permission_code):
-    """根据权限编码后缀判断当前权限是否属于写操作。"""
+    """根据权限编码后缀判断是否属于写操作权限。"""
     return permission_code.endswith(WRITE_PERMISSION_SUFFIXES)

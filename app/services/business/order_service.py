@@ -2,14 +2,9 @@
 
 from datetime import datetime
 
-from sqlalchemy import func, or_
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy import func
+from sqlalchemy.orm import selectinload
 
-from app.constants.identity import (
-    ROLE_DATA_SCOPE_ALL,
-    ROLE_DATA_SCOPE_ASSIGNED,
-    ROLE_DATA_SCOPE_OWN_RELATED,
-)
 from app.extensions import db
 from app.models.business.bundle import ProductionBundle
 from app.models.business.cutting_report import WorkCuttingReport
@@ -26,16 +21,16 @@ from app.models.business.style import Style
 from app.models.business.value_codec import encode_dynamic_value, is_scalar_value
 from app.services.base.base_service import BaseService
 from app.services.business.bundle_service import BundleService
+from app.services.business.data_scope_service import BusinessDataScopeService
 from app.services.business.shipment_service import ShipmentService
-from app.services.system.user_service import UserService
 
 
 class OrderService(BaseService):
-    """订单管理服务。"""
+    """封装订单的查询、统计与维护逻辑。"""
 
     @staticmethod
     def _sorted_dimension_items(counter):
-        """将统计字典转换为保持录入顺序的列表结构。"""
+        """把统计字典转换为保持录入顺序的列表结构。"""
         return [
             {'name': name, 'quantity': quantity}
             for name, quantity in counter.items()
@@ -43,7 +38,7 @@ class OrderService(BaseService):
 
     @staticmethod
     def _build_table_payload(key, title, headers, rows, summary_row):
-        """构建统一的表格统计结构，便于前端按同一协议渲染。"""
+        """构建统一表格统计结构，方便前端按同一协议渲染。"""
         return {
             'key': key,
             'title': title,
@@ -111,7 +106,10 @@ class OrderService(BaseService):
             rows = []
             table_rows = []
             for color_name in matrix_rows:
-                values = {size_name: matrix.get(color_name, {}).get(size_name, 0) for size_name in matrix_columns}
+                values = {
+                    size_name: matrix.get(color_name, {}).get(size_name, 0)
+                    for size_name in matrix_columns
+                }
                 row_total = sum(values.values())
                 rows.append({
                     'name': color_name,
@@ -123,10 +121,14 @@ class OrderService(BaseService):
                     'cells': [values.get(size_name, 0) for size_name in matrix_columns],
                     'total': row_total,
                 })
+
             color_size_matrix = {
                 'columns': matrix_columns,
                 'rows': rows,
-                'column_totals': {size_name: column_totals.get(size_name, 0) for size_name in matrix_columns},
+                'column_totals': {
+                    size_name: column_totals.get(size_name, 0)
+                    for size_name in matrix_columns
+                },
                 'grand_total': sum(column_totals.values()),
                 'table_headers': ['颜色', *matrix_columns, '合计'],
                 'table_rows': table_rows,
@@ -203,7 +205,7 @@ class OrderService(BaseService):
 
     @staticmethod
     def build_order_statistics(order):
-        """构建订单级统计汇总，整合各明细件数与行数。"""
+        """构建订单级统计，汇总明细数、SKU 数和总数量。"""
         detail_items = []
         total_quantity = 0
         total_sku_count = 0
@@ -230,7 +232,7 @@ class OrderService(BaseService):
 
     @staticmethod
     def _build_sku_display_name(sku):
-        """构建订单 SKU 的展示名称，便于生产统计按行展示。"""
+        """构建订单 SKU 的展示名称。"""
         config = sku.splice_config
         color_name = config.get('color_name')
         size_name = config.get('size_name')
@@ -338,7 +340,7 @@ class OrderService(BaseService):
                 continue
             item['shipped_quantity'] += shipped_quantity
 
-        for detail_id, detail_group in detail_groups.items():
+        for detail_group in detail_groups.values():
             for item in detail_group['sku_items']:
                 detail_group['cut_quantity'] += item['cut_quantity']
                 detail_group['bundle_quantity'] += item['bundle_quantity']
@@ -372,7 +374,7 @@ class OrderService(BaseService):
 
     @staticmethod
     def build_order_shipment_availability(order):
-        """构建订单可出货统计，汇总各 SKU 的已完工、已出货与可出货数量。"""
+        """构建订单可出货统计，汇总各 SKU 的完工、已出货与可出货数量。"""
         completed_map = ShipmentService.get_completed_quantity_map_for_order(order.id)
         shipped_map = ShipmentService.get_shipped_quantity_map_for_order(order.id)
         detail_groups = {}
@@ -432,7 +434,7 @@ class OrderService(BaseService):
 
     @staticmethod
     def build_order_list_statistics(orders):
-        """构建订单列表级统计，汇总整页订单的件数、行数和常用维度。"""
+        """构建订单列表统计，汇总单数、行数和常用维度分布。"""
         status_totals = {}
         customer_totals = {}
         delivery_date_totals = {}
@@ -478,7 +480,7 @@ class OrderService(BaseService):
 
     @staticmethod
     def get_order_query_options():
-        """统一封装订单查询时需要预加载的关联项。"""
+        """返回订单详情查询需要的预加载配置。"""
         return [
             selectinload(Order.details).joinedload(OrderDetail.style),
             selectinload(Order.details).selectinload(OrderDetail.snapshot_splice_items),
@@ -491,7 +493,7 @@ class OrderService(BaseService):
 
     @staticmethod
     def _build_order_query(current_user, current_factory_id=None, factory_id=None, include_details=True):
-        """构建订单查询对象，统一处理工厂范围与关联预加载。"""
+        """构建订单查询对象，统一处理工厂范围和预加载。"""
         query = Order.query.filter_by(is_deleted=0)
         if current_user.is_internal_user:
             if factory_id:
@@ -509,21 +511,27 @@ class OrderService(BaseService):
 
     @staticmethod
     def apply_order_data_scope(query, current_user, current_factory_id=None):
-        """按当前用户数据范围收敛订单查询。"""
-        data_scope = UserService.get_current_data_scope(current_user, current_factory_id=current_factory_id)
-        if current_user.is_platform_admin or data_scope == ROLE_DATA_SCOPE_ALL:
-            return query
-
-        # 当前暂无独立“订单分配表”，先按创建人/客户这两类现有强关联字段落地。
-        if data_scope in {ROLE_DATA_SCOPE_ASSIGNED, ROLE_DATA_SCOPE_OWN_RELATED}:
-            return query.filter(or_(Order.create_by == current_user.id, Order.customer_id == current_user.id))
-
-        return query.filter(or_(Order.create_by == current_user.id, Order.customer_id == current_user.id))
+        """按当前用户数据范围收口订单查询。"""
+        own_related_filter = BusinessDataScopeService.build_or_filter(
+            Order.create_by == current_user.id,
+            Order.customer_id == current_user.id,
+        )
+        return BusinessDataScopeService.apply_scope(
+            query,
+            current_user,
+            current_factory_id=current_factory_id,
+            assigned_filter=own_related_filter,
+            own_related_filter=own_related_filter,
+            self_only_filter=own_related_filter,
+        )
 
     @staticmethod
     def get_order_by_id(order_id):
         """根据 ID 获取订单及其明细。"""
-        return Order.query.options(*OrderService.get_order_query_options()).filter_by(id=order_id, is_deleted=0).first()
+        return Order.query.options(*OrderService.get_order_query_options()).filter_by(
+            id=order_id,
+            is_deleted=0,
+        ).first()
 
     @staticmethod
     def get_order_by_no(order_no):
@@ -532,10 +540,9 @@ class OrderService(BaseService):
 
     @staticmethod
     def get_order_list(current_user, current_factory_id, filters):
-        """分页查询当前工厂的订单列表。"""
+        """分页查询当前可见范围内的订单列表。"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
-        factory_id = filters.get('factory_id')
         order_no = filters.get('order_no', '')
         customer_name = filters.get('customer_name', '')
         status = filters.get('status')
@@ -545,7 +552,7 @@ class OrderService(BaseService):
         query = OrderService._build_order_query(
             current_user,
             current_factory_id=current_factory_id,
-            factory_id=factory_id,
+            factory_id=filters.get('factory_id'),
             include_details=True,
         )
         if query is None:
@@ -574,20 +581,18 @@ class OrderService(BaseService):
     @staticmethod
     def get_order_options(current_user, current_factory_id, filters):
         """查询订单轻量选项列表，供下拉选择器直接使用。"""
-        factory_id = filters.get('factory_id')
-        order_no = filters.get('order_no', '')
-        customer_name = filters.get('customer_name', '')
-        status = filters.get('status')
-
         query = OrderService._build_order_query(
             current_user,
             current_factory_id=current_factory_id,
-            factory_id=factory_id,
+            factory_id=filters.get('factory_id'),
             include_details=False,
         )
         if query is None:
             return []
 
+        order_no = filters.get('order_no', '')
+        customer_name = filters.get('customer_name', '')
+        status = filters.get('status')
         if order_no:
             query = query.filter(Order.order_no.like(f'%{order_no}%'))
         if customer_name:
@@ -745,9 +750,8 @@ class OrderService(BaseService):
                 return None, f'第 {index} 条订单明细缺少 SKU'
 
         try:
-            order_no = OrderService.generate_order_no(current_factory_id)
             order = Order(
-                order_no=order_no,
+                order_no=OrderService.generate_order_no(current_factory_id),
                 factory_id=current_factory_id,
                 customer_id=data.get('customer_id'),
                 customer_name=data.get('customer_name', ''),
@@ -808,7 +812,7 @@ class OrderService(BaseService):
 
     @staticmethod
     def delete_order(order):
-        """软删除订单。"""
+        """逻辑删除订单。"""
         order.is_deleted = 1
         order.save()
         return True
@@ -820,7 +824,6 @@ class OrderService(BaseService):
             return False, '用户不存在'
         if not order:
             return False, '订单不存在'
-
         if not current_user.is_internal_user and order.factory_id != current_factory_id:
             return False, '无权限操作'
 

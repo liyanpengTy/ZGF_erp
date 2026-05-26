@@ -1,8 +1,8 @@
 """款号工艺管理服务。"""
 
-from app.models.business.style import Style
 from app.models.business.style_process import StyleProcess
 from app.services.base.base_service import BaseService
+from app.services.business.style_service import StyleService
 
 
 class StyleProcessService(BaseService):
@@ -21,12 +21,12 @@ class StyleProcessService(BaseService):
 
     @staticmethod
     def get_process_label(process_type):
-        """返回工艺类型中文名称。"""
+        """返回工艺类型的中文名称。"""
         return StyleProcessService.PROCESS_TYPE_LABELS.get(process_type, process_type)
 
     @staticmethod
     def get_process_list(style_id, filters):
-        """分页查询指定款号的工艺列表。"""
+        """分页查询指定款号下的工艺记录。"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
         process_type = filters.get('process_type')
@@ -50,7 +50,7 @@ class StyleProcessService(BaseService):
 
     @staticmethod
     def create_process(data):
-        """创建工艺记录。"""
+        """创建款号工艺记录。"""
         process = StyleProcess(
             style_id=data['style_id'],
             process_type=data['process_type'],
@@ -62,7 +62,7 @@ class StyleProcessService(BaseService):
 
     @staticmethod
     def update_process(process, data):
-        """更新工艺记录。"""
+        """更新款号工艺记录。"""
         if 'process_type' in data:
             process.process_type = data['process_type']
         if 'process_name' in data:
@@ -74,7 +74,7 @@ class StyleProcessService(BaseService):
 
     @staticmethod
     def delete_process(process):
-        """软删除工艺记录。"""
+        """逻辑删除工艺记录。"""
         process.is_deleted = 1
         process.save()
         return True
@@ -82,31 +82,18 @@ class StyleProcessService(BaseService):
     @staticmethod
     def check_style_permission(current_user, current_factory_id, style_id):
         """校验当前用户是否可以访问指定款号。"""
-        if current_user and current_user.is_internal_user:
-            style = Style.query.filter_by(id=style_id, is_deleted=0).first()
-        else:
-            if not current_factory_id:
-                return None, '请先切换到工厂上下文'
-            style = Style.query.filter_by(id=style_id, factory_id=current_factory_id, is_deleted=0).first()
-        if not style:
-            return None, '款号不存在或无权限'
-        return style, None
+        return StyleService.get_accessible_style(current_user, current_factory_id, style_id)
 
     @staticmethod
     def check_process_permission(current_user, current_factory_id, process):
         """校验当前用户是否可以访问指定工艺记录。"""
-        if current_user and current_user.is_internal_user:
-            style = Style.query.filter_by(id=process.style_id, is_deleted=0).first()
-        else:
-            if not current_factory_id:
-                return False, '请先切换到工厂上下文'
-            style = Style.query.filter_by(id=process.style_id, factory_id=current_factory_id, is_deleted=0).first()
-        if not style:
-            return False, '无权限操作'
+        style, error = StyleService.get_accessible_style(current_user, current_factory_id, process.style_id)
+        if error or not style:
+            return False, error or '无权限操作'
         return True, None
 
     @staticmethod
     def enrich_with_label(process_data, process_obj):
-        """为工艺响应补充工艺类型名称。"""
+        """为工艺响应补充工艺类型中文名称。"""
         process_data['process_type_label'] = StyleProcessService.get_process_label(process_obj.process_type)
         return process_data

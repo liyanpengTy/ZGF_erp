@@ -4,6 +4,8 @@ from marshmallow import Schema, fields, validate
 
 
 class StyleProcessSchema(Schema):
+    """款号工艺返回结构。"""
+
     id = fields.Int()
     style_id = fields.Int(required=True)
     process_type = fields.Str(required=True, validate=validate.OneOf(['embroidery', 'print', 'other']))
@@ -13,12 +15,16 @@ class StyleProcessSchema(Schema):
 
 
 class StyleProcessCreateSchema(Schema):
+    """创建款号工艺请求结构。"""
+
     process_type = fields.Str(required=True, validate=validate.OneOf(['embroidery', 'print', 'other']))
     process_name = fields.Str()
     remark = fields.Str()
 
 
 class StyleProcessUpdateSchema(Schema):
+    """更新款号工艺请求结构。"""
+
     process_type = fields.Str(validate=validate.OneOf(['embroidery', 'print', 'other']))
     process_name = fields.Str()
     remark = fields.Str()

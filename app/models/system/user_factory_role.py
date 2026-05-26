@@ -1,4 +1,4 @@
-"""用户角色分配模型。"""
+"""用户角色绑定模型。"""
 
 from datetime import datetime
 

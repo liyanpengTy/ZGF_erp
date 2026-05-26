@@ -17,6 +17,8 @@ from app.models.base import BaseModel
 
 
 class User(BaseModel):
+    """系统用户表。"""
+
     __tablename__ = 'sys_user'
     __table_args__ = {'comment': '用户表'}
 
@@ -32,12 +34,12 @@ class User(BaseModel):
         db.String(20),
         default=PLATFORM_IDENTITY_EXTERNAL,
         nullable=False,
-        comment='平台身份：platform_admin/platform_staff/external_user'
+        comment='平台身份：platform_admin/platform_staff/external_user',
     )
     status = db.Column(db.SmallInteger, default=1, comment='账号状态：1-正常，0-禁用')
     last_login_time = db.Column(db.DateTime, comment='最后登录时间')
     is_paid = db.Column(db.SmallInteger, default=0, comment='是否已付费：0-否，1-是')
-    invite_code = db.Column(db.String(20), unique=True, comment='用户邀请码（唯一）')
+    invite_code = db.Column(db.String(20), unique=True, comment='用户邀请码')
     invited_by = db.Column(db.Integer, db.ForeignKey('sys_user.id'), comment='邀请人用户ID')
     invited_count = db.Column(db.Integer, default=0, comment='成功邀请人数')
     created_by = db.Column(db.Integer, db.ForeignKey('sys_user.id'), comment='创建人用户ID')
@@ -50,7 +52,7 @@ class User(BaseModel):
 
     @property
     def platform_identity_label(self):
-        """返回平台身份的中文显示名称。"""
+        """返回平台身份中文名称。"""
         labels = {
             PLATFORM_IDENTITY_ADMIN: '平台管理员',
             PLATFORM_IDENTITY_STAFF: '平台员工',
@@ -60,25 +62,25 @@ class User(BaseModel):
 
     @property
     def is_platform_admin(self):
-        """判断用户是否拥有平台管理员能力。"""
+        """判断当前用户是否为平台管理员。"""
         return self.platform_identity == PLATFORM_IDENTITY_ADMIN
 
     @property
     def is_platform_staff(self):
-        """判断用户是否属于平台员工。"""
+        """判断当前用户是否为平台员工。"""
         return self.platform_identity == PLATFORM_IDENTITY_STAFF
 
     @property
     def is_internal_user(self):
-        """判断用户是否属于平台内部账号。"""
+        """判断当前用户是否属于平台内部账号。"""
         return is_internal_platform_identity(self.platform_identity)
 
     def get_subject_type(self, relation_types=None):
-        """按当前关系上下文推导用户所属主体类型。"""
+        """根据平台身份和关系推断主体类型。"""
         return infer_subject_type(self.platform_identity, relation_types)
 
     def get_subject_type_label(self, relation_types=None):
-        """返回主体类型的中文显示名称。"""
+        """返回主体类型中文名称。"""
         labels = {
             SUBJECT_TYPE_INDIVIDUAL: '个人主体',
             SUBJECT_TYPE_FACTORY: '工厂主体',
@@ -88,7 +90,7 @@ class User(BaseModel):
         return labels.get(subject_type, subject_type)
 
     def to_dict(self):
-        """导出用户数据，并追加身份字段且隐藏密码。"""
+        """导出用户数据并隐藏密码字段。"""
         data = super().to_dict()
         data['platform_identity_label'] = self.platform_identity_label
         data.pop('password', None)

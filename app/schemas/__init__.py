@@ -1,3 +1,5 @@
+"""序列化结构聚合导出。"""
+
 from app.schemas.auth.user import UserSchema, UserLoginSchema, UserCreateSchema, UserUpdateSchema, UserResetPasswordSchema
 from app.schemas.system.role import RoleSchema, RoleCreateSchema, RoleUpdateSchema, RoleAssignMenuSchema
 from app.schemas.system.menu import MenuSchema, MenuCreateSchema, MenuUpdateSchema

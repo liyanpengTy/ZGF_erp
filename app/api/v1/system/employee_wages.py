@@ -23,6 +23,7 @@ build_page_data_model = common['build_page_data_model']
 build_page_response_model = common['build_page_response_model']
 
 wage_query_parser = page_parser.copy()
+wage_query_parser.add_argument('factory_id', type=int, location='args', help='工厂 ID')
 wage_query_parser.add_argument('user_id', type=int, location='args', help='员工 ID')
 wage_query_parser.add_argument('process_id', type=int, location='args', help='工序 ID')
 wage_query_parser.add_argument(
@@ -35,13 +36,15 @@ wage_query_parser.add_argument(
 
 employee_wage_item_model = employee_wage_ns.model('EmployeeWageItem', {
     'id': fields.Integer(description='工资记录 ID', example=1),
+    'factory_id': fields.Integer(description='工厂 ID', example=1),
+    'factory_name': fields.String(description='工厂名称', example='示例工厂'),
     'user_id': fields.Integer(description='员工 ID', example=2),
     'username': fields.String(description='用户名', example='factory_employee'),
     'nickname': fields.String(description='昵称', example='工厂员工'),
     'process_id': fields.Integer(description='工序 ID', example=3),
     'process_name': fields.String(description='工序名称', example='锁边'),
     'wage_type': fields.String(description='计薪方式', example='piece'),
-    'wage_type_label': fields.String(description='计薪方式名称', example='计件'),
+    'wage_type_label': fields.String(description='计薪方式名称', example='计件制'),
     'monthly_salary': fields.Float(description='月薪金额', example=None),
     'piece_rate': fields.Float(description='计件单价', example=1.2),
     'base_salary': fields.Float(description='保底工资', example=None),
@@ -54,12 +57,12 @@ employee_wage_item_model = employee_wage_ns.model('EmployeeWageItem', {
 
 wage_list_data = build_page_data_model(employee_wage_ns, 'WageListData', employee_wage_item_model, items_description='计薪列表')
 wage_list_response = build_page_response_model(employee_wage_ns, 'WageListResponse', base_response, wage_list_data, '计薪分页数据')
-
 wage_item_response = employee_wage_ns.clone('WageItemResponse', base_response, {
     'data': fields.Nested(employee_wage_item_model, description='工资详情数据'),
 })
 
 wage_calculate_result_model = employee_wage_ns.model('WageCalculateResult', {
+    'factory_id': fields.Integer(description='工厂 ID', example=1),
     'user_id': fields.Integer(description='员工 ID', example=2),
     'process_id': fields.Integer(description='工序 ID', example=3),
     'wage_amount': fields.Float(description='试算工资金额', example=128.5),
@@ -70,6 +73,7 @@ wage_calculate_response = employee_wage_ns.clone('WageCalculateResponse', base_r
 })
 
 employee_wage_create_model = employee_wage_ns.model('EmployeeWageCreate', {
+    'factory_id': fields.Integer(required=True, description='工厂 ID', example=1),
     'user_id': fields.Integer(required=True, description='员工 ID', example=2),
     'process_id': fields.Integer(required=True, description='工序 ID', example=3),
     'wage_type': fields.String(
@@ -88,6 +92,7 @@ employee_wage_create_model = employee_wage_ns.model('EmployeeWageCreate', {
 })
 
 employee_wage_update_model = employee_wage_ns.model('EmployeeWageUpdate', {
+    'factory_id': fields.Integer(description='工厂 ID', example=1),
     'wage_type': fields.String(
         description='计薪方式',
         choices=['monthly', 'piece', 'base_piece', 'hourly'],
@@ -103,6 +108,7 @@ employee_wage_update_model = employee_wage_ns.model('EmployeeWageUpdate', {
 })
 
 wage_calculate_model = employee_wage_ns.model('WageCalculate', {
+    'factory_id': fields.Integer(required=True, description='工厂 ID', example=1),
     'user_id': fields.Integer(required=True, description='员工 ID', example=2),
     'process_id': fields.Integer(required=True, description='工序 ID', example=3),
     'quantity': fields.Integer(description='完成数量', default=0, example=100),
@@ -118,9 +124,10 @@ wage_create_schema = EmployeeWageCreateSchema()
 wage_update_schema = EmployeeWageUpdateSchema()
 
 
-def build_wage_calculate_payload(user_id, process_id, wage_amount):
+def build_wage_calculate_payload(factory_id, user_id, process_id, wage_amount):
     """构造工资试算接口的返回数据。"""
     return {
+        'factory_id': factory_id,
         'user_id': user_id,
         'process_id': process_id,
         'wage_amount': wage_amount,
@@ -167,7 +174,7 @@ class EmployeeWageList(Resource):
     @employee_wage_ns.response(401, '未登录', unauthorized_response)
     @employee_wage_ns.response(403, '无权限', forbidden_response)
     def get(self):
-        """查询员工计薪分页列表接口，支持按员工、工序和计薪方式筛选。"""
+        """查询员工计薪分页列表接口，支持按工厂、员工、工序和计薪方式筛选。"""
         args = wage_query_parser.parse_args()
         current_user, error_response_data = get_employee_wage_user_or_error()
         if error_response_data:
@@ -189,7 +196,7 @@ class EmployeeWageList(Resource):
     @employee_wage_ns.response(403, '无权限', forbidden_response)
     @employee_wage_ns.response(409, '配置已存在', error_response)
     def post(self):
-        """创建员工计薪配置接口，用于维护员工在指定工序下的工资规则。"""
+        """创建员工计薪配置接口，用于维护员工在指定工厂和工序下的工资规则。"""
         current_user, error_response_data = get_employee_wage_user_or_error()
         if error_response_data:
             return error_response_data
@@ -205,7 +212,8 @@ class EmployeeWageList(Resource):
 
         wage, service_error = EmployeeWageService.create_wage(data)
         if service_error:
-            return ApiResponse.error(service_error, 409)
+            status_code = 409 if '已存在' in service_error else 400
+            return ApiResponse.error(service_error, status_code)
 
         return ApiResponse.success(wage_schema.dump(wage), '创建成功', 201)
 
@@ -243,7 +251,7 @@ class EmployeeWageDetail(Resource):
     @employee_wage_ns.response(404, '记录不存在', error_response)
     @employee_wage_ns.response(403, '无权限', forbidden_response)
     def patch(self, wage_id):
-        """更新计薪配置接口，可调整计薪方式、生效日期和备注。"""
+        """更新计薪配置接口，可调整工厂、生效日期、计薪方式和金额字段。"""
         current_user, error_response_data = get_employee_wage_user_or_error()
         if error_response_data:
             return error_response_data
@@ -300,7 +308,7 @@ class WageCalculate(Resource):
     @employee_wage_ns.response(401, '未登录', unauthorized_response)
     @employee_wage_ns.response(403, '无权限', forbidden_response)
     def post(self):
-        """试算工资金额接口，按传入产量、工时和日期计算预估工资。"""
+        """试算工资金额接口，按工厂、产量、工时和日期计算预估工资。"""
         current_user, error_response_data = get_employee_wage_user_or_error()
         if error_response_data:
             return error_response_data
@@ -310,6 +318,7 @@ class WageCalculate(Resource):
             return ApiResponse.error(error, 403)
 
         data = request.get_json() or {}
+        factory_id = data.get('factory_id')
         user_id = data.get('user_id')
         process_id = data.get('process_id')
         quantity = data.get('quantity', 0)
@@ -318,7 +327,15 @@ class WageCalculate(Resource):
         total_work_days = data.get('total_work_days', 22)
         work_date = data.get('work_date')
 
+        if not factory_id:
+            return ApiResponse.error('请指定工厂 ID', 400)
+        if not user_id:
+            return ApiResponse.error('请指定员工 ID', 400)
+        if not process_id:
+            return ApiResponse.error('请指定工序 ID', 400)
+
         wage_amount = EmployeeWageService.calculate_wage(
+            factory_id=factory_id,
             user_id=user_id,
             process_id=process_id,
             quantity=quantity,
@@ -328,4 +345,4 @@ class WageCalculate(Resource):
             work_date=work_date,
         )
 
-        return ApiResponse.success(build_wage_calculate_payload(user_id, process_id, wage_amount))
+        return ApiResponse.success(build_wage_calculate_payload(factory_id, user_id, process_id, wage_amount))

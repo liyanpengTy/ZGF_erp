@@ -40,6 +40,7 @@ class Order(BaseModel):
     details = db.relationship('OrderDetail', backref='order', cascade='all, delete-orphan')
 
     def to_dict(self):
+        """导出订单主表的基础展示数据。"""
         return {
             'id': self.id,
             'order_no': self.order_no,
@@ -108,6 +109,7 @@ class OrderDetail(BaseModel):
         }
 
     def to_dict(self):
+        """导出订单明细及其 SKU 数据。"""
         return {
             'id': self.id,
             'order_id': self.order_id,
@@ -213,6 +215,7 @@ class OrderDetailSku(BaseModel):
         return data
 
     def to_dict(self):
+        """导出订单明细 SKU 的兼容展示结构。"""
         return {
             'id': self.id,
             'detail_id': self.detail_id,

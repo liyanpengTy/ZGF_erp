@@ -12,6 +12,10 @@ run.py
 # 数据库迁移文件
 migrations/versions
 
+# 系统说明图的html文件
+docs/*.html
+
+
 # 手动执行sql
 local_sql_init
 

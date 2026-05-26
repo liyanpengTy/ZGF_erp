@@ -1,3 +1,5 @@
+"""模型聚合导出。"""
+
 from app.models.base import BaseModel
 from app.models.auth.user import User
 from app.models.system.user_factory import UserFactory

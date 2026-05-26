@@ -7,15 +7,16 @@ import time
 
 
 class SimpleTTLCache:
-    """提供线程安全的本地 TTL 缓存，适合保存短周期的只读派生数据。"""
+    """提供线程安全的本地 TTL 缓存，适合短周期派生数据。"""
 
     def __init__(self, default_ttl=300):
+        """初始化缓存实例并设置默认过期时间。"""
         self.default_ttl = default_ttl
         self._store = {}
         self._lock = threading.Lock()
 
     def get(self, key):
-        """读取缓存值；已过期或不存在时返回 ``None``。"""
+        """读取缓存值，未命中或已过期时返回 ``None``。"""
         with self._lock:
             item = self._store.get(key)
             if not item:
@@ -27,7 +28,7 @@ class SimpleTTLCache:
             return value
 
     def set(self, key, value, ttl=None):
-        """写入缓存值；未显式指定 TTL 时使用默认有效期。"""
+        """写入缓存值，未指定 TTL 时使用默认有效期。"""
         expire_at = time.time() + (ttl if ttl is not None else self.default_ttl)
         with self._lock:
             self._store[key] = (expire_at, value)

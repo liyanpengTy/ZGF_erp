@@ -2,9 +2,9 @@
 
 from app.extensions import db
 from app.models.base_data.size import Size
-from app.models.business.style import Style
 from app.models.business.style_elastic import StyleElastic
 from app.services.base.base_service import BaseService
+from app.services.business.style_service import StyleService
 
 
 class StyleElasticService(BaseService):
@@ -25,7 +25,7 @@ class StyleElasticService(BaseService):
 
     @staticmethod
     def get_elastic_list(style_id, filters):
-        """分页查询指定款号的橡筋列表。"""
+        """分页查询指定款号下的橡筋记录。"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
         size_id = filters.get('size_id')
@@ -120,14 +120,14 @@ class StyleElasticService(BaseService):
 
     @staticmethod
     def delete_elastic(elastic):
-        """软删除橡筋记录。"""
+        """逻辑删除橡筋记录。"""
         elastic.is_deleted = 1
         elastic.save()
         return True
 
     @staticmethod
     def delete_by_style_and_type(style_id, elastic_type):
-        """按款号和橡筋类型批量软删除橡筋记录。"""
+        """按款号和橡筋类型批量逻辑删除记录。"""
         elastics = StyleElastic.query.filter_by(style_id=style_id, elastic_type=elastic_type, is_deleted=0).all()
         for elastic in elastics:
             elastic.is_deleted = 1
@@ -136,7 +136,7 @@ class StyleElasticService(BaseService):
 
     @staticmethod
     def delete_by_style(style_id):
-        """按款号批量软删除全部橡筋记录。"""
+        """按款号批量逻辑删除全部橡筋记录。"""
         elastics = StyleElastic.query.filter_by(style_id=style_id, is_deleted=0).all()
         for elastic in elastics:
             elastic.is_deleted = 1
@@ -146,27 +146,14 @@ class StyleElasticService(BaseService):
     @staticmethod
     def check_style_permission(current_user, current_factory_id, style_id):
         """校验当前用户是否可以访问指定款号。"""
-        if current_user and current_user.is_internal_user:
-            style = Style.query.filter_by(id=style_id, is_deleted=0).first()
-        else:
-            if not current_factory_id:
-                return None, '请先切换到工厂上下文'
-            style = Style.query.filter_by(id=style_id, factory_id=current_factory_id, is_deleted=0).first()
-        if not style:
-            return None, '款号不存在或无权限'
-        return style, None
+        return StyleService.get_accessible_style(current_user, current_factory_id, style_id)
 
     @staticmethod
     def check_elastic_permission(current_user, current_factory_id, elastic):
         """校验当前用户是否可以访问指定橡筋记录。"""
-        if current_user and current_user.is_internal_user:
-            style = Style.query.filter_by(id=elastic.style_id, is_deleted=0).first()
-        else:
-            if not current_factory_id:
-                return False, '请先切换到工厂上下文'
-            style = Style.query.filter_by(id=elastic.style_id, factory_id=current_factory_id, is_deleted=0).first()
-        if not style:
-            return False, '无权限操作'
+        style, error = StyleService.get_accessible_style(current_user, current_factory_id, elastic.style_id)
+        if error or not style:
+            return False, error or '无权限操作'
         return True, None
 
     @staticmethod

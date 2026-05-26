@@ -9,7 +9,7 @@ ACTIVE_ROLE_SCOPES = (ROLE_SCOPE_FACTORY, ROLE_SCOPE_PLATFORM)
 
 
 class RoleSchema(Schema):
-    """角色序列化器。"""
+    """角色返回结构。"""
 
     id = fields.Int()
     scope_type = fields.Str()
@@ -28,7 +28,7 @@ class RoleSchema(Schema):
 
 
 class RoleCreateSchema(Schema):
-    """创建角色参数。"""
+    """创建角色请求结构。"""
 
     scope_type = fields.Str(load_default=ROLE_SCOPE_FACTORY, validate=validate.OneOf(sorted(ACTIVE_ROLE_SCOPES)))
     scope_id = fields.Int(load_default=0, allow_none=True)
@@ -41,7 +41,7 @@ class RoleCreateSchema(Schema):
 
 
 class RoleUpdateSchema(Schema):
-    """更新角色参数。"""
+    """更新角色请求结构。"""
 
     name = fields.Str(validate=validate.Length(min=2, max=50))
     description = fields.Str(validate=validate.Length(max=255))
@@ -52,6 +52,6 @@ class RoleUpdateSchema(Schema):
 
 
 class RoleAssignMenuSchema(Schema):
-    """分配菜单权限参数。"""
+    """角色菜单分配请求结构。"""
 
     menu_ids = fields.List(fields.Int(), required=True, description='菜单ID列表')

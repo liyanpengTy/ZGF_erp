@@ -11,14 +11,22 @@ class EmployeeWage(BaseModel):
 
     __tablename__ = 'sys_employee_wage'
     __table_args__ = (
-        db.UniqueConstraint('user_id', 'process_id', 'effective_date', name='uk_user_process_date'),
+        db.UniqueConstraint(
+            'factory_id',
+            'user_id',
+            'process_id',
+            'effective_date',
+            name='uk_factory_user_process_date',
+        ),
+        db.Index('idx_sys_employee_wage_factory_id', 'factory_id'),
         db.Index('idx_sys_employee_wage_user_id', 'user_id'),
         db.Index('idx_sys_employee_wage_process_id', 'process_id'),
         db.Index('idx_sys_employee_wage_effective_date', 'effective_date'),
-        {'comment': '员工计薪配置表，支持不同工序下的多种计薪方式'},
+        {'comment': '员工计薪配置表，支持同一员工在不同工厂、不同工序下维护独立计薪规则'},
     )
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    factory_id = db.Column(db.Integer, db.ForeignKey('sys_factory.id'), nullable=False, comment='工厂 ID')
     user_id = db.Column(db.Integer, db.ForeignKey('sys_user.id'), nullable=False, comment='员工 ID')
     process_id = db.Column(db.Integer, db.ForeignKey('pro_process.id'), nullable=False, comment='工序 ID')
     wage_type = db.Column(
@@ -37,6 +45,7 @@ class EmployeeWage(BaseModel):
     create_time = db.Column(db.DateTime, default=datetime.now, comment='创建时间')
     update_time = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
 
+    factory = db.relationship('Factory', backref='employee_wage_configs', foreign_keys=[factory_id])
     user = db.relationship('User', backref='wage_configs', foreign_keys=[user_id])
     process = db.relationship('Process', backref='wage_configs', foreign_keys=[process_id])
 
@@ -44,6 +53,8 @@ class EmployeeWage(BaseModel):
         """导出员工计薪配置字典。"""
         return {
             'id': self.id,
+            'factory_id': self.factory_id,
+            'factory_name': self.factory.name if self.factory else None,
             'user_id': self.user_id,
             'username': self.user.username if self.user else None,
             'nickname': self.user.nickname if self.user else None,

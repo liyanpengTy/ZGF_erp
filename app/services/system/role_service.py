@@ -15,18 +15,16 @@ from app.services.base.base_service import BaseService
 from app.utils.cache import SimpleTTLCache
 
 
-FACTORY_ROLE_FORBIDDEN_PERMISSION_PREFIXES = (
-    'system.',
-)
+FACTORY_ROLE_FORBIDDEN_PERMISSION_PREFIXES = ('system.',)
 FACTORY_ADMIN_PERMISSION_CACHE = SimpleTTLCache(default_ttl=300)
 
 
 class RoleService(BaseService):
-    """角色管理服务。"""
+    """提供角色查询、维护和菜单绑定能力。"""
 
     @staticmethod
     def clear_permission_cache():
-        """清空角色菜单变更后受影响的权限缓存。"""
+        """清空角色与用户权限相关缓存。"""
         from app.services.system.user_service import UserService
 
         FACTORY_ADMIN_PERMISSION_CACHE.clear()
@@ -34,7 +32,7 @@ class RoleService(BaseService):
 
     @staticmethod
     def has_factory_admin_permission(user, factory_id):
-        """判断用户是否具备指定工厂的管理员能力。"""
+        """判断用户是否拥有指定工厂的管理能力。"""
         if not user or user.is_internal_user or not factory_id:
             return False
 
@@ -70,7 +68,7 @@ class RoleService(BaseService):
 
     @staticmethod
     def normalize_scope(scope_type, scope_id):
-        """归一化角色归属范围，避免平台角色误带工厂主键。"""
+        """归一化角色归属范围，避免平台角色携带工厂主键。"""
         if scope_type == ROLE_SCOPE_PLATFORM:
             return ROLE_SCOPE_PLATFORM, 0
         if scope_type == ROLE_SCOPE_FACTORY:
@@ -81,12 +79,12 @@ class RoleService(BaseService):
 
     @staticmethod
     def get_role_by_id(role_id):
-        """按主键查询角色。"""
+        """按主键查询未删除角色。"""
         return Role.query.filter_by(id=role_id, is_deleted=0).first()
 
     @staticmethod
     def get_role_by_code(scope_type, scope_id, code):
-        """按角色归属范围和编码查询角色。"""
+        """按范围和编码查询角色。"""
         scope_type, scope_id = RoleService.normalize_scope(scope_type, scope_id)
         return Role.query.filter_by(
             scope_type=scope_type,
@@ -97,7 +95,7 @@ class RoleService(BaseService):
 
     @staticmethod
     def get_role_by_name(scope_type, scope_id, name):
-        """按角色归属范围和名称查询角色。"""
+        """按范围和名称查询角色。"""
         scope_type, scope_id = RoleService.normalize_scope(scope_type, scope_id)
         return Role.query.filter_by(
             scope_type=scope_type,
@@ -108,7 +106,7 @@ class RoleService(BaseService):
 
     @staticmethod
     def _build_role_query(current_user, current_factory_id=None, scope_type=None, scope_id=None):
-        """按当前用户权限构造角色查询。"""
+        """按当前用户上下文构造角色查询。"""
         if current_user.is_internal_user:
             query = Role.query.filter(Role.is_deleted == 0)
             if scope_type:
@@ -135,7 +133,7 @@ class RoleService(BaseService):
 
     @staticmethod
     def get_role_list(current_user, filters, current_factory_id=None):
-        """按当前用户权限范围分页查询角色列表。"""
+        """分页查询角色列表。"""
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 10)
         name = filters.get('name', '')
@@ -167,7 +165,7 @@ class RoleService(BaseService):
 
     @staticmethod
     def get_role_options(current_user, filters, current_factory_id=None):
-        """查询轻量角色选项列表，供下拉选择器使用。"""
+        """查询角色下拉选项列表。"""
         name = filters.get('name', '')
         status = filters.get('status')
         scope_type = filters.get('scope_type')
@@ -186,7 +184,7 @@ class RoleService(BaseService):
 
     @staticmethod
     def create_role(data):
-        """按归属范围创建角色，并保存数据范围元信息。"""
+        """创建角色并初始化数据范围。"""
         scope_type, scope_id = RoleService.normalize_scope(data['scope_type'], data.get('scope_id'))
         if scope_type == ROLE_SCOPE_FACTORY and not scope_id:
             return None, '工厂角色必须指定 scope_id'
@@ -216,7 +214,7 @@ class RoleService(BaseService):
 
     @staticmethod
     def update_role(role, data):
-        """更新角色名称、排序、数据范围等核心配置。"""
+        """更新角色名称、排序、状态与数据范围。"""
         if 'name' in data:
             existing = RoleService.get_role_by_name(role.scope_type, role.scope_id, data['name'])
             if existing and existing.id != role.id:
@@ -240,10 +238,10 @@ class RoleService(BaseService):
 
     @staticmethod
     def delete_role(role):
-        """删除角色前先确保没有用户仍在使用该角色。"""
+        """逻辑删除角色，删除前校验是否仍被使用。"""
         user_role_count = UserFactoryRole.query.filter_by(role_id=role.id, is_deleted=0).count()
         if user_role_count > 0:
-            return False, f'有 {user_role_count} 个用户关联此角色，无法删除'
+            return False, f'已有 {user_role_count} 个用户关联此角色，无法删除'
 
         role.is_deleted = 1
         role.save()
@@ -258,7 +256,7 @@ class RoleService(BaseService):
 
     @staticmethod
     def assign_role_menus(role_id, menu_ids, current_user=None, role=None):
-        """重建角色菜单权限映射；工厂角色不允许绑定平台级权限。"""
+        """重建角色菜单权限映射。"""
         role = role or RoleService.get_role_by_id(role_id)
         if not role:
             return False, '角色不存在'
@@ -286,4 +284,3 @@ class RoleService(BaseService):
         """查询拥有该角色的用户 ID 列表。"""
         user_ids = db.session.query(UserFactoryRole.user_id).filter_by(role_id=role_id, is_deleted=0).all()
         return [user_id for user_id, in user_ids]
-

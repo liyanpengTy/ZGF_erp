@@ -4,21 +4,27 @@ from marshmallow import Schema, fields, validate
 
 
 class UserBaseSchema(Schema):
+    """用户基础返回结构。"""
+
     platform_identity = fields.Str()
     platform_identity_label = fields.Str()
     subject_type = fields.Method('get_subject_type')
     subject_type_label = fields.Method('get_subject_type_label')
 
     def get_subject_type(self, obj):
+        """根据用户工厂关系推导主体类型。"""
         relation_types = [relation.relation_type for relation in getattr(obj, 'user_factories', []) if relation.is_deleted == 0]
         return obj.get_subject_type(relation_types)
 
     def get_subject_type_label(self, obj):
+        """根据用户工厂关系返回主体类型中文名称。"""
         relation_types = [relation.relation_type for relation in getattr(obj, 'user_factories', []) if relation.is_deleted == 0]
         return obj.get_subject_type_label(relation_types)
 
 
 class UserSchema(UserBaseSchema):
+    """用户详情结构。"""
+
     id = fields.Int()
     username = fields.Str(required=True, validate=validate.Length(min=3, max=50))
     password = fields.Str(required=True, validate=validate.Length(min=6, max=20), load_only=True)
@@ -35,6 +41,8 @@ class UserSchema(UserBaseSchema):
 
 
 class UserLoginSchema(UserBaseSchema):
+    """登录后返回的用户结构。"""
+
     id = fields.Int()
     username = fields.Str()
     nickname = fields.Str()
@@ -49,20 +57,26 @@ class UserLoginSchema(UserBaseSchema):
 
 
 class UserCreateSchema(Schema):
+    """创建用户请求结构。"""
+
     username = fields.Str(required=True, validate=validate.Length(min=3, max=50))
     password = fields.Str(required=True, validate=validate.Length(min=6, max=20))
     nickname = fields.Str(validate=validate.Length(max=50))
     phone = fields.Str(validate=validate.Length(max=20))
     platform_identity = fields.Str(validate=validate.OneOf(['platform_admin', 'platform_staff', 'external_user']))
-    invite_code = fields.Str(description='邀请码（可选）')
+    invite_code = fields.Str(description='邀请码，可选')
     factory_id = fields.Int()
 
 
 class UserUpdateSchema(Schema):
+    """更新用户请求结构。"""
+
     nickname = fields.Str(validate=validate.Length(max=50))
     phone = fields.Str(validate=validate.Length(max=20))
     status = fields.Int(validate=validate.OneOf([0, 1]))
 
 
 class UserResetPasswordSchema(Schema):
+    """重置密码请求结构。"""
+
     password = fields.Str(required=True, validate=validate.Length(min=6, max=20))
