@@ -9,7 +9,7 @@ class CuttingReportBundleCreateSchema(Schema):
     """裁床报工时生成菲的明细参数。"""
 
     bed_no = fields.Int(load_default=1)
-    bundle_quantity = fields.Int(required=True)
+    bundle_quantity = fields.Int(required=True, validate=validate.Range(min=1))
     priority = fields.Str(load_default="normal", validate=validate.OneOf(["normal", "urgent", "top"]))
     remark = fields.Str(validate=validate.Length(max=500))
 
@@ -17,7 +17,7 @@ class CuttingReportBundleCreateSchema(Schema):
 class CuttingReportCreateSchema(Schema):
     """创建裁床报工参数。"""
 
-    order_detail_sku_id = fields.Int(required=True)
+    order_detail_sku_id = fields.Int(required=True, validate=validate.Range(min=1))
     cut_date = fields.Str(required=True, validate=validate.Regexp(r"^\d{4}-\d{2}-\d{2}$"))
     cut_quantity = fields.Int(required=True)
     template_id = fields.Int(allow_none=True)

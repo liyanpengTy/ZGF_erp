@@ -6,17 +6,18 @@ from datetime import datetime
 from flask import request
 from flask_jwt_extended import create_access_token, get_jwt, get_jwt_identity
 from flask_restx import Namespace, Resource, fields
+from marshmallow import ValidationError
 
 from app.api.common.auth import require_current_user
 from app.api.common.models import get_common_models
 from app.extensions import bcrypt
 from app.models.auth.user import User
-from app.schemas.auth.user import UserLoginSchema
+from app.schemas.auth.user import LoginRequestSchema, RegisterRequestSchema, SwitchFactorySchema, UserLoginSchema
 from app.services import AuthService, LoginResponseBuilder
 from app.utils.permissions import login_required, refresh_required
 from app.utils.response import ApiResponse
 
-auth_ns = Namespace('认证管理-auth', description='认证管理')
+auth_ns = Namespace('璁よ瘉绠＄悊-auth', description='璁よ瘉绠＄悊')
 
 common = get_common_models(auth_ns)
 base_response = common['base_response']
@@ -30,7 +31,7 @@ login_request_model = auth_ns.model('LoginRequest', {
 })
 
 switch_factory_model = auth_ns.model('SwitchFactoryRequest', {
-    'factory_id': fields.Integer(required=True, description='工厂ID', example=1)
+    'factory_id': fields.Integer(required=True, description='工厂 ID', example=1)
 })
 
 register_request_model = auth_ns.model('RegisterRequest', {
@@ -42,7 +43,7 @@ register_request_model = auth_ns.model('RegisterRequest', {
 })
 
 register_response_data = auth_ns.model('RegisterResponseData', {
-    'id': fields.Integer(description='用户ID', example=8),
+    'id': fields.Integer(description='用户 ID', example=8),
     'username': fields.String(description='用户名', example='newuser'),
     'invite_code': fields.String(description='邀请码', example='ABC12345')
 })
@@ -52,7 +53,7 @@ register_response = auth_ns.clone('RegisterResponse', base_response, {
 })
 
 user_info_model = auth_ns.model('UserInfo', {
-    'id': fields.Integer(description='用户ID', example=2),
+    'id': fields.Integer(description='用户 ID', example=2),
     'username': fields.String(description='用户名', example='factory_admin'),
     'nickname': fields.String(description='昵称', example='工厂管理员'),
     'phone': fields.String(description='手机号', example='18370601281'),
@@ -70,7 +71,7 @@ user_info_model = auth_ns.model('UserInfo', {
 })
 
 factory_info_model = auth_ns.model('FactoryInfo', {
-    'id': fields.Integer(description='工厂ID', example=1),
+    'id': fields.Integer(description='工厂 ID', example=1),
     'name': fields.String(description='工厂名称', example='测试工厂'),
     'code': fields.String(description='工厂编码', example='TEST001'),
     'relation_type': fields.String(description='关系类型', example='owner'),
@@ -123,6 +124,10 @@ my_factories_response = auth_ns.clone('MyFactoriesResponse', base_response, {
     )
 })
 
+login_request_schema = LoginRequestSchema()
+register_request_schema = RegisterRequestSchema()
+switch_factory_schema = SwitchFactorySchema()
+
 
 def build_refresh_token_payload(access_token):
     """构造刷新 access token 接口的返回数据。"""
@@ -146,11 +151,12 @@ class Login(Resource):
     @auth_ns.response(401, '账号已被禁用', unauthorized_response)
     def post(self):
         """账号密码登录，并根据身份决定是否附带工厂上下文。"""
-        data = request.get_json() or {}
-        username = data.get('username')
-        password = data.get('password')
+        try:
+            data = login_request_schema.load(request.get_json() or {})
+        except ValidationError as exc:
+            return ApiResponse.error(str(exc.messages), 400)
 
-        user, error = AuthService.authenticate(username, password)
+        user, error = AuthService.authenticate(data['username'], data['password'])
         if error:
             return ApiResponse.error(error)
 
@@ -239,12 +245,12 @@ class SwitchFactory(Resource):
         if AuthService.is_internal_user(user):
             return ApiResponse.error('平台内部人员不使用工厂切换上下文', 400)
 
-        data = request.get_json() or {}
-        factory_id = data.get('factory_id')
-        if not factory_id:
-            return ApiResponse.error('请指定工厂ID', 400)
+        try:
+            data = switch_factory_schema.load(request.get_json() or {})
+        except ValidationError as exc:
+            return ApiResponse.error(str(exc.messages), 400)
 
-        user_factory = AuthService.verify_factory_permission(user.id, factory_id)
+        user_factory = AuthService.verify_factory_permission(user.id, data['factory_id'])
         if not user_factory:
             return ApiResponse.error('无权限访问该工厂', 403)
 
@@ -254,7 +260,7 @@ class SwitchFactory(Resource):
 
         access_token, refresh_token = AuthService.create_tokens(
             user,
-            factory_id=factory_id,
+            factory_id=data['factory_id'],
             relation_type=user_factory.relation_type,
             collaborator_type=user_factory.collaborator_type
         )
@@ -300,9 +306,13 @@ class Register(Resource):
     @auth_ns.response(409, '用户名已存在', error_response)
     def post(self):
         """注册外部普通用户账号，并生成邀请码。"""
-        data = request.get_json() or {}
-        username = data.get('username')
-        password = data.get('password')
+        try:
+            data = register_request_schema.load(request.get_json() or {})
+        except ValidationError as exc:
+            return ApiResponse.error(str(exc.messages), 400)
+
+        username = data['username']
+        password = data['password']
         nickname = data.get('nickname', '')
         phone = data.get('phone', '')
         invite_code = data.get('invite_code')

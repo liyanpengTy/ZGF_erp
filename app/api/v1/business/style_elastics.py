@@ -13,13 +13,18 @@ from app.constants.permissions import (
     PERM_BUSINESS_STYLE_ELASTIC_EDIT,
     PERM_BUSINESS_STYLE_ELASTIC_QUERY,
 )
-from app.schemas.business.style_elastic import StyleElasticCreateSchema, StyleElasticSchema, StyleElasticUpdateSchema
+from app.schemas.business.style_elastic import (
+    StyleElasticBatchCreateSchema,
+    StyleElasticCreateSchema,
+    StyleElasticSchema,
+    StyleElasticUpdateSchema,
+)
 from app.services import StyleElasticService
 from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
-style_elastic_ns = Namespace('款号橡筋管理-style-elastics', description='款号橡筋配置查询与维护')
+style_elastic_ns = Namespace('娆惧彿姗＄瓔绠＄悊-style-elastics', description='娆惧彿姗＄瓔閰嶇疆鏌ヨ涓庣淮鎶?')
 
 common = get_common_models(style_elastic_ns)
 base_response = common['base_response']
@@ -75,7 +80,7 @@ style_elastic_list_data = build_page_data_model(
     items_description='橡筋列表',
 )
 style_elastic_grouped_data = style_elastic_ns.model('StyleElasticGroupedData', {
-    'items': fields.List(fields.Nested(elastic_group_model), description='按类型分组后的橡筋列表'),
+    'items': fields.List(fields.Nested(elastic_group_model), description='分组后的橡筋列表'),
 })
 style_elastic_list_response = build_page_response_model(
     style_elastic_ns,
@@ -128,6 +133,7 @@ style_elastic_update_model = style_elastic_ns.model('StyleElasticUpdate', {
 style_elastic_schema = StyleElasticSchema()
 style_elastic_create_schema = StyleElasticCreateSchema()
 style_elastic_update_schema = StyleElasticUpdateSchema()
+style_elastic_batch_create_schema = StyleElasticBatchCreateSchema()
 
 
 def build_style_elastic_access_error(error):
@@ -187,6 +193,16 @@ def validate_elastic_size_or_error(size_id):
     _, error = StyleElasticService.validate_size(size_id)
     if error:
         return ApiResponse.error(error, 400)
+    return None
+
+
+def validate_elastic_batch_or_error(items):
+    """校验批量橡筋分组中的尺码是否合法。"""
+    for group in items or []:
+        for detail in group.get('details') or []:
+            size_error_response = validate_elastic_size_or_error(detail.get('size_id'))
+            if size_error_response:
+                return size_error_response
     return None
 
 
@@ -254,19 +270,22 @@ class StyleElasticBatch(Resource):
     @style_elastic_ns.response(404, '款号不存在', error_response)
     def post(self):
         """批量保存款号橡筋配置接口。写操作仍要求当前工厂上下文。"""
-        data = request.get_json() or {}
-        style_id = data.get('style_id')
-        items = data.get('items', [])
-        if not style_id:
-            return ApiResponse.error('请指定款号 ID', 400)
+        try:
+            data = style_elastic_batch_create_schema.load(request.get_json() or {})
+        except ValidationError as exc:
+            return ApiResponse.error(str(exc.messages), 400)
 
-        _, _, _, error_response_data = get_accessible_style_for_elastic_or_error(style_id, require_write=True)
+        _, _, _, error_response_data = get_accessible_style_for_elastic_or_error(data['style_id'], require_write=True)
         if error_response_data:
             return error_response_data
 
-        StyleElasticService.delete_by_style(style_id)
-        if items:
-            StyleElasticService.create_elastic_batch(style_id, items)
+        size_error_response = validate_elastic_batch_or_error(data.get('items'))
+        if size_error_response:
+            return size_error_response
+
+        StyleElasticService.delete_by_style(data['style_id'])
+        if data.get('items'):
+            StyleElasticService.create_elastic_batch(data['style_id'], data['items'])
         return ApiResponse.success(message='保存成功')
 
 

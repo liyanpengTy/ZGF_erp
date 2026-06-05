@@ -155,11 +155,6 @@ class StylePriceList(Resource):
     @style_price_ns.response(404, '款号不存在', error_response)
     def post(self):
         """创建款号价格记录接口。写操作仍要求当前工厂上下文。"""
-        _, _, _, error_response_data = get_accessible_price_style_or_error(
-            (request.get_json() or {}).get('style_id'),
-            require_write=True,
-        ) if (request.get_json() or {}).get('style_id') else (None, None, None, None)
-
         try:
             data = style_price_create_schema.load(request.get_json() or {})
         except ValidationError as exc:

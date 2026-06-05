@@ -3,6 +3,9 @@
 from marshmallow import Schema, fields, validate
 
 
+PLATFORM_IDENTITY_CHOICES = ['platform_admin', 'platform_staff', 'external_user']
+
+
 class UserBaseSchema(Schema):
     """用户基础返回结构。"""
 
@@ -17,7 +20,7 @@ class UserBaseSchema(Schema):
         return obj.get_subject_type(relation_types)
 
     def get_subject_type_label(self, obj):
-        """根据用户工厂关系返回主体类型中文名称。"""
+        """根据用户工厂关系返回主体类型名称。"""
         relation_types = [relation.relation_type for relation in getattr(obj, 'user_factories', []) if relation.is_deleted == 0]
         return obj.get_subject_type_label(relation_types)
 
@@ -63,9 +66,9 @@ class UserCreateSchema(Schema):
     password = fields.Str(required=True, validate=validate.Length(min=6, max=20))
     nickname = fields.Str(validate=validate.Length(max=50))
     phone = fields.Str(validate=validate.Length(max=20))
-    platform_identity = fields.Str(validate=validate.OneOf(['platform_admin', 'platform_staff', 'external_user']))
-    invite_code = fields.Str(description='邀请码，可选')
-    factory_id = fields.Int()
+    platform_identity = fields.Str(validate=validate.OneOf(PLATFORM_IDENTITY_CHOICES))
+    invite_code = fields.Str(validate=validate.Length(max=50))
+    factory_id = fields.Int(validate=validate.Range(min=1))
 
 
 class UserUpdateSchema(Schema):
@@ -80,3 +83,33 @@ class UserResetPasswordSchema(Schema):
     """重置密码请求结构。"""
 
     password = fields.Str(required=True, validate=validate.Length(min=6, max=20))
+
+
+class LoginRequestSchema(Schema):
+    """账号密码登录入参。"""
+
+    username = fields.Str(required=True, validate=validate.Length(min=1, max=50))
+    password = fields.Str(required=True, validate=validate.Length(min=6, max=20))
+
+
+class RegisterRequestSchema(Schema):
+    """注册入参。"""
+
+    username = fields.Str(required=True, validate=validate.Length(min=3, max=50))
+    password = fields.Str(required=True, validate=validate.Length(min=6, max=20))
+    nickname = fields.Str(validate=validate.Length(max=50))
+    phone = fields.Str(validate=validate.Length(max=20))
+    invite_code = fields.Str(validate=validate.Length(max=50))
+
+
+class SwitchFactorySchema(Schema):
+    """切换工厂入参。"""
+
+    factory_id = fields.Int(required=True, validate=validate.Range(min=1))
+
+
+class UserAssignRolesSchema(Schema):
+    """用户角色分配入参。"""
+
+    role_ids = fields.List(fields.Int(validate=validate.Range(min=1)), required=True)
+    factory_id = fields.Int(allow_none=True, validate=validate.Range(min=0))

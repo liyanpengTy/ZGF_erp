@@ -17,7 +17,13 @@ from app.constants.permissions import (
     PERM_BUSINESS_STYLE_PROCESS_DELETE,
     PERM_BUSINESS_STYLE_PROCESS_QUERY,
 )
-from app.schemas.business.process import ProcessCreateSchema, ProcessSchema, ProcessUpdateSchema, StyleProcessMappingSchema
+from app.schemas.business.process import (
+    ProcessCreateSchema,
+    ProcessSchema,
+    ProcessUpdateSchema,
+    StyleProcessMappingBatchSchema,
+    StyleProcessMappingSchema,
+)
 from app.services import ProcessService
 from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
@@ -112,6 +118,7 @@ process_schema = ProcessSchema()
 processes_schema = ProcessSchema(many=True)
 process_create_schema = ProcessCreateSchema()
 process_update_schema = ProcessUpdateSchema()
+style_process_mapping_batch_schema = StyleProcessMappingBatchSchema()
 style_process_mapping_schema = StyleProcessMappingSchema()
 
 
@@ -348,7 +355,11 @@ class StyleProcesses(Resource):
         if error_response_data:
             return error_response_data
 
-        data = request.get_json() or {}
+        try:
+            data = style_process_mapping_batch_schema.load(request.get_json() or {})
+        except ValidationError as exc:
+            return ApiResponse.error(str(exc.messages), 400)
+
         mappings = ProcessService.batch_save_style_processes(style_id, data.get('mappings', []))
         return ApiResponse.success(style_process_mapping_schema.dump(mappings, many=True), '保存成功')
 

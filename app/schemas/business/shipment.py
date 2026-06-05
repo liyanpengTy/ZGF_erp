@@ -61,15 +61,15 @@ class ShipmentSchema(Schema):
 class ShipmentItemCreateSchema(Schema):
     """创建出货单明细参数。"""
 
-    order_detail_sku_id = fields.Int(required=True)
-    quantity = fields.Int(required=True)
+    order_detail_sku_id = fields.Int(required=True, validate=validate.Range(min=1))
+    quantity = fields.Int(required=True, validate=validate.Range(min=1))
     remark = fields.Str(validate=validate.Length(max=500))
 
 
 class ShipmentCreateSchema(Schema):
     """创建出货单参数。"""
 
-    order_id = fields.Int(required=True)
+    order_id = fields.Int(required=True, validate=validate.Range(min=1))
     ship_date = fields.Str(required=True, validate=validate.Regexp(r'^\d{4}-\d{2}-\d{2}$'))
     remark = fields.Str(validate=validate.Length(max=500))
     items = fields.List(fields.Nested(ShipmentItemCreateSchema), required=True, validate=validate.Length(min=1))

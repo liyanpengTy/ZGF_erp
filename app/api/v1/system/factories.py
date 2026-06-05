@@ -1,4 +1,4 @@
-"""工厂管理接口。"""
+﻿"""工厂管理接口。"""
 
 from datetime import datetime
 
@@ -9,7 +9,7 @@ from marshmallow import ValidationError
 from app.api.common.auth import require_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
-from app.schemas.system.factory import FactoryCreateSchema, FactorySchema, FactoryUpdateSchema
+from app.schemas.system.factory import FactoryAddUserSchema, FactoryBindSchema, FactoryCreateSchema, FactorySchema, FactoryUpdateSchema
 from app.services import FactoryService
 from app.utils.permissions import login_required, permission_required
 from app.utils.response import ApiResponse
@@ -52,7 +52,6 @@ factory_create_model = factory_ns.model(
     "FactoryCreate",
     {
         "name": fields.String(required=True, description="工厂名称", example="测试工厂"),
-        "code": fields.String(required=True, description="工厂编码", example="TEST001"),
         "contact_person": fields.String(description="联系人", example="张三"),
         "contact_phone": fields.String(description="联系电话", example="13800138000"),
         "address": fields.String(description="地址", example="广东省深圳市南山区"),
@@ -175,7 +174,7 @@ factory_create_response_data = factory_ns.model(
         "service_status": fields.String(description="服务状态", example="active"),
         "create_time": fields.String(description="创建时间", example="2026-04-21 01:17:24"),
         "update_time": fields.String(description="更新时间", example="2026-04-21 01:17:24"),
-        "admin_username": fields.String(description="默认管理员账号", example="factory_admin"),
+        "admin_username": fields.String(description="默认管理员账号", example="FAC202605280001"),
         "admin_password": fields.String(description="默认管理员密码", example="123456"),
     },
 )
@@ -247,6 +246,8 @@ factory_schema = FactorySchema()
 factories_schema = FactorySchema(many=True)
 factory_create_schema = FactoryCreateSchema()
 factory_update_schema = FactoryUpdateSchema()
+factory_add_user_schema = FactoryAddUserSchema()
+factory_bind_schema = FactoryBindSchema()
 
 
 def get_factory_module_user_or_error():
@@ -391,9 +392,9 @@ class FactoryList(Resource):
     @factory_ns.response(201, "创建成功", factory_create_response)
     @factory_ns.response(400, "参数错误", error_response)
     @factory_ns.response(403, "无权限", forbidden_response)
-    @factory_ns.response(409, "工厂编码已存在", error_response)
+    @factory_ns.response(409, "工厂编码生成冲突", error_response)
     def post(self):
-        """创建工厂接口，同时创建默认工厂管理员账号。"""
+        """创建工厂接口，工厂编码由系统自动生成，并同时创建默认工厂管理员账号。"""
         current_user, error_response_data = get_factory_module_user_or_error()
         if error_response_data:
             return error_response_data
@@ -535,21 +536,19 @@ class FactoryUsers(Resource):
         if error_response_data:
             return error_response_data
 
-        data = request.get_json() or {}
-        user_id = data.get("user_id")
-        relation_type = data.get("relation_type")
-        collaborator_type = data.get("collaborator_type")
-        if not user_id or not relation_type:
-            return ApiResponse.error("请指定用户 ID 和关系类型", 400)
+        try:
+            data = factory_add_user_schema.load(request.get_json() or {})
+        except ValidationError as exc:
+            return ApiResponse.error(str(exc.messages), 400)
 
-        if relation_type == "owner":
-            user_factory, add_error = FactoryService.update_factory_owner(factory_id, user_id)
+        if data["relation_type"] == "owner":
+            user_factory, add_error = FactoryService.update_factory_owner(factory_id, data["user_id"])
         else:
             user_factory, add_error = FactoryService.add_user_to_factory(
                 factory_id,
-                user_id,
-                relation_type,
-                collaborator_type=collaborator_type,
+                data["user_id"],
+                data["relation_type"],
+                collaborator_type=data.get("collaborator_type"),
             )
 
         if add_error:
@@ -673,16 +672,16 @@ class BindFactory(Resource):
     @factory_ns.response(404, "二维码无效", error_response)
     def post(self):
         """扫码绑定工厂接口，默认建立 employee 关系。"""
-        data = request.get_json() or {}
-        qrcode_key = data.get("key")
-        if not qrcode_key:
-            return ApiResponse.error("无效的二维码", 400)
+        try:
+            data = factory_bind_schema.load(request.get_json() or {})
+        except ValidationError as exc:
+            return ApiResponse.error(str(exc.messages), 400)
 
         current_user, error_response_data = require_current_user(message="请先登录", code=401)
         if error_response_data:
             return error_response_data
 
-        result, bind_error = FactoryService.bind_user_to_factory(current_user.id, qrcode_key)
+        result, bind_error = FactoryService.bind_user_to_factory(current_user.id, data["key"])
         if bind_error:
             return ApiResponse.error(bind_error, 404)
         return ApiResponse.success(result, "绑定成功")

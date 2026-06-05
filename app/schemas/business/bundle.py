@@ -205,7 +205,7 @@ class ProductionBundleSchema(Schema):
 class BundleIssueSchema(Schema):
     """整菲领货参数。"""
 
-    process_id = fields.Int(required=True)
+    process_id = fields.Int(required=True, validate=validate.Range(min=1))
     holder_user_id = fields.Int(allow_none=True)
     remark = fields.Str(validate=validate.Length(max=500))
 
@@ -213,15 +213,15 @@ class BundleIssueSchema(Schema):
 class BundleReturnSchema(Schema):
     """交货参数。"""
 
-    quantity = fields.Int(required=True)
+    quantity = fields.Int(required=True, validate=validate.Range(min=1))
     remark = fields.Str(validate=validate.Length(max=500))
 
 
 class BundleTransferSchema(Schema):
     """转交参数。"""
 
-    to_user_id = fields.Int(required=True)
-    process_id = fields.Int(required=True)
+    to_user_id = fields.Int(required=True, validate=validate.Range(min=1))
+    process_id = fields.Int(required=True, validate=validate.Range(min=1))
     remark = fields.Str(validate=validate.Length(max=500))
 
 

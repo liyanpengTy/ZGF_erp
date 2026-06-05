@@ -70,7 +70,7 @@ style_process_item_response = style_process_ns.clone('StyleProcessItemResponse',
 style_process_create_model = style_process_ns.model('StyleProcessCreate', {
     'style_id': fields.Integer(required=True, description='款号 ID', example=1),
     'process_type': fields.String(required=True, description='工艺类型', choices=['embroidery', 'print', 'other'], example='print'),
-    'process_name': fields.String(description='工艺名称', example='丝网印花'),
+    'process_name': fields.String(required=True, description='工艺名称', example='丝网印花'),
     'remark': fields.String(description='备注', example='前胸图案'),
 })
 

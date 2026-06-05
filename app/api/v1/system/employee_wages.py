@@ -7,12 +7,12 @@ from marshmallow import ValidationError
 from app.api.common.auth import require_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
-from app.schemas.system.employee_wage import EmployeeWageCreateSchema, EmployeeWageSchema, EmployeeWageUpdateSchema
+from app.schemas.system.employee_wage import EmployeeWageCreateSchema, EmployeeWageSchema, EmployeeWageUpdateSchema, WageCalculateSchema
 from app.services import EmployeeWageService
 from app.utils.permissions import login_required, permission_required
 from app.utils.response import ApiResponse
 
-employee_wage_ns = Namespace('员工计薪管理-employee-wages', description='员工计薪管理')
+employee_wage_ns = Namespace('鍛樺伐璁¤柂绠＄悊-employee-wages', description='鍛樺伐璁¤柂绠＄悊')
 
 common = get_common_models(employee_wage_ns)
 base_response = common['base_response']
@@ -122,6 +122,7 @@ wage_schema = EmployeeWageSchema()
 wages_schema = EmployeeWageSchema(many=True)
 wage_create_schema = EmployeeWageCreateSchema()
 wage_update_schema = EmployeeWageUpdateSchema()
+wage_calculate_schema = WageCalculateSchema()
 
 
 def build_wage_calculate_payload(factory_id, user_id, process_id, wage_amount):
@@ -317,32 +318,22 @@ class WageCalculate(Resource):
         if not has_permission:
             return ApiResponse.error(error, 403)
 
-        data = request.get_json() or {}
-        factory_id = data.get('factory_id')
-        user_id = data.get('user_id')
-        process_id = data.get('process_id')
-        quantity = data.get('quantity', 0)
-        work_hours = data.get('work_hours', 0)
-        work_days = data.get('work_days', 1)
-        total_work_days = data.get('total_work_days', 22)
-        work_date = data.get('work_date')
-
-        if not factory_id:
-            return ApiResponse.error('请指定工厂 ID', 400)
-        if not user_id:
-            return ApiResponse.error('请指定员工 ID', 400)
-        if not process_id:
-            return ApiResponse.error('请指定工序 ID', 400)
+        try:
+            data = wage_calculate_schema.load(request.get_json() or {})
+        except ValidationError as exc:
+            return ApiResponse.error(str(exc.messages), 400)
 
         wage_amount = EmployeeWageService.calculate_wage(
-            factory_id=factory_id,
-            user_id=user_id,
-            process_id=process_id,
-            quantity=quantity,
-            work_hours=work_hours,
-            work_days=work_days,
-            total_work_days=total_work_days,
-            work_date=work_date,
+            factory_id=data['factory_id'],
+            user_id=data['user_id'],
+            process_id=data['process_id'],
+            quantity=data.get('quantity', 0),
+            work_hours=data.get('work_hours', 0),
+            work_days=data.get('work_days', 1),
+            total_work_days=data.get('total_work_days', 22),
+            work_date=data.get('work_date'),
         )
 
-        return ApiResponse.success(build_wage_calculate_payload(factory_id, user_id, process_id, wage_amount))
+        return ApiResponse.success(
+            build_wage_calculate_payload(data['factory_id'], data['user_id'], data['process_id'], wage_amount)
+        )

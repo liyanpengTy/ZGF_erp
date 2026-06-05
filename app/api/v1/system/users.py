@@ -32,7 +32,7 @@ from app.extensions import bcrypt
 from app.models.auth.user import User
 from app.models.system.factory import Factory
 from app.models.system.user_factory import UserFactory
-from app.schemas.auth.user import UserCreateSchema, UserResetPasswordSchema, UserUpdateSchema
+from app.schemas.auth.user import UserAssignRolesSchema, UserCreateSchema, UserResetPasswordSchema, UserUpdateSchema
 from app.schemas.system.role import RoleSchema
 from app.services import RoleService, UserService
 from app.utils.permissions import has_any_permission, login_required, permission_required_any
@@ -273,6 +273,7 @@ user_roles_response = user_ns.clone('UserRolesResponse', base_response, {'data':
 user_create_schema = UserCreateSchema()
 user_update_schema = UserUpdateSchema()
 user_reset_password_schema = UserResetPasswordSchema()
+user_assign_roles_schema = UserAssignRolesSchema()
 role_schema = RoleSchema(many=True)
 
 USER_SYSTEM_PERMISSION_MAP = {
@@ -784,8 +785,12 @@ class UserRoles(Resource):
         if error_response_data:
             return error_response_data
 
-        data = request.get_json() or {}
-        role_ids = data.get('role_ids', [])
+        try:
+            data = user_assign_roles_schema.load(request.get_json() or {})
+        except ValidationError as exc:
+            return ApiResponse.error(str(exc.messages), 400)
+
+        role_ids = data['role_ids']
         factory_id = data.get('factory_id')
 
         if factory_id is None and not current_user.is_internal_user:

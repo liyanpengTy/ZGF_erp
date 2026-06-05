@@ -13,7 +13,8 @@ run.py
 migrations/versions
 
 # 系统说明图的html文件
-docs/*.html
+docs/diagram
+docs/high_fidelity_prototype
 
 
 # 手动执行sql

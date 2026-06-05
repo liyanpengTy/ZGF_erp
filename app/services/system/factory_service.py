@@ -1,7 +1,9 @@
 """工厂管理服务。"""
 
 from datetime import datetime
+import uuid
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
 from app.constants.identity import (
@@ -10,7 +12,7 @@ from app.constants.identity import (
     RELATION_TYPE_EMPLOYEE,
     RELATION_TYPE_OWNER,
 )
-from app.extensions import bcrypt
+from app.extensions import bcrypt, db
 from app.models.auth.user import User
 from app.models.system.factory import Factory
 from app.models.system.user_factory import UserFactory
@@ -19,11 +21,11 @@ from app.services.system.role_service import RoleService
 
 
 class FactoryService(BaseService):
-    """封装工厂、工厂成员和绑定二维码的业务逻辑。"""
+    """封装工厂、工厂成员和绑定二维码相关业务逻辑。"""
 
     @staticmethod
     def _sync_user_identity(user):
-        """在工厂关系变更后刷新用户身份。"""
+        """在工厂关系变更后，确保用户具备外部身份。"""
         if not user.platform_identity:
             user.platform_identity = PLATFORM_IDENTITY_EXTERNAL
         user.save()
@@ -35,8 +37,33 @@ class FactoryService(BaseService):
 
     @staticmethod
     def get_factory_by_code(code):
-        """按工厂编码查询未删除的工厂。"""
-        return Factory.query.filter_by(code=code, is_deleted=0).first()
+        """按工厂编码查询工厂，唯一性校验会包含已删除数据。"""
+        return Factory.query.filter_by(code=code).first()
+
+    @staticmethod
+    def _generate_factory_code():
+        """生成工厂编码，格式为 FAC + 日期 + 4 位流水号。"""
+        code_prefix = datetime.now().strftime("FAC%Y%m%d")
+        latest_factory = (
+            Factory.query.filter(Factory.code.like(f"{code_prefix}%"))
+            .order_by(Factory.code.desc())
+            .first()
+        )
+
+        next_sequence = 1
+        if latest_factory and latest_factory.code:
+            suffix = latest_factory.code[len(code_prefix):]
+            if suffix.isdigit():
+                next_sequence = int(suffix) + 1
+
+        for sequence in range(next_sequence, 10000):
+            candidate_code = f"{code_prefix}{sequence:04d}"
+            factory_exists = Factory.query.filter_by(code=candidate_code).first()
+            user_exists = User.query.filter_by(username=candidate_code).first()
+            if not factory_exists and not user_exists:
+                return candidate_code
+
+        raise ValueError("当天工厂编码已达到生成上限")
 
     @staticmethod
     def get_factory_list(filters):
@@ -84,70 +111,56 @@ class FactoryService(BaseService):
 
     @staticmethod
     def create_factory(data, current_user_id=None):
-        """创建工厂、默认工厂管理员账号以及 owner 关系。"""
-        existing = FactoryService.get_factory_by_code(data["code"])
-        if existing:
-            return None, None, "工厂编码已存在"
+        """创建工厂，并自动生成唯一工厂编码和默认管理员账号。"""
+        del current_user_id
 
-        factory = Factory(
-            name=data["name"],
-            code=data["code"],
-            contact_person=data.get("contact_person", ""),
-            contact_phone=data.get("contact_phone", ""),
-            address=data.get("address", ""),
-            remark=data.get("remark", ""),
-            status=1,
-            service_expire_date=data.get("service_expire_date"),
-        )
-        factory.save()
+        for _ in range(5):
+            try:
+                factory_code = FactoryService._generate_factory_code()
+            except ValueError as error:
+                return None, None, str(error)
 
-        existing_user = User.query.filter_by(username=data["code"], is_deleted=0).first()
-        if existing_user:
-            existing_user.nickname = data["name"]
-            existing_user.platform_identity = PLATFORM_IDENTITY_EXTERNAL
-            existing_user.status = 1
-            existing_user.save()
-            factory_admin = existing_user
-        else:
+            factory = Factory(
+                name=data["name"],
+                code=factory_code,
+                contact_person=data.get("contact_person", ""),
+                contact_phone=data.get("contact_phone", ""),
+                address=data.get("address", ""),
+                remark=data.get("remark", ""),
+                status=1,
+                service_expire_date=data.get("service_expire_date"),
+            )
             factory_admin = User(
-                username=data["code"],
+                username=factory_code,
                 password=bcrypt.generate_password_hash("123456").decode("utf-8"),
                 nickname=data["name"],
                 platform_identity=PLATFORM_IDENTITY_EXTERNAL,
                 status=1,
+                is_paid=1,
             )
-            factory_admin.save()
 
-        old_relation = UserFactory.query.filter_by(user_id=factory_admin.id, factory_id=factory.id, is_deleted=0).first()
-        if old_relation:
-            old_relation.is_deleted = 1
-            old_relation.save()
+            try:
+                db.session.add(factory)
+                db.session.add(factory_admin)
+                db.session.flush()
 
-        user_factory = UserFactory(
-            user_id=factory_admin.id,
-            factory_id=factory.id,
-            relation_type=RELATION_TYPE_OWNER,
-            status=1,
-            entry_date=datetime.now().date(),
-            remark="工厂管理员账号",
-        )
-        user_factory.save()
-        FactoryService._sync_user_identity(factory_admin)
-        RoleService.clear_permission_cache()
+                user_factory = UserFactory(
+                    user_id=factory_admin.id,
+                    factory_id=factory.id,
+                    relation_type=RELATION_TYPE_OWNER,
+                    status=1,
+                    entry_date=datetime.now().date(),
+                    remark="工厂管理员账号",
+                )
+                db.session.add(user_factory)
+                db.session.commit()
+                RoleService.clear_permission_cache()
+                return factory, factory_admin, None
+            except IntegrityError:
+                db.session.rollback()
+                continue
 
-        factory_admin.is_paid = 1
-        factory_admin.save()
-
-        if factory_admin.invited_by:
-            from app.services.system.reward_service import RewardService
-
-            inviter = User.query.get(factory_admin.invited_by)
-            if inviter:
-                inviter.invited_count += 1
-                inviter.save()
-                RewardService.check_and_create_rewards(inviter.id)
-
-        return factory, factory_admin, None
+        return None, None, "工厂编码生成失败，请稍后重试"
 
     @staticmethod
     def update_factory(factory, data):
@@ -169,7 +182,11 @@ class FactoryService(BaseService):
         factory.save()
 
         if "name" in data:
-            user_factory = UserFactory.query.filter_by(factory_id=factory.id, relation_type=RELATION_TYPE_OWNER, is_deleted=0).first()
+            user_factory = UserFactory.query.filter_by(
+                factory_id=factory.id,
+                relation_type=RELATION_TYPE_OWNER,
+                is_deleted=0,
+            ).first()
             if user_factory:
                 owner_user = User.query.filter_by(id=user_factory.user_id, is_deleted=0).first()
                 if owner_user:
@@ -186,7 +203,11 @@ class FactoryService(BaseService):
         if user_count > 0:
             return False, f"请先解除工厂关联的用户（共 {user_count} 个）"
 
-        owner_relation = UserFactory.query.filter_by(factory_id=factory.id, relation_type=RELATION_TYPE_OWNER, is_deleted=0).first()
+        owner_relation = UserFactory.query.filter_by(
+            factory_id=factory.id,
+            relation_type=RELATION_TYPE_OWNER,
+            is_deleted=0,
+        ).first()
         if owner_relation:
             owner_relation.is_deleted = 1
             owner_relation.save()
@@ -311,7 +332,11 @@ class FactoryService(BaseService):
         if not factory:
             return None, "工厂不存在"
 
-        existing_owner = UserFactory.query.filter_by(factory_id=factory_id, relation_type=RELATION_TYPE_OWNER, is_deleted=0).first()
+        existing_owner = UserFactory.query.filter_by(
+            factory_id=factory_id,
+            relation_type=RELATION_TYPE_OWNER,
+            is_deleted=0,
+        ).first()
         if existing_owner:
             if existing_owner.user_id == user_id:
                 return None, "该用户已经是工厂管理员"
@@ -346,7 +371,7 @@ class FactoryService(BaseService):
 
     @staticmethod
     def remove_user_from_factory(factory_id, user_id):
-        """移除工厂普通关系用户；owner 不允许通过这里删除。"""
+        """移除工厂普通关系用户，owner 不能通过这里删除。"""
         user_factory = UserFactory.query.filter_by(user_id=user_id, factory_id=factory_id, is_deleted=0).first()
         if not user_factory:
             return False, "用户未关联此工厂"
@@ -356,6 +381,7 @@ class FactoryService(BaseService):
         user_factory.is_deleted = 1
         user_factory.leave_date = datetime.now().date()
         user_factory.save()
+
         user = User.query.filter_by(id=user_id, is_deleted=0).first()
         if user:
             FactoryService._sync_user_identity(user)
@@ -388,8 +414,6 @@ class FactoryService(BaseService):
     @staticmethod
     def generate_qrcode(factory):
         """为工厂生成新的绑定二维码地址和 key。"""
-        import uuid
-
         qrcode_key = uuid.uuid4().hex[:32]
         qrcode_url = f"/api/v1/factories/bind?key={qrcode_key}"
         factory.qrcode = qrcode_url
@@ -404,7 +428,7 @@ class FactoryService(BaseService):
 
     @staticmethod
     def bind_user_to_factory(user_id, qrcode_key):
-        """处理扫码绑定工厂，把扫码用户挂为员工关系。"""
+        """处理扫码绑定工厂，默认把扫码用户挂为员工关系。"""
         factory = FactoryService.get_factory_by_qrcode_key(qrcode_key)
         if not factory:
             return None, "二维码无效或已过期"

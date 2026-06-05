@@ -3,8 +3,12 @@
 from marshmallow import Schema, fields, validate
 
 
+FACTORY_RELATION_TYPE_CHOICES = ['owner', 'employee', 'customer', 'collaborator']
+FACTORY_COLLABORATOR_TYPE_CHOICES = ['button_partner', 'shrink_partner', 'print_partner', 'other_partner']
+
+
 class FactorySchema(Schema):
-    """工厂序列化器。"""
+    """工厂返回结构。"""
 
     id = fields.Int()
     name = fields.Str()
@@ -21,10 +25,9 @@ class FactorySchema(Schema):
 
 
 class FactoryCreateSchema(Schema):
-    """创建工厂参数。"""
+    """创建工厂入参，工厂编码由系统自动生成。"""
 
     name = fields.Str(required=True, validate=validate.Length(min=2, max=100))
-    code = fields.Str(required=True, validate=validate.Length(min=2, max=50))
     contact_person = fields.Str(validate=validate.Length(max=50))
     contact_phone = fields.Str(validate=validate.Length(max=20))
     address = fields.Str(validate=validate.Length(max=255))
@@ -33,7 +36,7 @@ class FactoryCreateSchema(Schema):
 
 
 class FactoryUpdateSchema(Schema):
-    """更新工厂参数。"""
+    """更新工厂入参。"""
 
     name = fields.Str(validate=validate.Length(min=2, max=100))
     contact_person = fields.Str(validate=validate.Length(max=50))
@@ -42,3 +45,17 @@ class FactoryUpdateSchema(Schema):
     service_expire_date = fields.Date(format="%Y-%m-%d", allow_none=True)
     status = fields.Int(validate=validate.OneOf([0, 1]))
     remark = fields.Str(validate=validate.Length(max=500))
+
+
+class FactoryAddUserSchema(Schema):
+    """工厂新增关联用户入参。"""
+
+    user_id = fields.Int(required=True, validate=validate.Range(min=1))
+    relation_type = fields.Str(required=True, validate=validate.OneOf(FACTORY_RELATION_TYPE_CHOICES))
+    collaborator_type = fields.Str(validate=validate.OneOf(FACTORY_COLLABORATOR_TYPE_CHOICES))
+
+
+class FactoryBindSchema(Schema):
+    """扫码绑定工厂入参。"""
+
+    key = fields.Str(required=True, validate=validate.Length(min=1, max=100))
