@@ -2,11 +2,15 @@
 
 from flask import request
 from flask_restx import Namespace, Resource, fields
-from marshmallow import ValidationError
 
-from app.api.common.factory_context import resolve_read_factory_context, resolve_write_factory_context
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
+from app.api.common.response_helpers import load_json_or_error, success_mapped_page
+from app.api.common.serializers import serialize_schema
+from app.api.common.style_relation_helpers import (
+    get_accessible_style_or_error,
+    get_accessible_style_resource_or_error,
+)
 from app.constants.permissions import (
     PERM_BUSINESS_STYLE_ELASTIC_ADD,
     PERM_BUSINESS_STYLE_ELASTIC_DELETE,
@@ -24,7 +28,7 @@ from app.utils.business_permissions import button_permission
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
-style_elastic_ns = Namespace('娆惧彿姗＄瓔绠＄悊-style-elastics', description='娆惧彿姗＄瓔閰嶇疆鏌ヨ涓庣淮鎶?')
+style_elastic_ns = Namespace('款号橡筋管理-style-elastics', description='款号橡筋配置查询与维护')
 
 common = get_common_models(style_elastic_ns)
 base_response = common['base_response']
@@ -33,6 +37,7 @@ unauthorized_response = common['unauthorized_response']
 forbidden_response = common['forbidden_response']
 build_page_data_model = common['build_page_data_model']
 build_page_response_model = common['build_page_response_model']
+build_item_response_model = common['build_item_response_model']
 
 style_elastic_query_parser = page_parser.copy()
 style_elastic_query_parser.add_argument('style_id', type=int, required=True, location='args', help='款号 ID')
@@ -92,9 +97,7 @@ style_elastic_list_response = build_page_response_model(
 style_elastic_grouped_response = style_elastic_ns.clone('StyleElasticGroupedResponse', base_response, {
     'data': fields.Nested(style_elastic_grouped_data, description='橡筋分组数据'),
 })
-style_elastic_item_response = style_elastic_ns.clone('StyleElasticItemResponse', base_response, {
-    'data': fields.Nested(style_elastic_item_model, description='橡筋详情数据'),
-})
+style_elastic_item_response = build_item_response_model(style_elastic_ns, 'StyleElasticItemResponse', base_response, style_elastic_item_model, '橡筋详情数据')
 
 elastic_detail_item_create_model = style_elastic_ns.model('ElasticDetailItem', {
     'size_id': fields.Integer(required=True, description='尺码 ID'),
@@ -136,54 +139,31 @@ style_elastic_update_schema = StyleElasticUpdateSchema()
 style_elastic_batch_create_schema = StyleElasticBatchCreateSchema()
 
 
-def build_style_elastic_access_error(error):
-    """根据款号橡筋访问错误内容推导响应状态码。"""
-    return ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
-
-
 def serialize_style_elastic(elastic):
     """序列化款号橡筋记录并补充尺码名称。"""
-    result = style_elastic_schema.dump(elastic)
+    result = serialize_schema(style_elastic_schema, elastic)
     result['size_name'] = StyleElasticService.get_size_name(elastic.size_id)
     return result
 
 
 def get_accessible_style_for_elastic_or_error(style_id, require_write=False):
     """查询当前上下文可访问的款号，用于橡筋记录读写前校验。"""
-    if require_write:
-        current_user, current_factory_id, error_response_obj = resolve_write_factory_context()
-    else:
-        current_user, current_factory_id, error_response_obj = resolve_read_factory_context(
-            allow_internal_without_factory=True,
-        )
-    if error_response_obj:
-        return None, None, None, error_response_obj
-
-    style, error = StyleElasticService.check_style_permission(current_user, current_factory_id, style_id)
-    if error:
-        return None, None, None, build_style_elastic_access_error(error)
-    return current_user, current_factory_id, style, None
+    return get_accessible_style_or_error(
+        style_id,
+        StyleElasticService.check_style_permission,
+        require_write=require_write,
+    )
 
 
 def get_accessible_elastic_or_error(elastic_id, require_write=False):
     """查询当前上下文可访问的橡筋记录。"""
-    if require_write:
-        current_user, current_factory_id, error_response_obj = resolve_write_factory_context()
-    else:
-        current_user, current_factory_id, error_response_obj = resolve_read_factory_context(
-            allow_internal_without_factory=True,
-        )
-    if error_response_obj:
-        return None, None, None, error_response_obj
-
-    elastic = StyleElasticService.get_elastic_by_id(elastic_id)
-    if not elastic:
-        return None, None, None, ApiResponse.error('橡筋记录不存在', 404)
-
-    has_permission, error = StyleElasticService.check_elastic_permission(current_user, current_factory_id, elastic)
-    if not has_permission:
-        return None, None, None, ApiResponse.error(error, 403)
-    return current_user, current_factory_id, elastic, None
+    return get_accessible_style_resource_or_error(
+        elastic_id,
+        StyleElasticService.get_elastic_by_id,
+        StyleElasticService.check_elastic_permission,
+        '橡筋记录不存在',
+        require_write=require_write,
+    )
 
 
 def validate_elastic_size_or_error(size_id):
@@ -229,7 +209,7 @@ class StyleElasticList(Resource):
             'page_size': args['page_size'],
             'size_id': args.get('size_id'),
         })
-        return ApiResponse.success_page_result(result, [serialize_style_elastic(elastic) for elastic in result['items']])
+        return success_mapped_page(result, [serialize_style_elastic(elastic) for elastic in result['items']])
 
     @login_required
     @button_permission(PERM_BUSINESS_STYLE_ELASTIC_ADD)
@@ -241,10 +221,9 @@ class StyleElasticList(Resource):
     @style_elastic_ns.response(404, '款号不存在', error_response)
     def post(self):
         """创建款号橡筋记录接口。写操作仍要求当前工厂上下文。"""
-        try:
-            data = style_elastic_create_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(style_elastic_create_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         _, _, _, error_response_data = get_accessible_style_for_elastic_or_error(data['style_id'], require_write=True)
         if error_response_data:
@@ -270,10 +249,9 @@ class StyleElasticBatch(Resource):
     @style_elastic_ns.response(404, '款号不存在', error_response)
     def post(self):
         """批量保存款号橡筋配置接口。写操作仍要求当前工厂上下文。"""
-        try:
-            data = style_elastic_batch_create_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(style_elastic_batch_create_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         _, _, _, error_response_data = get_accessible_style_for_elastic_or_error(data['style_id'], require_write=True)
         if error_response_data:
@@ -318,10 +296,9 @@ class StyleElasticDetail(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = style_elastic_update_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(style_elastic_update_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         size_error_response = validate_elastic_size_or_error(data.get('size_id'))
         if size_error_response:

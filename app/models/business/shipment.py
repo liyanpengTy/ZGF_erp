@@ -13,7 +13,9 @@ class Shipment(BaseModel):
     __table_args__ = (
         db.Index('idx_shp_shipment_shipment_no', 'shipment_no'),
         db.Index('idx_shp_shipment_factory_id', 'factory_id'),
+        db.Index('idx_shp_shipment_subject_id', 'subject_id'),
         db.Index('idx_shp_shipment_order_id', 'order_id'),
+        db.Index('idx_shp_shipment_customer_user_id', 'customer_user_id'),
         db.Index('idx_shp_shipment_ship_date', 'ship_date'),
         db.Index('idx_shp_shipment_status', 'status'),
         {'comment': '出货单主表'},
@@ -22,8 +24,10 @@ class Shipment(BaseModel):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     shipment_no = db.Column(db.String(50), unique=True, nullable=False, comment='出货单号')
     factory_id = db.Column(db.Integer, db.ForeignKey('sys_factory.id'), nullable=False, comment='工厂ID')
+    subject_id = db.Column(db.Integer, db.ForeignKey('sys_factory.id'), comment='主体ID，新增业务按该字段做数据隔离')
     order_id = db.Column(db.Integer, db.ForeignKey('ord_order.id'), nullable=False, comment='订单ID')
     customer_id = db.Column(db.Integer, db.ForeignKey('sys_user.id'), comment='客户ID')
+    customer_user_id = db.Column(db.Integer, db.ForeignKey('customer_user.id'), comment='客户用户ID')
     customer_name = db.Column(db.String(100), comment='客户名称快照')
     ship_date = db.Column(db.Date, nullable=False, comment='出货日期')
     status = db.Column(db.String(20), nullable=False, default='created', comment='状态：created/cancelled')
@@ -34,9 +38,11 @@ class Shipment(BaseModel):
     create_by = db.Column(db.Integer, comment='创建人ID')
     update_by = db.Column(db.Integer, comment='更新人ID')
 
-    factory = db.relationship('Factory', backref='shipments')
+    factory = db.relationship('Factory', foreign_keys=[factory_id], backref='shipments')
+    subject = db.relationship('Factory', foreign_keys=[subject_id], backref='subject_shipments')
     order = db.relationship('Order', backref='shipments')
     customer = db.relationship('User', backref='shipment_orders')
+    customer_user = db.relationship('CustomerUser', backref='shipments')
     items = db.relationship('ShipmentItem', backref='shipment', cascade='all, delete-orphan')
 
     @property

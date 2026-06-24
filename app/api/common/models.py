@@ -26,6 +26,24 @@ def build_page_response_model(ns, name, base_response, page_data_model, data_des
     )
 
 
+def build_item_response_model(ns, name, base_response, item_model, data_description="详情数据"):
+    """构建统一的单对象响应模型。"""
+    return ns.clone(
+        name,
+        base_response,
+        {"data": fields.Nested(item_model, description=data_description)},
+    )
+
+
+def build_list_response_model(ns, name, base_response, item_model, data_description="列表数据"):
+    """构建统一的列表响应模型。"""
+    return ns.clone(
+        name,
+        base_response,
+        {"data": fields.List(fields.Nested(item_model), description=data_description)},
+    )
+
+
 def build_named_quantity_model(
     ns,
     name,
@@ -34,7 +52,7 @@ def build_named_quantity_model(
     name_example="示例",
     quantity_example=1,
 ):
-    """构建通用的名称-数量统计项模型。"""
+    """构建通用的名称/数量统计项模型。"""
     return ns.model(
         name,
         {
@@ -104,5 +122,7 @@ def get_common_models(ns):
         "page_response": page_response,
         "build_page_data_model": build_page_data_model,
         "build_page_response_model": build_page_response_model,
+        "build_item_response_model": build_item_response_model,
+        "build_list_response_model": build_list_response_model,
         "build_named_quantity_model": build_named_quantity_model,
     }

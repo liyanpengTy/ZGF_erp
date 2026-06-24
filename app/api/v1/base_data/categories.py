@@ -2,11 +2,12 @@
 
 from flask import request
 from flask_restx import Namespace, Resource, fields
-from marshmallow import ValidationError
 
-from app.api.common.factory_context import resolve_read_factory_context, resolve_write_factory_context
+from app.api.common.context_helpers import get_factory_request_context
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
+from app.api.common.response_helpers import load_json_or_error, success_schema_page
+from app.api.common.serializers import build_mapping_serializer, serialize_schema
 from app.constants.permissions import (
     PERM_BASE_CATEGORY_ADD,
     PERM_BASE_CATEGORY_DELETE,
@@ -28,6 +29,8 @@ unauthorized_response = common['unauthorized_response']
 forbidden_response = common['forbidden_response']
 build_page_data_model = common['build_page_data_model']
 build_page_response_model = common['build_page_response_model']
+build_item_response_model = common['build_item_response_model']
+build_list_response_model = common['build_list_response_model']
 
 category_query_parser = page_parser.copy()
 category_query_parser.add_argument('name', type=str, location='args', help='分类名称')
@@ -74,15 +77,9 @@ category_option_model = category_ns.model('CategoryOptionItem', {
 
 category_list_data = build_page_data_model(category_ns, 'CategoryListData', category_item_model, items_description='分类列表')
 category_list_response = build_page_response_model(category_ns, 'CategoryListResponse', base_response, category_list_data, '分类分页数据')
-category_item_response = category_ns.clone('CategoryItemResponse', base_response, {
-    'data': fields.Nested(category_item_model, description='分类详情数据'),
-})
-category_tree_response = category_ns.clone('CategoryTreeResponse', base_response, {
-    'data': fields.List(fields.Nested(category_item_model), description='分类树数据'),
-})
-category_options_response = category_ns.clone('CategoryOptionsResponse', base_response, {
-    'data': fields.List(fields.Nested(category_option_model), description='分类下拉选项列表'),
-})
+category_item_response = build_item_response_model(category_ns, 'CategoryItemResponse', base_response, category_item_model, '分类详情数据')
+category_tree_response = build_list_response_model(category_ns, 'CategoryTreeResponse', base_response, category_item_model, '分类树数据')
+category_options_response = build_list_response_model(category_ns, 'CategoryOptionsResponse', base_response, category_option_model, '分类下拉选项列表')
 
 category_create_model = category_ns.model('CategoryCreate', {
     'name': fields.String(required=True, description='分类名称', example='针织'),
@@ -113,31 +110,26 @@ category_create_schema = CategoryCreateSchema()
 category_update_schema = CategoryUpdateSchema()
 
 
-def serialize_category_option(category):
-    """序列化分类下拉选项。"""
-    return {
-        'id': category.id,
-        'name': category.name,
-        'code': category.code,
-        'parent_id': category.parent_id,
-        'category_type': category.category_type,
-        'factory_id': category.factory_id,
+serialize_category_option = build_mapping_serializer(
+    {
+        'id': 'id',
+        'name': 'name',
+        'code': 'code',
+        'parent_id': 'parent_id',
+        'category_type': 'category_type',
+        'factory_id': 'factory_id',
     }
+)
 
 
 def get_category_request_context(query_factory_id=None, require_write=False):
     """统一解析分类接口的当前用户与工厂上下文。"""
-    if not require_write:
-        return resolve_read_factory_context(query_factory_id=query_factory_id, allow_internal_without_factory=True)
-
-    current_user, current_factory_id, error_response_data = resolve_read_factory_context(
+    return get_factory_request_context(
+        query_factory_id=query_factory_id,
+        require_write=require_write,
         allow_internal_without_factory=True,
+        allow_internal_write_without_factory=True,
     )
-    if error_response_data:
-        return None, None, error_response_data
-    if current_user and current_user.is_internal_user and not current_factory_id:
-        return current_user, current_factory_id, None
-    return resolve_write_factory_context()
 
 
 @category_ns.route('')
@@ -156,7 +148,7 @@ class CategoryList(Resource):
             return error_response_data
 
         result = CategoryService.get_category_list(current_user, current_factory_id, args)
-        return ApiResponse.success_page_result(result, categories_schema.dump(result['items']))
+        return success_schema_page(result, category_schema)
 
     @login_required
     @button_permission(PERM_BASE_CATEGORY_ADD)
@@ -172,17 +164,16 @@ class CategoryList(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = category_create_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(category_create_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         category, error = CategoryService.create_category(current_user, current_factory_id, data)
         if error:
             status_code = 409 if '已存在' in error else 403 if '权限' in error or '管理员' in error else 400
             return ApiResponse.error(error, status_code)
 
-        return ApiResponse.success(category_schema.dump(category), '创建成功', 201)
+        return ApiResponse.success(serialize_schema(category_schema, category), '创建成功', 201)
 
 
 @category_ns.route('/options')
@@ -249,7 +240,7 @@ class CategoryDetail(Resource):
         has_permission, error = CategoryService.check_permission(current_user, current_factory_id, category)
         if not has_permission:
             return ApiResponse.error(error, 403)
-        return ApiResponse.success(category_schema.dump(category))
+        return ApiResponse.success(serialize_schema(category_schema, category))
 
     @login_required
     @button_permission(PERM_BASE_CATEGORY_EDIT)
@@ -272,15 +263,14 @@ class CategoryDetail(Resource):
         if not can_manage:
             return ApiResponse.error(error, 403)
 
-        try:
-            data = category_update_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(category_update_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         category, error = CategoryService.update_category(category, data)
         if error:
             return ApiResponse.error(error, 400)
-        return ApiResponse.success(category_schema.dump(category), '更新成功')
+        return ApiResponse.success(serialize_schema(category_schema, category), '更新成功')
 
     @login_required
     @button_permission(PERM_BASE_CATEGORY_DELETE)

@@ -16,6 +16,7 @@ from app.constants.identity import (
     ROLE_DATA_SCOPE_SELF_ONLY,
     ROLE_SCOPE_FACTORY,
     ROLE_SCOPE_PLATFORM,
+    ROLE_SCOPE_SUBJECT,
 )
 from app.constants.permissions import (
     PERM_FACTORY_MANAGEMENT_ROLE_EDIT,
@@ -27,11 +28,13 @@ from app.models.auth.user import User
 from app.models.system.factory import Factory
 from app.models.system.menu import Menu
 from app.models.system.role import Role, role_menu
+from app.models.system.subject_role import SubjectRole, SubjectUserRole, subject_role_menu
 from app.models.system.user_factory import UserFactory
 from app.models.system.user_factory_role import UserFactoryRole
 from app.services.base.base_service import BaseService
 from app.services.system.role_service import RoleService
 from app.utils.cache import SimpleTTLCache
+from app.utils.datetime_helper import safe_isoformat
 from app.utils.permissions import has_any_permission
 
 
@@ -51,7 +54,7 @@ DATA_SCOPE_LABELS = {
 
 
 class UserService(BaseService):
-    """提供用户、角色绑定与权限汇总能力。"""
+    """提供用户、角色绑定、权限汇总和数据范围能力。"""
 
     @staticmethod
     def get_user_by_id(user_id):
@@ -94,6 +97,7 @@ class UserService(BaseService):
                 UserFactory.user_id.in_(user_ids),
                 UserFactory.status == 1,
                 UserFactory.is_deleted == 0,
+                UserFactory.relation_type != RELATION_TYPE_CUSTOMER,
                 Factory.is_deleted == 0,
             )
             .order_by(UserFactory.user_id.asc(), relation_priority.asc(), UserFactory.id.asc())
@@ -111,8 +115,8 @@ class UserService(BaseService):
                     'relation_type_label': relation.relation_type_label,
                     'collaborator_type': relation.collaborator_type,
                     'collaborator_type_label': relation.collaborator_type_label,
-                    'entry_date': relation.entry_date.isoformat() if relation.entry_date else None,
-                    'leave_date': relation.leave_date.isoformat() if relation.leave_date else None,
+                    'entry_date': safe_isoformat(relation.entry_date),
+                    'leave_date': safe_isoformat(relation.leave_date),
                 }
             )
         return relation_map
@@ -124,11 +128,13 @@ class UserService(BaseService):
 
     @staticmethod
     def get_user_role_bindings_map(user_ids):
-        """批量查询用户角色绑定，避免列表查询 N+1。"""
+        """批量查询用户角色绑定，兼容旧角色与主体角色。"""
         if not user_ids:
             return {}
 
-        records = (
+        role_map = defaultdict(list)
+
+        legacy_records = (
             UserFactoryRole.query.join(Role, Role.id == UserFactoryRole.role_id)
             .filter(
                 UserFactoryRole.user_id.in_(user_ids),
@@ -136,12 +142,15 @@ class UserService(BaseService):
                 Role.status == 1,
                 Role.is_deleted == 0,
             )
-            .order_by(UserFactoryRole.user_id.asc(), UserFactoryRole.factory_id.desc(), Role.sort_order.asc(), Role.id.asc())
+            .order_by(
+                UserFactoryRole.user_id.asc(),
+                UserFactoryRole.factory_id.desc(),
+                Role.sort_order.asc(),
+                Role.id.asc(),
+            )
             .all()
         )
-
-        role_map = defaultdict(list)
-        for record in records:
+        for record in legacy_records:
             role_map[record.user_id].append(
                 {
                     'role_id': record.role.id,
@@ -152,13 +161,47 @@ class UserService(BaseService):
                     'scope_id': record.role.scope_id,
                     'factory_id': record.factory_id,
                     'is_factory_admin': record.role.is_factory_admin,
+                    'role_source': 'legacy_role',
+                    'role_uid': f'legacy:{record.role.id}',
+                }
+            )
+
+        subject_records = (
+            SubjectUserRole.query.join(SubjectRole, SubjectRole.id == SubjectUserRole.subject_role_id)
+            .filter(
+                SubjectUserRole.user_id.in_(user_ids),
+                SubjectUserRole.is_deleted == 0,
+                SubjectRole.status == 1,
+                SubjectRole.is_deleted == 0,
+            )
+            .order_by(
+                SubjectUserRole.user_id.asc(),
+                SubjectUserRole.subject_id.desc(),
+                SubjectRole.sort_order.asc(),
+                SubjectRole.id.asc(),
+            )
+            .all()
+        )
+        for record in subject_records:
+            role_map[record.user_id].append(
+                {
+                    'role_id': record.subject_role.id,
+                    'role_name': record.subject_role.name,
+                    'role_code': record.subject_role.code,
+                    'scope_type': ROLE_SCOPE_SUBJECT,
+                    'scope_type_label': '主体角色',
+                    'scope_id': record.subject_role.subject_id,
+                    'factory_id': record.subject_id,
+                    'is_factory_admin': 1 if record.subject_role.is_admin else 0,
+                    'role_source': 'subject_role',
+                    'role_uid': f'subject:{record.subject_role.id}',
                 }
             )
         return role_map
 
     @staticmethod
     def build_user_view(user, factory_relations=None, role_bindings=None, viewer_user=None, viewer_factory_id=None):
-        """组装用户展示数据，并按查看人上下文裁剪工厂与角色信息。"""
+        """组装用户展示视图，并按查看人上下文裁剪工厂与角色信息。"""
         factory_relations = factory_relations if factory_relations is not None else UserService.get_user_factory_relations(user.id)
         role_bindings = role_bindings if role_bindings is not None else UserService.get_user_role_bindings(user.id)
 
@@ -197,11 +240,11 @@ class UserService(BaseService):
 
     @staticmethod
     def _get_permission_codes_by_role_ids(role_ids):
-        """根据角色 ID 集合汇总权限编码并使用缓存复用。"""
+        """根据旧角色 ID 集合汇总权限编码并复用缓存。"""
         if not role_ids:
             return []
 
-        cache_key = ('permission_codes', tuple(sorted(set(role_ids))))
+        cache_key = ('legacy_permission_codes', tuple(sorted(set(role_ids))))
         cached = PERMISSION_CACHE.get(cache_key)
         if cached is not None:
             return cached
@@ -224,8 +267,44 @@ class UserService(BaseService):
         return permissions
 
     @staticmethod
+    def _get_permission_codes_by_subject_role_ids(subject_role_ids):
+        """根据主体角色 ID 集合汇总权限编码并复用缓存。"""
+        if not subject_role_ids:
+            return []
+
+        cache_key = ('subject_permission_codes', tuple(sorted(set(subject_role_ids))))
+        cached = PERMISSION_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+        menu_records = db.session.query(subject_role_menu).filter(
+            subject_role_menu.c.subject_role_id.in_(subject_role_ids)
+        ).all()
+        menu_ids = sorted({record.menu_id for record in menu_records})
+        if not menu_ids:
+            PERMISSION_CACHE.set(cache_key, [])
+            return []
+
+        menus = Menu.query.filter(
+            Menu.id.in_(menu_ids),
+            Menu.permission.isnot(None),
+            Menu.permission != '',
+            Menu.status == 1,
+            Menu.is_deleted == 0,
+        ).all()
+        permissions = sorted({menu.permission for menu in menus})
+        PERMISSION_CACHE.set(cache_key, permissions)
+        return permissions
+
+    @staticmethod
+    def _dedupe_permission_codes(permission_codes, sort_result=False):
+        """对权限编码列表去重，可选按字典序排序。"""
+        unique_codes = list(dict.fromkeys(permission_codes))
+        return sorted(unique_codes) if sort_result else unique_codes
+
+    @staticmethod
     def _get_current_context_role_query(user, current_factory_id=None):
-        """构造当前上下文生效角色绑定查询。"""
+        """构造当前上下文下生效的旧角色授权查询。"""
         if user.is_internal_user:
             return UserFactoryRole.query.join(Role, Role.id == UserFactoryRole.role_id).filter(
                 UserFactoryRole.user_id == user.id,
@@ -252,19 +331,60 @@ class UserService(BaseService):
         )
 
     @staticmethod
-    def _get_current_context_role_ids(user):
-        """查询当前 JWT 上下文下生效的角色 ID 列表。"""
+    def _get_current_context_subject_role_query(user, current_factory_id=None):
+        """构造当前上下文下生效的主体角色授权查询。"""
+        if user.is_internal_user:
+            return None
+
+        target_factory_id = current_factory_id or get_jwt().get('factory_id')
+        if not target_factory_id:
+            return None
+
+        return SubjectUserRole.query.join(SubjectRole, SubjectRole.id == SubjectUserRole.subject_role_id).filter(
+            SubjectUserRole.user_id == user.id,
+            SubjectUserRole.subject_id == target_factory_id,
+            SubjectUserRole.is_deleted == 0,
+            SubjectRole.subject_id == target_factory_id,
+            SubjectRole.status == 1,
+            SubjectRole.is_deleted == 0,
+        )
+
+    @staticmethod
+    def _get_current_context_role_ids(user, current_factory_id=None):
+        """查询当前上下文下生效的旧角色 ID 列表。"""
         if user.is_platform_admin:
             return []
 
-        query = UserService._get_current_context_role_query(user)
+        query = UserService._get_current_context_role_query(user, current_factory_id=current_factory_id)
         if query is None:
             return []
         return [record.role_id for record in query.all()]
 
     @staticmethod
+    def _get_current_context_subject_role_ids(user, current_factory_id=None):
+        """查询当前上下文下生效的主体角色 ID 列表。"""
+        if user.is_platform_admin:
+            return []
+
+        query = UserService._get_current_context_subject_role_query(user, current_factory_id=current_factory_id)
+        if query is None:
+            return []
+        return [record.subject_role_id for record in query.all()]
+
+    @staticmethod
+    def _get_all_subject_role_ids(user_id):
+        """查询用户全部有效主体角色 ID 列表。"""
+        records = SubjectUserRole.query.join(SubjectRole, SubjectRole.id == SubjectUserRole.subject_role_id).filter(
+            SubjectUserRole.user_id == user_id,
+            SubjectUserRole.is_deleted == 0,
+            SubjectRole.status == 1,
+            SubjectRole.is_deleted == 0,
+        ).all()
+        return [record.subject_role_id for record in records]
+
+    @staticmethod
     def _get_current_context_roles(user, current_factory_id=None):
-        """查询当前上下文下生效的角色对象列表。"""
+        """查询当前上下文下生效的旧角色对象列表。"""
         if user.is_platform_admin:
             return []
 
@@ -272,6 +392,24 @@ class UserService(BaseService):
         if query is None:
             return []
         return [record.role for record in query.all()]
+
+    @staticmethod
+    def _get_current_context_subject_roles(user, current_factory_id=None):
+        """查询当前上下文下生效的主体角色对象列表。"""
+        if user.is_platform_admin:
+            return []
+
+        query = UserService._get_current_context_subject_role_query(user, current_factory_id=current_factory_id)
+        if query is None:
+            return []
+        return [record.subject_role for record in query.all()]
+
+    @staticmethod
+    def _normalize_data_scope(scope):
+        """把主体角色的 subject 数据范围折算为当前主体全量数据。"""
+        if scope == 'subject':
+            return ROLE_DATA_SCOPE_ALL
+        return scope or ROLE_DATA_SCOPE_OWN_RELATED
 
     @staticmethod
     def get_current_data_scope(user, current_factory_id=None):
@@ -282,11 +420,12 @@ class UserService(BaseService):
             return ROLE_DATA_SCOPE_ALL
 
         roles = UserService._get_current_context_roles(user, current_factory_id=current_factory_id)
+        roles.extend(UserService._get_current_context_subject_roles(user, current_factory_id=current_factory_id))
         if not roles:
             return ROLE_DATA_SCOPE_SELF_ONLY
 
         return max(
-            (role.data_scope or ROLE_DATA_SCOPE_OWN_RELATED for role in roles),
+            (UserService._normalize_data_scope(role.data_scope) for role in roles),
             key=lambda scope: DATA_SCOPE_PRIORITY.get(scope, 0),
         )
 
@@ -381,15 +520,34 @@ class UserService(BaseService):
                 'role_bindings': role_bindings,
             }
 
-        all_role_ids = [item['role_id'] for item in role_bindings]
-        current_role_ids = UserService._get_current_context_role_ids(user)
+        has_explicit_role_source = any(item.get('role_source') for item in role_bindings)
+        legacy_role_ids = [
+            item['role_id']
+            for item in role_bindings
+            if item.get('role_source') == 'legacy_role' or (not has_explicit_role_source)
+        ]
+        subject_role_ids = [item['role_id'] for item in role_bindings if item.get('role_source') == 'subject_role']
+        current_legacy_role_ids = UserService._get_current_context_role_ids(user, current_factory_id=current_factory_id)
+        current_subject_role_ids = (
+            UserService._get_current_context_subject_role_ids(user, current_factory_id=current_factory_id)
+            if subject_role_ids
+            else []
+        )
         current_data_scope = UserService.get_current_data_scope(user, current_factory_id=current_factory_id)
+        current_permissions = UserService._dedupe_permission_codes(
+            UserService._get_permission_codes_by_role_ids(current_legacy_role_ids)
+            + UserService._get_permission_codes_by_subject_role_ids(current_subject_role_ids)
+        )
+        all_permissions = UserService._dedupe_permission_codes(
+            UserService._get_permission_codes_by_role_ids(legacy_role_ids)
+            + UserService._get_permission_codes_by_subject_role_ids(subject_role_ids)
+        )
         return {
             'current_factory_id': current_factory_id,
             'current_data_scope': current_data_scope,
             'current_data_scope_label': UserService.get_data_scope_label(current_data_scope),
-            'current_permissions': UserService._get_permission_codes_by_role_ids(current_role_ids),
-            'all_permissions': UserService._get_permission_codes_by_role_ids(all_role_ids),
+            'current_permissions': current_permissions,
+            'all_permissions': all_permissions,
             'role_bindings': role_bindings,
         }
 
@@ -431,7 +589,7 @@ class UserService(BaseService):
 
     @staticmethod
     def _apply_user_basic_filters(query, username='', status=None, platform_identity=None):
-        """统一叠加用户名、状态与平台身份筛选。"""
+        """统一叠加用户名、状态和平台身份筛选。"""
         if username:
             query = query.filter(User.username.like(f'%{username}%'))
         if status is not None:
@@ -511,7 +669,7 @@ class UserService(BaseService):
 
     @staticmethod
     def create_user(data, current_user_id=None):
-        """创建用户基础账号，不处理工厂挂靠。"""
+        """创建基础用户账号，不处理工厂挂靠。"""
         existing = UserService.get_user_by_username(data['username'])
         if existing:
             return None, '用户名已存在'
@@ -523,6 +681,7 @@ class UserService(BaseService):
             phone=data.get('phone', ''),
             platform_identity=data.get('platform_identity', 'external_user'),
             status=1,
+            created_by=current_user_id,
         )
         user.save()
         return user, None
@@ -554,8 +713,19 @@ class UserService(BaseService):
         return True
 
     @staticmethod
-    def get_user_roles(user_id, factory_id):
+    def get_user_roles(user_id, factory_id, scope_type=None):
         """查询用户在指定上下文下的角色列表。"""
+        if scope_type == ROLE_SCOPE_SUBJECT:
+            role_query = SubjectUserRole.query.join(SubjectRole, SubjectRole.id == SubjectUserRole.subject_role_id).filter(
+                SubjectUserRole.user_id == user_id,
+                SubjectUserRole.subject_id == factory_id,
+                SubjectUserRole.is_deleted == 0,
+                SubjectRole.subject_id == factory_id,
+                SubjectRole.status == 1,
+                SubjectRole.is_deleted == 0,
+            )
+            return [record.subject_role for record in role_query.all()]
+
         role_query = UserFactoryRole.query.join(Role, Role.id == UserFactoryRole.role_id).filter(
             UserFactoryRole.user_id == user_id,
             UserFactoryRole.factory_id == factory_id,
@@ -564,23 +734,70 @@ class UserService(BaseService):
             Role.is_deleted == 0,
         )
         if factory_id == 0:
-            role_query = role_query.filter(
-                Role.scope_type == ROLE_SCOPE_PLATFORM,
-                Role.scope_id == 0,
-            )
+            role_query = role_query.filter(Role.scope_type == ROLE_SCOPE_PLATFORM, Role.scope_id == 0)
         else:
-            role_query = role_query.filter(
-                Role.scope_type == ROLE_SCOPE_FACTORY,
-                Role.scope_id == factory_id,
-            )
+            role_query = role_query.filter(Role.scope_type == ROLE_SCOPE_FACTORY, Role.scope_id == factory_id)
         return [record.role for record in role_query.all()]
 
     @staticmethod
-    def assign_roles(user_id, role_ids, factory_id, current_user):
+    def assign_roles(user_id, role_ids, factory_id, current_user, scope_type=None):
         """按当前上下文重建用户角色绑定。"""
         target_user = UserService.get_user_by_id(user_id)
         if not target_user:
             return False, '用户不存在'
+
+        if scope_type == ROLE_SCOPE_SUBJECT:
+            if not factory_id:
+                return False, '主体角色分配必须指定工厂ID'
+
+            subject_roles = []
+            for role_id in role_ids:
+                role = SubjectRole.query.filter_by(id=role_id, is_deleted=0).first()
+                if not role:
+                    return False, f'角色ID {role_id} 不存在'
+                if role.subject_id != factory_id:
+                    return False, f'角色 {role.name} 不属于该主体'
+                subject_roles.append(role)
+
+            target_factory = UserFactory.query.filter_by(
+                user_id=user_id,
+                factory_id=factory_id,
+                status=1,
+                is_deleted=0,
+            ).first()
+            if not target_factory:
+                return False, '目标用户不属于该工厂，不能分配主体角色'
+
+            if not current_user.is_platform_admin:
+                if current_user.is_internal_user:
+                    has_permission, _ = has_any_permission(
+                        current_user,
+                        [PERM_SYSTEM_ROLE_EDIT, PERM_FACTORY_MANAGEMENT_ROLE_EDIT, PERM_SYSTEM_FACTORY_MANAGE_ROLES],
+                        factory_id=factory_id,
+                    )
+                    if not has_permission:
+                        return False, '无权限分配主体角色'
+                elif not RoleService.has_factory_admin_permission(current_user, factory_id):
+                    return False, '只有平台管理员或本工厂管理员可以分配主体角色'
+
+            db.session.execute(
+                SubjectUserRole.__table__.delete().where(
+                    SubjectUserRole.user_id == user_id,
+                    SubjectUserRole.subject_id == factory_id,
+                )
+            )
+            for role in subject_roles:
+                db.session.add(
+                    SubjectUserRole(
+                        user_id=user_id,
+                        subject_id=factory_id,
+                        subject_role_id=role.id,
+                    )
+                )
+
+            db.session.commit()
+            RoleService.clear_permission_cache()
+            return True, None
 
         role_scope_types = set()
         for role_id in role_ids:

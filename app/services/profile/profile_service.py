@@ -10,6 +10,7 @@ from app.extensions import bcrypt
 from app.models.auth.user import User
 from app.models.system.log import LoginLog, OperationLog
 from app.services.base.base_service import BaseService
+from app.utils.datetime_helper import safe_isoformat
 
 
 class ProfileService(BaseService):
@@ -96,8 +97,8 @@ class ProfileService(BaseService):
             'platform_identity_label': user.platform_identity_label,
             'subject_type': user.get_subject_type(),
             'subject_type_label': user.get_subject_type_label(),
-            'create_time': user.create_time.isoformat() if user.create_time else None,
-            'last_login_time': user.last_login_time.isoformat() if user.last_login_time else None,
+            'create_time': safe_isoformat(user.create_time),
+            'last_login_time': safe_isoformat(user.last_login_time),
             'statistics': {
                 'total_operations': op_count,
                 'total_logins': login_count,

@@ -2,7 +2,6 @@
 
 from flask import request
 from flask_restx import Namespace, Resource, fields
-from marshmallow import ValidationError
 
 from app.constants.permissions import (
     PERM_BASE_SIZE_ADD,
@@ -10,9 +9,11 @@ from app.constants.permissions import (
     PERM_BASE_SIZE_EDIT,
     PERM_BASE_SIZE_QUERY,
 )
-from app.api.common.factory_context import resolve_read_factory_context, resolve_write_factory_context
+from app.api.common.context_helpers import get_factory_request_context
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
+from app.api.common.response_helpers import business_error, load_json_or_error, success_schema_page
+from app.api.common.serializers import serialize_schema
 from app.schemas.base_data.size import SizeCreateSchema, SizeSchema, SizeUpdateSchema
 from app.services import SizeService
 from app.utils.business_permissions import button_permission
@@ -28,6 +29,7 @@ unauthorized_response = common['unauthorized_response']
 forbidden_response = common['forbidden_response']
 build_page_data_model = common['build_page_data_model']
 build_page_response_model = common['build_page_response_model']
+build_item_response_model = common['build_item_response_model']
 
 size_query_parser = page_parser.copy()
 size_query_parser.add_argument('name', type=str, location='args', help='尺码名称')
@@ -48,9 +50,7 @@ size_item_model = size_ns.model('SizeItem', {
 
 size_list_data = build_page_data_model(size_ns, 'SizeListData', size_item_model, items_description='尺码列表')
 size_list_response = build_page_response_model(size_ns, 'SizeListResponse', base_response, size_list_data, '尺码分页数据')
-size_item_response = size_ns.clone('SizeItemResponse', base_response, {
-    'data': fields.Nested(size_item_model, description='尺码详情数据')
-})
+size_item_response = build_item_response_model(size_ns, 'SizeItemResponse', base_response, size_item_model, '尺码详情数据')
 
 size_create_model = size_ns.model('SizeCreate', {
     'name': fields.String(required=True, description='尺码名称', example='M'),
@@ -72,17 +72,12 @@ size_update_schema = SizeUpdateSchema()
 
 def get_size_request_context(query_factory_id=None, require_write=False):
     """统一解析尺码接口的当前用户与工厂上下文。"""
-    if not require_write:
-        return resolve_read_factory_context(query_factory_id=query_factory_id, allow_internal_without_factory=True)
-
-    current_user, current_factory_id, error_response_data = resolve_read_factory_context(
+    return get_factory_request_context(
+        query_factory_id=query_factory_id,
+        require_write=require_write,
         allow_internal_without_factory=True,
+        allow_internal_write_without_factory=True,
     )
-    if error_response_data:
-        return None, None, error_response_data
-    if current_user and current_user.is_internal_user and not current_factory_id:
-        return current_user, current_factory_id, None
-    return resolve_write_factory_context()
 
 
 @size_ns.route('')
@@ -101,7 +96,7 @@ class SizeList(Resource):
             return error_response_data
 
         result = SizeService.get_size_list(current_user, current_factory_id, args)
-        return ApiResponse.success_page_result(result, sizes_schema.dump(result['items']))
+        return success_schema_page(result, size_schema)
 
     @login_required
     @button_permission(PERM_BASE_SIZE_ADD)
@@ -117,17 +112,15 @@ class SizeList(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = size_create_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(size_create_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         size, error = SizeService.create_size(current_user, current_factory_id, data)
         if error:
-            status_code = 409 if '已存在' in error else 403 if '权限' in error or '管理员' in error else 400
-            return ApiResponse.error(error, status_code)
+            return business_error(error)
 
-        return ApiResponse.success(size_schema.dump(size), '创建成功', 201)
+        return ApiResponse.success(serialize_schema(size_schema, size), '创建成功', 201)
 
 
 @size_ns.route('/<int:size_id>')
@@ -152,7 +145,7 @@ class SizeDetail(Resource):
         if not has_permission:
             return ApiResponse.error(error, 403)
 
-        return ApiResponse.success(size_schema.dump(size))
+        return ApiResponse.success(serialize_schema(size_schema, size))
 
     @login_required
     @button_permission(PERM_BASE_SIZE_EDIT)
@@ -176,16 +169,15 @@ class SizeDetail(Resource):
         if not can_manage:
             return ApiResponse.error(error, 403)
 
-        try:
-            data = size_update_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(size_update_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         size, error = SizeService.update_size(size, data)
         if error:
             return ApiResponse.error(error, 400)
 
-        return ApiResponse.success(size_schema.dump(size), '更新成功')
+        return ApiResponse.success(serialize_schema(size_schema, size), '更新成功')
 
     @login_required
     @button_permission(PERM_BASE_SIZE_DELETE)

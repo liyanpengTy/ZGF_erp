@@ -1,3 +1,5 @@
+"""系统服务导出。"""
+
 from app.services.system.user_service import UserService
 from app.services.system.role_service import RoleService
 from app.services.system.menu_service import MenuService
@@ -7,7 +9,7 @@ from app.services.system.monitor_service import MonitorService
 from app.services.system.reward_service import RewardService
 from app.services.system.employee_wage_service import EmployeeWageService
 
-__all__ = [
+SYSTEM_SERVICE_EXPORTS = (
     'UserService',
     'RoleService',
     'MenuService',
@@ -15,5 +17,7 @@ __all__ = [
     'LogService',
     'MonitorService',
     'RewardService',
-    'EmployeeWageService'
-]
+    'EmployeeWageService',
+)
+
+__all__ = list(SYSTEM_SERVICE_EXPORTS)

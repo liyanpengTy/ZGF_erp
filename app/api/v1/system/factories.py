@@ -4,13 +4,15 @@ from datetime import datetime
 
 from flask import request
 from flask_restx import Namespace, Resource, fields
-from marshmallow import ValidationError
 
 from app.api.common.auth import require_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
+from app.api.common.response_helpers import load_json_or_error, success_mapped_page, success_schema_page
+from app.api.common.serializers import build_mapping_serializer, serialize_schema
 from app.schemas.system.factory import FactoryAddUserSchema, FactoryBindSchema, FactoryCreateSchema, FactorySchema, FactoryUpdateSchema
 from app.services import FactoryService
+from app.utils.datetime_helper import safe_isoformat
 from app.utils.permissions import login_required, permission_required
 from app.utils.response import ApiResponse
 
@@ -38,7 +40,7 @@ factory_user_query_parser.add_argument(
     type=str,
     location="args",
     help="关联关系类型",
-    choices=["owner", "employee", "customer", "collaborator"],
+    choices=["owner", "employee", "collaborator"],
 )
 factory_user_query_parser.add_argument(
     "collaborator_type",
@@ -52,6 +54,12 @@ factory_create_model = factory_ns.model(
     "FactoryCreate",
     {
         "name": fields.String(required=True, description="工厂名称", example="测试工厂"),
+        "subject_category": fields.String(
+            description="主体类型",
+            choices=["factory", "button_shop", "shrink_factory", "print_factory", "other"],
+            example="factory",
+        ),
+        "subject_label": fields.String(description="主体显示标签", example="工厂"),
         "contact_person": fields.String(description="联系人", example="张三"),
         "contact_phone": fields.String(description="联系电话", example="13800138000"),
         "address": fields.String(description="地址", example="广东省深圳市南山区"),
@@ -64,6 +72,12 @@ factory_update_model = factory_ns.model(
     "FactoryUpdate",
     {
         "name": fields.String(description="工厂名称"),
+        "subject_category": fields.String(
+            description="主体类型",
+            choices=["factory", "button_shop", "shrink_factory", "print_factory", "other"],
+            example="factory",
+        ),
+        "subject_label": fields.String(description="主体显示标签", example="工厂"),
         "contact_person": fields.String(description="联系人"),
         "contact_phone": fields.String(description="联系电话"),
         "address": fields.String(description="地址"),
@@ -80,7 +94,7 @@ add_user_model = factory_ns.model(
         "relation_type": fields.String(
             required=True,
             description="关联关系类型",
-            choices=["owner", "employee", "customer", "collaborator"],
+            choices=["owner", "employee", "collaborator"],
         ),
         "collaborator_type": fields.String(
             description="协作方类型，仅在 relation_type=collaborator 时使用",
@@ -126,6 +140,9 @@ factory_item_model = factory_ns.model(
         "id": fields.Integer(description="工厂 ID", example=1),
         "name": fields.String(description="工厂名称", example="测试工厂"),
         "code": fields.String(description="工厂编码", example="TEST001"),
+        "subject_id": fields.Integer(description="主体 ID，当前兼容使用工厂 ID", example=1),
+        "subject_category": fields.String(description="主体类型", example="factory"),
+        "subject_label": fields.String(description="主体显示标签", example="工厂"),
         "contact_person": fields.String(description="联系人", example="张三"),
         "contact_phone": fields.String(description="联系电话", example="13800138000"),
         "address": fields.String(description="地址", example="广东省深圳市南山区"),
@@ -165,6 +182,9 @@ factory_create_response_data = factory_ns.model(
         "id": fields.Integer(description="工厂 ID", example=1),
         "name": fields.String(description="工厂名称", example="测试工厂"),
         "code": fields.String(description="工厂编码", example="TEST001"),
+        "subject_id": fields.Integer(description="主体 ID，当前兼容使用工厂 ID", example=1),
+        "subject_category": fields.String(description="主体类型", example="factory"),
+        "subject_label": fields.String(description="主体显示标签", example="工厂"),
         "contact_person": fields.String(description="联系人", example="张三"),
         "contact_phone": fields.String(description="联系电话", example="13800138000"),
         "address": fields.String(description="地址", example="广东省深圳市南山区"),
@@ -269,14 +289,16 @@ def get_factory_or_error(factory_id):
     return factory, None
 
 
-def serialize_factory_option(factory):
-    """序列化工厂下拉选项。"""
-    return {"id": factory.id, "name": factory.name, "code": factory.code}
+serialize_factory_option = build_mapping_serializer({
+    "id": "id",
+    "name": "name",
+    "code": "code",
+})
 
 
 def build_factory_create_payload(factory, factory_admin):
     """构造工厂创建成功后的返回数据。"""
-    result = factory_schema.dump(factory)
+    result = serialize_schema(factory_schema, factory)
     result["admin_username"] = factory_admin.username
     result["admin_password"] = "123456"
     return result
@@ -360,8 +382,8 @@ def build_factory_user_view(
         "relation_type_label": relation_type_label,
         "collaborator_type": collaborator_type,
         "collaborator_type_label": collaborator_type_label,
-        "entry_date": entry_date.isoformat() if entry_date else None,
-        "leave_date": leave_date.isoformat() if leave_date else None,
+        "entry_date": safe_isoformat(entry_date),
+        "leave_date": safe_isoformat(leave_date),
     }
 
 
@@ -384,7 +406,7 @@ class FactoryList(Resource):
             return error_response_data
 
         result = FactoryService.get_factory_list(args)
-        return ApiResponse.success_page_result(result, factories_schema.dump(result["items"]))
+        return success_schema_page(result, factory_schema)
 
     @login_required
     @permission_required("system.factories.create")
@@ -399,10 +421,9 @@ class FactoryList(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = factory_create_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(factory_create_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         factory, factory_admin, create_error = FactoryService.create_factory(data, current_user.id)
         if create_error:
@@ -449,7 +470,7 @@ class FactoryDetail(Resource):
         factory, error_response_data = get_factory_or_error(factory_id)
         if error_response_data:
             return error_response_data
-        return ApiResponse.success(factory_schema.dump(factory))
+        return ApiResponse.success(serialize_schema(factory_schema, factory))
 
     @login_required
     @permission_required("system.factories.update")
@@ -467,13 +488,12 @@ class FactoryDetail(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = factory_update_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(factory_update_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         factory = FactoryService.update_factory(factory, data)
-        return ApiResponse.success(factory_schema.dump(factory), "更新成功")
+        return ApiResponse.success(serialize_schema(factory_schema, factory), "更新成功")
 
     @login_required
     @permission_required("system.factories.delete")
@@ -517,7 +537,7 @@ class FactoryUsers(Resource):
 
         args = factory_user_query_parser.parse_args()
         result = FactoryService.get_factory_users(factory_id, args)
-        return ApiResponse.success_page_result(result, result["items"])
+        return success_mapped_page(result, result["items"])
 
     @login_required
     @permission_required("system.factories.update")
@@ -527,7 +547,7 @@ class FactoryUsers(Resource):
     @factory_ns.response(404, "用户不存在", error_response)
     @factory_ns.response(409, "用户已关联", error_response)
     def post(self, factory_id):
-        """为工厂新增用户关系接口，支持 owner、employee、customer、collaborator。"""
+        """为工厂新增用户关系接口，支持 owner、employee、collaborator。"""
         current_user, error_response_data = get_factory_module_user_or_error()
         if error_response_data:
             return error_response_data
@@ -536,10 +556,9 @@ class FactoryUsers(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = factory_add_user_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(factory_add_user_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         if data["relation_type"] == "owner":
             user_factory, add_error = FactoryService.update_factory_owner(factory_id, data["user_id"])
@@ -672,10 +691,9 @@ class BindFactory(Resource):
     @factory_ns.response(404, "二维码无效", error_response)
     def post(self):
         """扫码绑定工厂接口，默认建立 employee 关系。"""
-        try:
-            data = factory_bind_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(factory_bind_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         current_user, error_response_data = require_current_user(message="请先登录", code=401)
         if error_response_data:

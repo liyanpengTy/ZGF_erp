@@ -2,17 +2,19 @@
 
 from flask import request
 from flask_restx import Namespace, Resource, fields
-from marshmallow import ValidationError
 
 from app.api.common.auth import require_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_parser
+from app.api.common.resource_helpers import get_resource_or_error
+from app.api.common.response_helpers import load_json_or_error, success_schema_page
+from app.api.common.serializers import serialize_schema
 from app.schemas.system.employee_wage import EmployeeWageCreateSchema, EmployeeWageSchema, EmployeeWageUpdateSchema, WageCalculateSchema
 from app.services import EmployeeWageService
 from app.utils.permissions import login_required, permission_required
 from app.utils.response import ApiResponse
 
-employee_wage_ns = Namespace('鍛樺伐璁¤柂绠＄悊-employee-wages', description='鍛樺伐璁¤柂绠＄悊')
+employee_wage_ns = Namespace('员工计薪管理-employee-wages', description='员工计薪管理')
 
 common = get_common_models(employee_wage_ns)
 base_response = common['base_response']
@@ -160,10 +162,10 @@ def get_employee_wage_user_or_error():
 
 def get_wage_or_error(wage_id):
     """根据计薪配置 ID 查询记录，不存在时返回统一错误响应。"""
-    wage = EmployeeWageService.get_wage_by_id(wage_id)
-    if not wage:
-        return None, ApiResponse.error('计薪配置不存在', 404)
-    return wage, None
+    return get_resource_or_error(
+        lambda: EmployeeWageService.get_wage_by_id(wage_id),
+        '计薪配置不存在',
+    )
 
 
 @employee_wage_ns.route('')
@@ -186,7 +188,7 @@ class EmployeeWageList(Resource):
             return ApiResponse.error(error, 403)
 
         result = EmployeeWageService.get_wage_list(args)
-        return ApiResponse.success_page_result(result, wages_schema.dump(result['items']))
+        return success_schema_page(result, wage_schema)
 
     @login_required
     @permission_required('factory-management.employee-wages.create')
@@ -206,17 +208,16 @@ class EmployeeWageList(Resource):
         if not has_permission:
             return ApiResponse.error(error, 403)
 
-        try:
-            data = wage_create_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(wage_create_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         wage, service_error = EmployeeWageService.create_wage(data)
         if service_error:
             status_code = 409 if '已存在' in service_error else 400
             return ApiResponse.error(service_error, status_code)
 
-        return ApiResponse.success(wage_schema.dump(wage), '创建成功', 201)
+        return ApiResponse.success(serialize_schema(wage_schema, wage), '创建成功', 201)
 
 
 @employee_wage_ns.route('/<int:wage_id>')
@@ -241,7 +242,7 @@ class EmployeeWageDetail(Resource):
         if error_response_data:
             return error_response_data
 
-        return ApiResponse.success(wage_schema.dump(wage))
+        return ApiResponse.success(serialize_schema(wage_schema, wage))
 
     @login_required
     @permission_required('factory-management.employee-wages.update')
@@ -265,16 +266,15 @@ class EmployeeWageDetail(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = wage_update_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(wage_update_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         wage, service_error = EmployeeWageService.update_wage(wage, data)
         if service_error:
             return ApiResponse.error(service_error, 400)
 
-        return ApiResponse.success(wage_schema.dump(wage), '更新成功')
+        return ApiResponse.success(serialize_schema(wage_schema, wage), '更新成功')
 
     @login_required
     @permission_required('factory-management.employee-wages.delete')
@@ -318,10 +318,9 @@ class WageCalculate(Resource):
         if not has_permission:
             return ApiResponse.error(error, 403)
 
-        try:
-            data = wage_calculate_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(wage_calculate_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         wage_amount = EmployeeWageService.calculate_wage(
             factory_id=data['factory_id'],

@@ -15,6 +15,7 @@ base_response = shared['base_response']
 error_response = shared['error_response']
 unauthorized_response = shared['unauthorized_response']
 forbidden_response = shared['forbidden_response']
+build_item_response_model = shared['build_item_response_model']
 
 cpu_monitor_data = monitor_ns.model('CpuMonitorData', {
     'percent': fields.Float(description='CPU 总使用率', example=32.5),
@@ -75,8 +76,8 @@ full_monitor_data = monitor_ns.model('FullMonitorData', {
     'service': fields.Nested(service_monitor_data, description='服务运行信息'),
 })
 
-full_monitor_response = monitor_ns.clone('FullMonitorResponse', base_response, {
-    'data': fields.Nested(full_monitor_data, description='完整监控信息', example={
+full_monitor_response = build_item_response_model(monitor_ns, 'FullMonitorResponse', base_response, full_monitor_data, '完整监控信息')
+full_monitor_response['data'].example = {
         'system': {
             'hostname': 'erp-server',
             'os_name': 'Windows',
@@ -104,20 +105,15 @@ full_monitor_response = monitor_ns.clone('FullMonitorResponse', base_response, {
             'percent': 40.0,
         },
         'service': {'start_time': '2026-05-15 09:00:00', 'uptime_seconds': 5400, 'uptime_display': '1小时30分钟'},
-    })
-})
-cpu_monitor_response = monitor_ns.clone('CpuMonitorResponse', base_response, {
-    'data': fields.Nested(cpu_monitor_data, description='CPU 监控信息', example={'percent': 32.5, 'core_count': 8, 'per_core_percent': [30.0, 28.5, 35.2, 40.1]})
-})
-memory_monitor_response = monitor_ns.clone('MemoryMonitorResponse', base_response, {
-    'data': fields.Nested(memory_monitor_data, description='内存监控信息', example={'total': 17179869184, 'total_display': '16.0GB', 'used': 8589934592, 'used_display': '8.0GB', 'free': 8589934592, 'free_display': '8.0GB', 'percent': 50.0})
-})
-disk_monitor_response = monitor_ns.clone('DiskMonitorResponse', base_response, {
-    'data': fields.Nested(disk_monitor_data, description='磁盘监控信息', example={'total': 536870912000, 'total_display': '500.0GB', 'used': 214748364800, 'used_display': '200.0GB', 'free': 322122547200, 'free_display': '300.0GB', 'percent': 40.0})
-})
-system_monitor_response = monitor_ns.clone('SystemMonitorResponse', base_response, {
-    'data': fields.Nested(system_monitor_data, description='系统基础信息', example={'hostname': 'erp-server', 'os_name': 'Windows', 'os_version': '11', 'python_version': '3.11.9', 'server_time': '2026-05-15 10:30:00', 'service_start_time': '2026-05-15 09:00:00', 'uptime_seconds': 5400, 'uptime_display': '1小时30分钟'})
-})
+    }
+cpu_monitor_response = build_item_response_model(monitor_ns, 'CpuMonitorResponse', base_response, cpu_monitor_data, 'CPU 监控信息')
+cpu_monitor_response['data'].example = {'percent': 32.5, 'core_count': 8, 'per_core_percent': [30.0, 28.5, 35.2, 40.1]}
+memory_monitor_response = build_item_response_model(monitor_ns, 'MemoryMonitorResponse', base_response, memory_monitor_data, '内存监控信息')
+memory_monitor_response['data'].example = {'total': 17179869184, 'total_display': '16.0GB', 'used': 8589934592, 'used_display': '8.0GB', 'free': 8589934592, 'free_display': '8.0GB', 'percent': 50.0}
+disk_monitor_response = build_item_response_model(monitor_ns, 'DiskMonitorResponse', base_response, disk_monitor_data, '磁盘监控信息')
+disk_monitor_response['data'].example = {'total': 536870912000, 'total_display': '500.0GB', 'used': 214748364800, 'used_display': '200.0GB', 'free': 322122547200, 'free_display': '300.0GB', 'percent': 40.0}
+system_monitor_response = build_item_response_model(monitor_ns, 'SystemMonitorResponse', base_response, system_monitor_data, '系统基础信息')
+system_monitor_response['data'].example = {'hostname': 'erp-server', 'os_name': 'Windows', 'os_version': '11', 'python_version': '3.11.9', 'server_time': '2026-05-15 10:30:00', 'service_start_time': '2026-05-15 09:00:00', 'uptime_seconds': 5400, 'uptime_display': '1小时30分钟'}
 
 
 def check_monitor_permission(current_user):

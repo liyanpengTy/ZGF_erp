@@ -2,12 +2,13 @@
 
 from flask import request
 from flask_restx import Namespace, Resource, fields
-from marshmallow import ValidationError
 
 from app.api.common.auth import require_current_user
-from app.api.common.factory_context import resolve_read_factory_context, resolve_write_factory_context
+from app.api.common.business_resource_helpers import get_business_request_context
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser
+from app.api.common.response_helpers import load_json_or_error
+from app.api.common.serializers import serialize_schema, serialize_schema_list
 from app.constants.permissions import (
     PERM_BUSINESS_BUNDLE_RULE_EDIT,
     PERM_BUSINESS_BUNDLE_TEMPLATE_ADD,
@@ -34,6 +35,8 @@ base_response = common["base_response"]
 error_response = common["error_response"]
 unauthorized_response = common["unauthorized_response"]
 forbidden_response = common["forbidden_response"]
+build_item_response_model = common["build_item_response_model"]
+build_list_response_model = common["build_list_response_model"]
 
 bundle_template_factory_parser = new_query_parser()
 bundle_template_factory_parser.add_argument("factory_id", type=int, location="args", help="工厂 ID，平台内部用户可选传")
@@ -102,15 +105,19 @@ bundle_template_update_model = bundle_template_ns.model(
     },
 )
 
-bundle_template_list_response = bundle_template_ns.clone(
+bundle_template_list_response = build_list_response_model(
+    bundle_template_ns,
     "BundleTemplateListResponse",
     base_response,
-    {"data": fields.List(fields.Nested(bundle_template_model), description="模板列表")},
+    bundle_template_model,
+    "模板列表",
 )
-bundle_template_item_response = bundle_template_ns.clone(
+bundle_template_item_response = build_item_response_model(
+    bundle_template_ns,
     "BundleTemplateItemResponse",
     base_response,
-    {"data": fields.Nested(bundle_template_model, description="模板详情")},
+    bundle_template_model,
+    "模板详情",
 )
 
 bundle_field_option_model = bundle_template_ns.model(
@@ -120,10 +127,12 @@ bundle_field_option_model = bundle_template_ns.model(
         "field_label": fields.String(description="字段默认名称", example="款号"),
     },
 )
-bundle_field_option_response = bundle_template_ns.clone(
+bundle_field_option_response = build_list_response_model(
+    bundle_template_ns,
     "BundleFieldOptionResponse",
     base_response,
-    {"data": fields.List(fields.Nested(bundle_field_option_model), description="系统可选字段列表")},
+    bundle_field_option_model,
+    "系统可选字段列表",
 )
 
 bundle_rule_model = bundle_template_ns.model(
@@ -153,14 +162,15 @@ bundle_rule_update_model = bundle_template_ns.model(
     },
 )
 
-bundle_rule_response = bundle_template_ns.clone(
+bundle_rule_response = build_item_response_model(
+    bundle_template_ns,
     "FactoryBundleRuleResponse",
     base_response,
-    {"data": fields.Nested(bundle_rule_model, description="工厂菲规则")},
+    bundle_rule_model,
+    "工厂菲规则",
 )
 
 bundle_template_schema = BundleTemplateSchema()
-bundle_templates_schema = BundleTemplateSchema(many=True)
 bundle_template_create_schema = BundleTemplateCreateSchema()
 bundle_template_update_schema = BundleTemplateUpdateSchema()
 bundle_rule_schema = FactoryBundleRuleSchema()
@@ -170,6 +180,35 @@ bundle_rule_update_schema = FactoryBundleRuleUpdateSchema()
 def get_bundle_template_user_or_error():
     """获取菲模板接口当前用户，不存在时返回统一错误响应。"""
     return require_current_user()
+
+
+def get_accessible_bundle_template_or_error(template_id):
+    """查询当前上下文可访问的菲模板。"""
+    current_user, current_factory_id, error_response_data = get_business_request_context(
+        allow_internal_without_factory=True,
+    )
+    if error_response_data:
+        return None, None, None, error_response_data
+
+    template = BundleTemplateService.get_template_by_id(template_id)
+    if not template:
+        return None, None, None, ApiResponse.error("模板不存在", 404)
+
+    if template.template_scope == "factory" and not current_user.is_internal_user and template.factory_id != current_factory_id:
+        return None, None, None, ApiResponse.error("模板不存在", 404)
+    return current_user, current_factory_id, template, None
+
+
+def get_writable_bundle_template_or_error(template_id):
+    """查询当前工厂下可维护的自定义菲模板。"""
+    _, current_factory_id, error_response_data = get_business_request_context(require_write=True)
+    if error_response_data:
+        return None, None, error_response_data
+
+    template = BundleTemplateService.get_template_by_id(template_id)
+    if not template or template.template_scope != "factory" or template.factory_id != current_factory_id:
+        return None, None, ApiResponse.error("模板不存在", 404)
+    return current_factory_id, template, None
 
 
 @bundle_template_ns.route("/field-options")
@@ -203,14 +242,15 @@ class BundleTemplateList(Resource):
     def get(self):
         """查询菲模板列表接口，返回当前工厂可用的系统模板和工厂模板。"""
         args = bundle_template_factory_parser.parse_args()
-        _, current_factory_id, error_response_obj = resolve_read_factory_context(
+        _, current_factory_id, error_response_obj = get_business_request_context(
             query_factory_id=args.get("factory_id"),
+            allow_internal_without_factory=False,
         )
         if error_response_obj:
             return error_response_obj
 
         templates = BundleTemplateService.get_template_list(current_factory_id)
-        return ApiResponse.success_list(bundle_templates_schema.dump(templates))
+        return ApiResponse.success_list(serialize_schema_list(bundle_template_schema, templates))
 
     @login_required
     @button_permission(PERM_BUSINESS_BUNDLE_TEMPLATE_ADD)
@@ -221,20 +261,19 @@ class BundleTemplateList(Resource):
     @bundle_template_ns.response(403, "无权限", forbidden_response)
     def post(self):
         """创建菲模板接口，仅允许在当前工厂下新增自定义模板。"""
-        _, current_factory_id, error_response_obj = resolve_write_factory_context()
+        _, current_factory_id, error_response_obj = get_business_request_context(require_write=True)
         if error_response_obj:
             return error_response_obj
 
-        try:
-            data = bundle_template_create_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(bundle_template_create_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         template, error = BundleTemplateService.create_factory_template(current_factory_id, data)
         if error:
             return ApiResponse.error(error, 400)
 
-        return ApiResponse.success(bundle_template_schema.dump(template), "创建成功", 201)
+        return ApiResponse.success(serialize_schema(bundle_template_schema, template), "创建成功", 201)
 
 
 @bundle_template_ns.route("/<int:template_id>")
@@ -247,20 +286,10 @@ class BundleTemplateDetail(Resource):
     @bundle_template_ns.response(404, "模板不存在", error_response)
     def get(self, template_id):
         """查询菲模板详情接口，平台内部用户可跨工厂查看。"""
-        current_user, current_factory_id, error_response_obj = resolve_read_factory_context(
-            allow_internal_without_factory=True,
-        )
+        _, _, template, error_response_obj = get_accessible_bundle_template_or_error(template_id)
         if error_response_obj:
             return error_response_obj
-
-        template = BundleTemplateService.get_template_by_id(template_id)
-        if not template:
-            return ApiResponse.error("模板不存在", 404)
-
-        if template.template_scope == "factory" and not current_user.is_internal_user and template.factory_id != current_factory_id:
-            return ApiResponse.error("模板不存在", 404)
-
-        return ApiResponse.success(bundle_template_schema.dump(template))
+        return ApiResponse.success(serialize_schema(bundle_template_schema, template))
 
     @login_required
     @button_permission(PERM_BUSINESS_BUNDLE_TEMPLATE_EDIT)
@@ -272,24 +301,19 @@ class BundleTemplateDetail(Resource):
     @bundle_template_ns.response(404, "模板不存在", error_response)
     def patch(self, template_id):
         """更新菲模板接口，仅允许修改当前工厂下的自定义模板。"""
-        _, current_factory_id, error_response_obj = resolve_write_factory_context()
+        _, template, error_response_obj = get_writable_bundle_template_or_error(template_id)
         if error_response_obj:
             return error_response_obj
 
-        template = BundleTemplateService.get_template_by_id(template_id)
-        if not template or template.template_scope != "factory" or template.factory_id != current_factory_id:
-            return ApiResponse.error("模板不存在", 404)
-
-        try:
-            data = bundle_template_update_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(bundle_template_update_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         template, error = BundleTemplateService.update_factory_template(template, data)
         if error:
             return ApiResponse.error(error, 400)
 
-        return ApiResponse.success(bundle_template_schema.dump(template), "更新成功")
+        return ApiResponse.success(serialize_schema(bundle_template_schema, template), "更新成功")
 
     @login_required
     @button_permission(PERM_BUSINESS_BUNDLE_TEMPLATE_DELETE)
@@ -299,13 +323,9 @@ class BundleTemplateDetail(Resource):
     @bundle_template_ns.response(404, "模板不存在", error_response)
     def delete(self, template_id):
         """删除菲模板接口，仅允许删除当前工厂下的自定义模板。"""
-        _, current_factory_id, error_response_obj = resolve_write_factory_context()
+        _, template, error_response_obj = get_writable_bundle_template_or_error(template_id)
         if error_response_obj:
             return error_response_obj
-
-        template = BundleTemplateService.get_template_by_id(template_id)
-        if not template or template.template_scope != "factory" or template.factory_id != current_factory_id:
-            return ApiResponse.error("模板不存在", 404)
 
         success, error = BundleTemplateService.delete_factory_template(template)
         if not success:
@@ -325,14 +345,15 @@ class FactoryBundleRuleDetail(Resource):
     def get(self):
         """查询工厂菲规则接口，返回床次重置周期、默认模板和菲号前缀。"""
         args = bundle_template_factory_parser.parse_args()
-        _, current_factory_id, error_response_obj = resolve_read_factory_context(
+        _, current_factory_id, error_response_obj = get_business_request_context(
             query_factory_id=args.get("factory_id"),
+            allow_internal_without_factory=False,
         )
         if error_response_obj:
             return error_response_obj
 
         rule = BundleTemplateService.ensure_factory_rule(current_factory_id)
-        return ApiResponse.success(bundle_rule_schema.dump(rule))
+        return ApiResponse.success(serialize_schema(bundle_rule_schema, rule))
 
     @login_required
     @button_permission(PERM_BUSINESS_BUNDLE_RULE_EDIT)
@@ -343,17 +364,16 @@ class FactoryBundleRuleDetail(Resource):
     @bundle_template_ns.response(403, "无权限", forbidden_response)
     def patch(self):
         """更新工厂菲规则接口，可维护默认模板、床次重置周期和菲号前缀。"""
-        _, current_factory_id, error_response_obj = resolve_write_factory_context()
+        _, current_factory_id, error_response_obj = get_business_request_context(require_write=True)
         if error_response_obj:
             return error_response_obj
 
-        try:
-            data = bundle_rule_update_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(bundle_rule_update_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         rule, error = BundleTemplateService.update_factory_rule(current_factory_id, data)
         if error:
             return ApiResponse.error(error, 400)
 
-        return ApiResponse.success(bundle_rule_schema.dump(rule), "更新成功")
+        return ApiResponse.success(serialize_schema(bundle_rule_schema, rule), "更新成功")

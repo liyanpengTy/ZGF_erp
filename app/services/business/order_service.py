@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import selectinload
 
 from app.extensions import db
@@ -18,6 +18,7 @@ from app.models.business.order import (
     OrderDetailSpliceSnapshot,
 )
 from app.models.business.style import Style
+from app.models.customer.customer import CustomerSubjectRelation, CustomerUser
 from app.models.business.value_codec import encode_dynamic_value, is_scalar_value
 from app.services.base.base_service import BaseService
 from app.services.business.bundle_service import BundleService
@@ -493,15 +494,15 @@ class OrderService(BaseService):
 
     @staticmethod
     def _build_order_query(current_user, current_factory_id=None, factory_id=None, include_details=True):
-        """构建订单查询对象，统一处理工厂范围和预加载。"""
+        """构建订单查询对象，统一处理主体范围、旧工厂字段和预加载。"""
         query = Order.query.filter_by(is_deleted=0)
         if current_user.is_internal_user:
             if factory_id:
-                query = query.filter_by(factory_id=factory_id)
+                query = query.filter(or_(Order.subject_id == factory_id, Order.factory_id == factory_id))
         else:
             if not current_factory_id:
                 return None
-            query = query.filter_by(factory_id=current_factory_id)
+            query = query.filter(or_(Order.subject_id == current_factory_id, Order.factory_id == current_factory_id))
 
         target_factory_id = current_factory_id if not current_user.is_internal_user else factory_id
         query = OrderService.apply_order_data_scope(query, current_user, current_factory_id=target_factory_id)
@@ -718,8 +719,28 @@ class OrderService(BaseService):
         return sku, None
 
     @staticmethod
+    def _resolve_customer_user(current_factory_id, customer_user_id):
+        """校验客户用户与当前主体是否存在有效关联。"""
+        if not customer_user_id:
+            return None, None
+
+        relation = CustomerSubjectRelation.query.filter_by(
+            customer_id=customer_user_id,
+            subject_id=current_factory_id,
+            status='active',
+            is_deleted=0,
+        ).first()
+        if not relation:
+            return None, '客户未关联当前主体，不能为该客户创建订单'
+
+        customer = CustomerUser.query.filter_by(id=customer_user_id, status='active', is_deleted=0).first()
+        if not customer:
+            return None, '客户账号不存在或已禁用'
+        return customer, None
+
+    @staticmethod
     def create_order(current_user, current_factory_id, data):
-        """创建订单及其明细快照。"""
+        """创建订单及其明细快照，并同步写入主体和客户用户字段。"""
         if not current_factory_id:
             return None, '请先切换到工厂上下文'
 
@@ -749,16 +770,28 @@ class OrderService(BaseService):
             if not skus:
                 return None, f'第 {index} 条订单明细缺少 SKU'
 
+        customer_user, customer_error = OrderService._resolve_customer_user(
+            current_factory_id,
+            data.get('customer_user_id'),
+        )
+        if customer_error:
+            return None, customer_error
+
         try:
+            total_quantity = 0
             order = Order(
                 order_no=OrderService.generate_order_no(current_factory_id),
                 factory_id=current_factory_id,
+                subject_id=current_factory_id,
                 customer_id=data.get('customer_id'),
-                customer_name=data.get('customer_name', ''),
+                customer_user_id=data.get('customer_user_id'),
+                customer_name=data.get('customer_name') or (customer_user.name if customer_user else ''),
                 order_date=datetime.strptime(data['order_date'], '%Y-%m-%d').date(),
                 delivery_date=datetime.strptime(data['delivery_date'], '%Y-%m-%d').date()
                 if data.get('delivery_date') else None,
                 status='pending',
+                total_quantity=0,
+                completed_quantity=0,
                 total_amount=0,
                 remark=data.get('remark', ''),
                 create_by=current_user.id,
@@ -782,7 +815,9 @@ class OrderService(BaseService):
                     _, error = OrderService.build_sku(detail, sku_data)
                     if error:
                         raise ValueError(error)
+                    total_quantity += int(sku_data['splice_config'].get('quantity', 1) or 0)
 
+            order.total_quantity = total_quantity
             db.session.commit()
             return OrderService.get_order_by_id(order.id), None
         except Exception as exc:
@@ -790,10 +825,21 @@ class OrderService(BaseService):
             return None, f'创建订单失败: {exc}'
 
     @staticmethod
-    def update_order(order, data):
-        """更新订单基础资料。"""
+    def update_order(order, data, current_factory_id=None):
+        """更新订单基础资料，并在变更客户用户时校验主体关联。"""
+        target_subject_id = current_factory_id or order.subject_id or order.factory_id
         if 'customer_id' in data:
             order.customer_id = data['customer_id']
+        if 'customer_user_id' in data:
+            customer_user, customer_error = OrderService._resolve_customer_user(
+                target_subject_id,
+                data['customer_user_id'],
+            )
+            if customer_error:
+                return None, customer_error
+            order.customer_user_id = data['customer_user_id']
+            if customer_user and not data.get('customer_name'):
+                order.customer_name = customer_user.name
         if 'customer_name' in data:
             order.customer_name = data['customer_name']
         if 'delivery_date' in data and data['delivery_date']:
@@ -801,7 +847,7 @@ class OrderService(BaseService):
         if 'remark' in data:
             order.remark = data['remark']
         order.save()
-        return order
+        return order, None
 
     @staticmethod
     def update_order_status(order, status):
@@ -824,13 +870,14 @@ class OrderService(BaseService):
             return False, '用户不存在'
         if not order:
             return False, '订单不存在'
-        if not current_user.is_internal_user and order.factory_id != current_factory_id:
+        order_subject_id = order.subject_id or order.factory_id
+        if not current_user.is_internal_user and order_subject_id != current_factory_id:
             return False, '无权限操作'
 
         scoped_query = OrderService.apply_order_data_scope(
             Order.query.filter(Order.id == order.id, Order.is_deleted == 0),
             current_user,
-            current_factory_id=order.factory_id,
+            current_factory_id=order_subject_id,
         )
         if scoped_query.first():
             return True, None

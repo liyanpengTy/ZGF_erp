@@ -2,6 +2,7 @@
 
 from datetime import date, datetime, timedelta
 
+from app.constants.identity import SUBJECT_CATEGORY_FACTORY
 from app.extensions import db
 from app.models.base import BaseModel
 
@@ -15,6 +16,13 @@ class Factory(BaseModel):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     name = db.Column(db.String(100), nullable=False, comment="工厂名称")
     code = db.Column(db.String(50), unique=True, nullable=False, comment="工厂编码")
+    subject_category = db.Column(
+        db.String(30),
+        default=SUBJECT_CATEGORY_FACTORY,
+        nullable=False,
+        comment="主体类型：factory/button_shop/shrink_factory/print_factory/other",
+    )
+    subject_label = db.Column(db.String(50), default="工厂", comment="主体显示标签")
     contact_person = db.Column(db.String(50), comment="联系人")
     contact_phone = db.Column(db.String(20), comment="联系电话")
     address = db.Column(db.String(255), comment="地址")
@@ -56,6 +64,9 @@ class Factory(BaseModel):
             "id": self.id,
             "name": self.name,
             "code": self.code,
+            "subject_id": self.id,
+            "subject_category": self.subject_category,
+            "subject_label": self.subject_label,
             "contact_person": self.contact_person,
             "contact_phone": self.contact_phone,
             "address": self.address,

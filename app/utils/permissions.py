@@ -16,6 +16,7 @@ from app.models.auth.user import User
 from app.models.system.factory import Factory
 from app.models.system.menu import Menu
 from app.models.system.role import Role, role_menu
+from app.models.system.subject_role import SubjectRole, SubjectUserRole, subject_role_menu
 from app.models.system.user_factory_role import UserFactoryRole
 from app.utils.response import ApiResponse
 
@@ -118,12 +119,29 @@ def _get_factory_role_ids(user_id, factory_id):
     return [record.role_id for record in role_records]
 
 
-def _has_menu_permission(role_ids, permission_code):
-    """根据角色集合判断是否命中目标菜单权限编码。"""
+def _get_subject_role_ids(user_id, factory_id):
+    """获取用户在指定主体上下文下的主体角色 ID 列表。"""
+    role_records = SubjectUserRole.query.join(
+        SubjectRole,
+        SubjectRole.id == SubjectUserRole.subject_role_id,
+    ).filter(
+        SubjectUserRole.user_id == user_id,
+        SubjectUserRole.subject_id == factory_id,
+        SubjectUserRole.is_deleted == 0,
+        SubjectRole.subject_id == factory_id,
+        SubjectRole.status == 1,
+        SubjectRole.is_deleted == 0,
+    ).all()
+    return [record.subject_role_id for record in role_records]
+
+
+def _has_menu_permission(role_ids, permission_code, mapping_table, role_column_name):
+    """根据角色集合和映射表判断是否命中目标菜单权限编码。"""
     if not role_ids:
         return False
 
-    menu_records = db.session.query(role_menu).filter(role_menu.c.role_id.in_(role_ids)).all()
+    role_column = getattr(mapping_table.c, role_column_name)
+    menu_records = db.session.query(mapping_table).filter(role_column.in_(role_ids)).all()
     menu_ids = list(set(record.menu_id for record in menu_records))
     if not menu_ids:
         return False
@@ -154,7 +172,7 @@ def has_any_permission(user, permission_codes, factory_id=None):
 
     if is_internal_platform_identity(platform_identity):
         role_ids = _get_platform_role_ids(user.id)
-        if any(_has_menu_permission(role_ids, permission_code) for permission_code in permission_codes):
+        if any(_has_menu_permission(role_ids, permission_code, role_menu, 'role_id') for permission_code in permission_codes):
             return True, None
         return False, f"无权限: {' / '.join(permission_codes)}"
 
@@ -171,7 +189,12 @@ def has_any_permission(user, permission_codes, factory_id=None):
             return False, '当前工厂已过期或被禁用，续期后可继续操作'
 
     role_ids = _get_factory_role_ids(user.id, target_factory_id)
-    if any(_has_menu_permission(role_ids, permission_code) for permission_code in permission_codes):
+    subject_role_ids = _get_subject_role_ids(user.id, target_factory_id)
+    if any(
+        _has_menu_permission(role_ids, permission_code, role_menu, 'role_id')
+        or _has_menu_permission(subject_role_ids, permission_code, subject_role_menu, 'subject_role_id')
+        for permission_code in permission_codes
+    ):
         return True, None
     return False, f"无权限: {' / '.join(permission_codes)}"
 

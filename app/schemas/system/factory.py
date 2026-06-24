@@ -3,8 +3,9 @@
 from marshmallow import Schema, fields, validate
 
 
-FACTORY_RELATION_TYPE_CHOICES = ['owner', 'employee', 'customer', 'collaborator']
+FACTORY_RELATION_TYPE_CHOICES = ['owner', 'employee', 'collaborator']
 FACTORY_COLLABORATOR_TYPE_CHOICES = ['button_partner', 'shrink_partner', 'print_partner', 'other_partner']
+FACTORY_SUBJECT_CATEGORY_CHOICES = ['factory', 'button_shop', 'shrink_factory', 'print_factory', 'other']
 
 
 class FactorySchema(Schema):
@@ -13,6 +14,9 @@ class FactorySchema(Schema):
     id = fields.Int()
     name = fields.Str()
     code = fields.Str()
+    subject_id = fields.Int()
+    subject_category = fields.Str()
+    subject_label = fields.Str()
     contact_person = fields.Str()
     contact_phone = fields.Str()
     address = fields.Str()
@@ -28,6 +32,8 @@ class FactoryCreateSchema(Schema):
     """创建工厂入参，工厂编码由系统自动生成。"""
 
     name = fields.Str(required=True, validate=validate.Length(min=2, max=100))
+    subject_category = fields.Str(validate=validate.OneOf(FACTORY_SUBJECT_CATEGORY_CHOICES))
+    subject_label = fields.Str(validate=validate.Length(max=50))
     contact_person = fields.Str(validate=validate.Length(max=50))
     contact_phone = fields.Str(validate=validate.Length(max=20))
     address = fields.Str(validate=validate.Length(max=255))
@@ -39,6 +45,8 @@ class FactoryUpdateSchema(Schema):
     """更新工厂入参。"""
 
     name = fields.Str(validate=validate.Length(min=2, max=100))
+    subject_category = fields.Str(validate=validate.OneOf(FACTORY_SUBJECT_CATEGORY_CHOICES))
+    subject_label = fields.Str(validate=validate.Length(max=50))
     contact_person = fields.Str(validate=validate.Length(max=50))
     contact_phone = fields.Str(validate=validate.Length(max=20))
     address = fields.Str(validate=validate.Length(max=255))

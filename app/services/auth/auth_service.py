@@ -8,8 +8,10 @@ from sqlalchemy import case
 from app.extensions import bcrypt
 from app.models.auth.user import User
 from app.models.system.factory import Factory
+from app.constants.identity import RELATION_TYPE_CUSTOMER
 from app.models.system.user_factory import UserFactory
 from app.services.base.base_service import BaseService
+from app.utils.datetime_helper import safe_isoformat
 from app.utils.logger import log_login
 
 
@@ -60,7 +62,7 @@ class AuthService(BaseService):
             'relation_type_label': user_factory.relation_type_label,
             'collaborator_type': user_factory.collaborator_type,
             'collaborator_type_label': user_factory.collaborator_type_label,
-            'service_expire_date': factory.service_expire_date.isoformat() if factory.service_expire_date else None,
+            'service_expire_date': safe_isoformat(factory.service_expire_date),
             'service_status': factory.service_status
         }
 
@@ -75,7 +77,7 @@ class AuthService(BaseService):
             'relation_type_label': '平台内部上下文',
             'collaborator_type': None,
             'collaborator_type_label': None,
-            'service_expire_date': factory.service_expire_date.isoformat() if factory.service_expire_date else None,
+            'service_expire_date': safe_isoformat(factory.service_expire_date),
             'service_status': factory.service_status
         }
 
@@ -94,6 +96,7 @@ class AuthService(BaseService):
             status=1,
             is_deleted=0
         ).join(Factory, UserFactory.factory_id == Factory.id).filter(
+            UserFactory.relation_type != RELATION_TYPE_CUSTOMER,
             Factory.is_deleted == 0
         ).order_by(relation_priority.asc(), UserFactory.id.asc()).all()
         return [AuthService.build_factory_context(record) for record in records]

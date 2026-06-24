@@ -9,8 +9,11 @@ from sqlalchemy.orm import joinedload
 from app.constants.identity import (
     PLATFORM_IDENTITY_EXTERNAL,
     RELATION_TYPE_COLLABORATOR,
+    RELATION_TYPE_CUSTOMER,
     RELATION_TYPE_EMPLOYEE,
     RELATION_TYPE_OWNER,
+    SUBJECT_CATEGORY_FACTORY,
+    USER_TYPE_SUBJECT,
 )
 from app.extensions import bcrypt, db
 from app.models.auth.user import User
@@ -18,6 +21,7 @@ from app.models.system.factory import Factory
 from app.models.system.user_factory import UserFactory
 from app.services.base.base_service import BaseService
 from app.services.system.role_service import RoleService
+from app.utils.datetime_helper import safe_isoformat
 
 
 class FactoryService(BaseService):
@@ -123,6 +127,8 @@ class FactoryService(BaseService):
             factory = Factory(
                 name=data["name"],
                 code=factory_code,
+                subject_category=data.get("subject_category") or SUBJECT_CATEGORY_FACTORY,
+                subject_label=data.get("subject_label") or "工厂",
                 contact_person=data.get("contact_person", ""),
                 contact_phone=data.get("contact_phone", ""),
                 address=data.get("address", ""),
@@ -135,6 +141,7 @@ class FactoryService(BaseService):
                 password=bcrypt.generate_password_hash("123456").decode("utf-8"),
                 nickname=data["name"],
                 platform_identity=PLATFORM_IDENTITY_EXTERNAL,
+                user_type=USER_TYPE_SUBJECT,
                 status=1,
                 is_paid=1,
             )
@@ -167,6 +174,10 @@ class FactoryService(BaseService):
         """更新工厂基础信息，并同步工厂管理员昵称。"""
         if "name" in data:
             factory.name = data["name"]
+        if "subject_category" in data:
+            factory.subject_category = data["subject_category"]
+        if "subject_label" in data:
+            factory.subject_label = data["subject_label"]
         if "contact_person" in data:
             factory.contact_person = data["contact_person"]
         if "contact_phone" in data:
@@ -254,7 +265,9 @@ class FactoryService(BaseService):
         relation_type = filters.get("relation_type")
         collaborator_type = filters.get("collaborator_type")
 
-        query = UserFactory.query.filter_by(factory_id=factory_id, is_deleted=0).options(joinedload(UserFactory.user))
+        query = UserFactory.query.filter_by(factory_id=factory_id, is_deleted=0).filter(
+            UserFactory.relation_type != RELATION_TYPE_CUSTOMER
+        ).options(joinedload(UserFactory.user))
         if relation_type:
             query = query.filter_by(relation_type=relation_type)
         if collaborator_type:
@@ -284,8 +297,8 @@ class FactoryService(BaseService):
                     "relation_type_label": relation.relation_type_label,
                     "collaborator_type": relation.collaborator_type,
                     "collaborator_type_label": relation.collaborator_type_label,
-                    "entry_date": relation.entry_date.isoformat() if relation.entry_date else None,
-                    "leave_date": relation.leave_date.isoformat() if relation.leave_date else None,
+                    "entry_date": safe_isoformat(relation.entry_date),
+                    "leave_date": safe_isoformat(relation.leave_date),
                 }
             )
 
@@ -300,6 +313,9 @@ class FactoryService(BaseService):
     @staticmethod
     def add_user_to_factory(factory_id, user_id, relation_type, collaborator_type=None):
         """把已有用户挂到指定工厂。"""
+        if relation_type == RELATION_TYPE_CUSTOMER:
+            return None, "客户不再通过工厂成员关系维护，请改用客户管理模块"
+
         user = User.query.filter_by(id=user_id, is_deleted=0).first()
         if not user:
             return None, "用户不存在"
@@ -415,7 +431,7 @@ class FactoryService(BaseService):
     def generate_qrcode(factory):
         """为工厂生成新的绑定二维码地址和 key。"""
         qrcode_key = uuid.uuid4().hex[:32]
-        qrcode_url = f"/api/v1/factories/bind?key={qrcode_key}"
+        qrcode_url = f"/api/v1/system/factories/bind?key={qrcode_key}"
         factory.qrcode = qrcode_url
         factory.qrcode_key = qrcode_key
         factory.save()

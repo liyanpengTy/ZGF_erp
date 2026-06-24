@@ -2,7 +2,6 @@
 
 from flask import request
 from flask_restx import Namespace, Resource, fields
-from marshmallow import ValidationError
 
 from app.constants.permissions import (
     PERM_BUSINESS_STYLE_ADD,
@@ -10,9 +9,14 @@ from app.constants.permissions import (
     PERM_BUSINESS_STYLE_EDIT,
     PERM_BUSINESS_STYLE_QUERY,
 )
-from app.api.common.factory_context import resolve_read_factory_context, resolve_write_factory_context
+from app.api.common.business_resource_helpers import (
+    get_accessible_business_resource_or_error,
+    get_business_request_context,
+)
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
+from app.api.common.response_helpers import load_json_or_error, success_mapped_page
+from app.api.common.serializers import build_mapping_serializer, serialize_schema
 from app.schemas.business.style import StyleCreateSchema, StyleSchema, StyleUpdateSchema
 from app.services import StyleService
 from app.utils.business_permissions import button_permission
@@ -151,50 +155,46 @@ style_update_schema = StyleUpdateSchema()
 
 def get_style_request_context(query_factory_id=None, require_write=False, allow_internal_without_factory=False):
     """获取款号接口通用的当前用户与工厂上下文。"""
-    if require_write:
-        return resolve_write_factory_context()
-    return resolve_read_factory_context(
+    return get_business_request_context(
         query_factory_id=query_factory_id,
+        require_write=require_write,
         allow_internal_without_factory=allow_internal_without_factory,
     )
 
 
 def get_accessible_style_or_error(style_id):
     """查询当前上下文可访问的款号，不可访问时返回统一错误响应。"""
-    current_user, current_factory_id, error_response_data = get_style_request_context(
+    return get_accessible_business_resource_or_error(
+        style_id,
+        StyleService.get_style_by_id,
+        StyleService.check_permission,
+        '款号不存在',
         allow_internal_without_factory=True,
     )
-    if error_response_data:
-        return None, None, None, error_response_data
 
-    style = StyleService.get_style_by_id(style_id)
-    if not style:
-        return None, None, None, ApiResponse.error('款号不存在', 404)
 
-    has_permission, error = StyleService.check_permission(current_user, current_factory_id, style)
-    if not has_permission:
-        return None, None, None, ApiResponse.error(error, 403)
-    return current_user, current_factory_id, style, None
+def _enrich_style_payload(payload, style):
+    """补充款号接口需要的分类名称字段。"""
+    payload['category_name'] = style.category.name if style.category else None
+    return payload
 
 
 def serialize_style(style):
     """序列化单个款号，并补充分类型名称。"""
-    item = style_schema.dump(style)
-    item['category_name'] = style.category.name if style.category else None
-    return item
+    return serialize_schema(style_schema, style, enricher=_enrich_style_payload)
 
 
-def serialize_style_option(style):
-    """序列化款号下拉选项。"""
-    return {
-        'id': style.id,
-        'style_no': style.style_no,
-        'name': style.name,
-        'customer_style_no': style.customer_style_no,
-        'category_id': style.category_id,
-        'category_name': style.category.name if style.category else None,
-        'status': style.status,
+serialize_style_option = build_mapping_serializer(
+    {
+        'id': 'id',
+        'style_no': 'style_no',
+        'name': 'name',
+        'customer_style_no': 'customer_style_no',
+        'category_id': 'category_id',
+        'category_name': lambda style: style.category.name if style.category else None,
+        'status': 'status',
     }
+)
 
 
 @style_ns.route('')
@@ -216,7 +216,7 @@ class StyleList(Resource):
             return error_response_data
 
         result = StyleService.get_style_list(current_user, current_factory_id, args)
-        return ApiResponse.success_page_result(result, [serialize_style(style) for style in result['items']])
+        return success_mapped_page(result, [serialize_style(style) for style in result['items']])
 
     @login_required
     @button_permission(PERM_BUSINESS_STYLE_ADD)
@@ -232,10 +232,9 @@ class StyleList(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = style_create_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(style_create_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         style, error = StyleService.create_style(current_user, current_factory_id, data, style_schema)
         if error:
@@ -302,10 +301,9 @@ class StyleDetail(Resource):
         if not can_manage:
             return ApiResponse.error(error, 403)
 
-        try:
-            data = style_update_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(style_update_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         style, error = StyleService.update_style(style, data, current_factory_id)
         if error:

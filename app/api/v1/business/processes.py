@@ -2,12 +2,13 @@
 
 from flask import request
 from flask_restx import Namespace, Resource, fields
-from marshmallow import ValidationError
 
 from app.api.common.auth import require_current_user
-from app.api.common.factory_context import resolve_read_factory_context, resolve_write_factory_context
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
+from app.api.common.response_helpers import load_json_or_error, success_schema_page
+from app.api.common.serializers import build_mapping_serializer, serialize_schema, serialize_schema_list
+from app.api.common.style_relation_helpers import get_accessible_style_or_error as get_accessible_style_relation_or_error
 from app.constants.permissions import (
     PERM_BUSINESS_PROCESS_ADD,
     PERM_BUSINESS_PROCESS_DELETE,
@@ -135,14 +136,14 @@ def get_process_or_error(process_id):
     return process, None
 
 
-def serialize_process_option(process):
-    """序列化工序下拉选项。"""
-    return {
-        'id': process.id,
-        'name': process.name,
-        'code': process.code,
-        'status': process.status,
+serialize_process_option = build_mapping_serializer(
+    {
+        'id': 'id',
+        'name': 'name',
+        'code': 'code',
+        'status': 'status',
     }
+)
 
 
 def check_process_admin_permission(current_user):
@@ -156,18 +157,13 @@ def check_process_admin_permission(current_user):
 
 def get_accessible_style_for_process_or_error(style_id, require_write=False):
     """获取当前上下文下可访问的款号工序映射目标。"""
-    if require_write:
-        current_user, current_factory_id, error_response_data = resolve_write_factory_context()
-    else:
-        current_user, current_factory_id, error_response_data = resolve_read_factory_context(
-            allow_internal_without_factory=True,
-        )
+    current_user, current_factory_id, _, error_response_data = get_accessible_style_relation_or_error(
+        style_id,
+        ProcessService.check_style_permission,
+        require_write=require_write,
+    )
     if error_response_data:
         return None, None, error_response_data
-
-    _, error = ProcessService.check_style_permission(current_user, current_factory_id, style_id)
-    if error:
-        return None, None, ApiResponse.error(error, 403 if '无权限' in error or '切换' in error else 404)
     return current_user, current_factory_id, None
 
 
@@ -186,7 +182,7 @@ class ProcessList(Resource):
             return error_response_data
         args = process_query_parser.parse_args()
         result = ProcessService.get_process_list(args)
-        return ApiResponse.success_page_result(result, processes_schema.dump(result['items']))
+        return success_schema_page(result, process_schema)
 
     @login_required
     @button_permission(PERM_BUSINESS_PROCESS_ADD)
@@ -205,15 +201,14 @@ class ProcessList(Resource):
         if not has_permission:
             return ApiResponse.error(error, 403)
 
-        try:
-            data = process_create_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(process_create_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         process, service_error = ProcessService.create_process(data)
         if service_error:
             return ApiResponse.error(service_error, 409)
-        return ApiResponse.success(process_schema.dump(process), '创建成功', 201)
+        return ApiResponse.success(serialize_schema(process_schema, process), '创建成功', 201)
 
 
 @process_ns.route('/options')
@@ -250,7 +245,7 @@ class ProcessDetail(Resource):
         process, error_response_data = get_process_or_error(process_id)
         if error_response_data:
             return error_response_data
-        return ApiResponse.success(process_schema.dump(process))
+        return ApiResponse.success(serialize_schema(process_schema, process))
 
     @login_required
     @button_permission(PERM_BUSINESS_PROCESS_EDIT)
@@ -273,15 +268,14 @@ class ProcessDetail(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = process_update_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(process_update_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         process, service_error = ProcessService.update_process(process, data)
         if service_error:
             return ApiResponse.error(service_error, 400)
-        return ApiResponse.success(process_schema.dump(process), '更新成功')
+        return ApiResponse.success(serialize_schema(process_schema, process), '更新成功')
 
     @login_required
     @button_permission(PERM_BUSINESS_PROCESS_DELETE)
@@ -322,7 +316,7 @@ class EnabledProcesses(Resource):
         if error_response_data:
             return error_response_data
         processes = ProcessService.get_all_enabled_processes()
-        return ApiResponse.success_list(processes_schema.dump(processes))
+        return ApiResponse.success_list(serialize_schema_list(process_schema, processes))
 
 
 @process_ns.route('/styles/<int:style_id>/processes')
@@ -340,7 +334,7 @@ class StyleProcesses(Resource):
             return error_response_data
 
         mappings = ProcessService.get_style_processes(style_id)
-        return ApiResponse.success(style_process_mapping_schema.dump(mappings, many=True))
+        return ApiResponse.success(serialize_schema_list(style_process_mapping_schema, mappings))
 
     @login_required
     @button_permission(PERM_BUSINESS_STYLE_PROCESS_ADD)
@@ -355,13 +349,12 @@ class StyleProcesses(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = style_process_mapping_batch_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(style_process_mapping_batch_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         mappings = ProcessService.batch_save_style_processes(style_id, data.get('mappings', []))
-        return ApiResponse.success(style_process_mapping_schema.dump(mappings, many=True), '保存成功')
+        return ApiResponse.success(serialize_schema_list(style_process_mapping_schema, mappings), '保存成功')
 
 
 @process_ns.route('/styles/<int:style_id>/processes/<int:mapping_id>')

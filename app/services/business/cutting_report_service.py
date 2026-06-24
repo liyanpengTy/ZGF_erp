@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+from sqlalchemy import or_
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.extensions import db
@@ -67,7 +68,6 @@ class CuttingReportService(BaseService):
         """按当前用户数据范围收口裁床报工查询。"""
         own_related_filter = BusinessDataScopeService.build_or_filter(
             WorkCuttingReport.report_user_id == current_user.id,
-            WorkCuttingReport.order.has(customer_id=current_user.id),
             WorkCuttingReport.order.has(create_by=current_user.id),
         )
         return BusinessDataScopeService.apply_scope(
@@ -138,7 +138,7 @@ class CuttingReportService(BaseService):
 
     @staticmethod
     def get_order_sku(order_detail_sku_id, factory_id):
-        """查询当前工厂内可用于裁床报工的订单 SKU。"""
+        """查询当前主体内可用于裁床报工的订单 SKU。"""
         return OrderDetailSku.query.options(
             joinedload(OrderDetailSku.detail).joinedload(OrderDetail.order),
             joinedload(OrderDetailSku.detail).joinedload(OrderDetail.style),
@@ -147,7 +147,7 @@ class CuttingReportService(BaseService):
         ).join(OrderDetailSku.detail).join(OrderDetail.order).filter(
             OrderDetailSku.id == order_detail_sku_id,
             OrderDetailSku.is_deleted == 0,
-            Order.factory_id == factory_id,
+            or_(Order.subject_id == factory_id, Order.factory_id == factory_id),
         ).first()
 
     @staticmethod
@@ -174,7 +174,6 @@ class CuttingReportService(BaseService):
             current_user,
             current_factory_id=factory_id,
             creator_user_id=order.create_by,
-            customer_user_id=order.customer_id,
         )
         if not has_scope:
             return None, '当前订单不在当前数据范围内，不能创建裁床报工'

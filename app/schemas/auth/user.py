@@ -2,6 +2,8 @@
 
 from marshmallow import Schema, fields, validate
 
+from app.constants.identity import RELATION_TYPE_CUSTOMER, ROLE_SCOPE_FACTORY, ROLE_SCOPE_PLATFORM, ROLE_SCOPE_SUBJECT
+
 
 PLATFORM_IDENTITY_CHOICES = ['platform_admin', 'platform_staff', 'external_user']
 
@@ -16,12 +18,20 @@ class UserBaseSchema(Schema):
 
     def get_subject_type(self, obj):
         """根据用户工厂关系推导主体类型。"""
-        relation_types = [relation.relation_type for relation in getattr(obj, 'user_factories', []) if relation.is_deleted == 0]
+        relation_types = [
+            relation.relation_type
+            for relation in getattr(obj, 'user_factories', [])
+            if relation.is_deleted == 0 and relation.relation_type != RELATION_TYPE_CUSTOMER
+        ]
         return obj.get_subject_type(relation_types)
 
     def get_subject_type_label(self, obj):
         """根据用户工厂关系返回主体类型名称。"""
-        relation_types = [relation.relation_type for relation in getattr(obj, 'user_factories', []) if relation.is_deleted == 0]
+        relation_types = [
+            relation.relation_type
+            for relation in getattr(obj, 'user_factories', [])
+            if relation.is_deleted == 0 and relation.relation_type != RELATION_TYPE_CUSTOMER
+        ]
         return obj.get_subject_type_label(relation_types)
 
 
@@ -34,7 +44,7 @@ class UserSchema(UserBaseSchema):
     nickname = fields.Str(validate=validate.Length(max=50))
     phone = fields.Str(validate=validate.Length(max=20))
     avatar = fields.Str()
-    status = fields.Int(default=1)
+    status = fields.Int(dump_default=1)
     is_paid = fields.Int()
     invite_code = fields.Str()
     invited_count = fields.Int()
@@ -98,7 +108,7 @@ class RegisterRequestSchema(Schema):
     username = fields.Str(required=True, validate=validate.Length(min=3, max=50))
     password = fields.Str(required=True, validate=validate.Length(min=6, max=20))
     nickname = fields.Str(validate=validate.Length(max=50))
-    phone = fields.Str(validate=validate.Length(max=20))
+    phone = fields.Str(required=True, validate=validate.Length(max=20))
     invite_code = fields.Str(validate=validate.Length(max=50))
 
 
@@ -113,3 +123,4 @@ class UserAssignRolesSchema(Schema):
 
     role_ids = fields.List(fields.Int(validate=validate.Range(min=1)), required=True)
     factory_id = fields.Int(allow_none=True, validate=validate.Range(min=0))
+    scope_type = fields.Str(validate=validate.OneOf([ROLE_SCOPE_PLATFORM, ROLE_SCOPE_FACTORY, ROLE_SCOPE_SUBJECT]))

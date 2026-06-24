@@ -4,6 +4,7 @@ from app.api.common.auth import require_current_user
 from app.utils.response import ApiResponse
 from app.api.common.parsers import page_parser
 from app.api.common.models import get_common_models
+from app.api.common.response_helpers import success_mapped_page
 from app.utils.permissions import login_required, permission_required
 from app.services import RewardService
 
@@ -117,7 +118,7 @@ class PendingRewards(Resource):
 
         result = RewardService.get_pending_rewards(args)
 
-        return ApiResponse.success_page_result(result, [r.to_dict() for r in result['items']])
+        return success_mapped_page(result, [r.to_dict() for r in result['items']])
 
 
 @reward_ns.route('/<int:reward_id>/distribute')

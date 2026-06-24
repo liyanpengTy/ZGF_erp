@@ -2,10 +2,11 @@
 
 from marshmallow import Schema, fields, validate
 
-from app.constants.identity import ROLE_SCOPE_FACTORY, ROLE_SCOPE_PLATFORM
+from app.constants.identity import ROLE_SCOPE_FACTORY, ROLE_SCOPE_PLATFORM, ROLE_SCOPE_SUBJECT
 
 
-ACTIVE_ROLE_SCOPES = (ROLE_SCOPE_FACTORY, ROLE_SCOPE_PLATFORM)
+ACTIVE_ROLE_SCOPES = (ROLE_SCOPE_FACTORY, ROLE_SCOPE_PLATFORM, ROLE_SCOPE_SUBJECT)
+ACTIVE_ROLE_DATA_SCOPES = ['all_factory', 'assigned', 'own_related', 'self_only', 'subject']
 
 
 class RoleSchema(Schema):
@@ -36,7 +37,7 @@ class RoleCreateSchema(Schema):
     code = fields.Str(required=True, validate=validate.Length(min=2, max=50))
     description = fields.Str(validate=validate.Length(max=255))
     sort_order = fields.Int(load_default=0)
-    data_scope = fields.Str(validate=validate.OneOf(['all_factory', 'assigned', 'own_related', 'self_only']))
+    data_scope = fields.Str(validate=validate.OneOf(ACTIVE_ROLE_DATA_SCOPES))
     is_factory_admin = fields.Int(validate=validate.OneOf([0, 1]))
 
 
@@ -47,11 +48,11 @@ class RoleUpdateSchema(Schema):
     description = fields.Str(validate=validate.Length(max=255))
     status = fields.Int(validate=validate.OneOf([0, 1]))
     sort_order = fields.Int()
-    data_scope = fields.Str(validate=validate.OneOf(['all_factory', 'assigned', 'own_related', 'self_only']))
+    data_scope = fields.Str(validate=validate.OneOf(ACTIVE_ROLE_DATA_SCOPES))
     is_factory_admin = fields.Int(validate=validate.OneOf([0, 1]))
 
 
 class RoleAssignMenuSchema(Schema):
     """角色菜单分配请求结构。"""
 
-    menu_ids = fields.List(fields.Int(), required=True, description='菜单ID列表')
+    menu_ids = fields.List(fields.Int(), required=True, metadata={'description': '菜单ID列表'})

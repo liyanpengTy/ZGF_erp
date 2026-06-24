@@ -52,6 +52,27 @@ class BusinessDataScopeService:
         return query.filter(scope_filter)
 
     @staticmethod
+    def apply_subject_scope(query, current_user, model, current_subject_id=None, user_id_field=None):
+        """按需求中的主体用户隔离规则过滤查询。"""
+        if current_user and current_user.is_internal_user:
+            return query
+
+        if current_subject_id:
+            return query.filter(model.subject_id == current_subject_id)
+
+        if user_id_field is not None and current_user:
+            return query.filter(user_id_field == current_user.id, model.subject_id.is_(None))
+
+        return query.filter(false())
+
+    @staticmethod
+    def apply_customer_scope(query, customer, model):
+        """按客户用户只能查看自己订单的规则过滤查询。"""
+        if not customer:
+            return query.filter(false())
+        return query.filter(model.customer_user_id == customer.id)
+
+    @staticmethod
     def check_related_users_scope(current_user, current_factory_id=None, *related_user_ids):
         """校验带有“创建人/客户/操作人”等关联用户的数据是否落在当前数据范围内。"""
         if not current_user:

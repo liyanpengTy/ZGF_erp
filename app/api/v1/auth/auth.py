@@ -6,10 +6,11 @@ from datetime import datetime
 from flask import request
 from flask_jwt_extended import create_access_token, get_jwt, get_jwt_identity
 from flask_restx import Namespace, Resource, fields
-from marshmallow import ValidationError
 
 from app.api.common.auth import require_current_user
 from app.api.common.models import get_common_models
+from app.api.common.response_helpers import load_json_or_error
+from app.api.common.serializers import serialize_schema
 from app.extensions import bcrypt
 from app.models.auth.user import User
 from app.schemas.auth.user import LoginRequestSchema, RegisterRequestSchema, SwitchFactorySchema, UserLoginSchema
@@ -17,7 +18,7 @@ from app.services import AuthService, LoginResponseBuilder
 from app.utils.permissions import login_required, refresh_required
 from app.utils.response import ApiResponse
 
-auth_ns = Namespace('璁よ瘉绠＄悊-auth', description='璁よ瘉绠＄悊')
+auth_ns = Namespace('认证管理-auth', description='认证管理')
 
 common = get_common_models(auth_ns)
 base_response = common['base_response']
@@ -25,104 +26,104 @@ error_response = common['error_response']
 unauthorized_response = common['unauthorized_response']
 forbidden_response = common['forbidden_response']
 
-login_request_model = auth_ns.model('LoginRequest', {
-    'username': fields.String(required=True, description='用户名', example='admin'),
-    'password': fields.String(required=True, description='密码', example='123456')
-})
+login_request_model = auth_ns.model(
+    'LoginRequest',
+    {
+        'username': fields.String(required=True, description='用户名', example='admin'),
+        'password': fields.String(required=True, description='密码', example='123456'),
+    },
+)
 
-switch_factory_model = auth_ns.model('SwitchFactoryRequest', {
-    'factory_id': fields.Integer(required=True, description='工厂 ID', example=1)
-})
+switch_factory_model = auth_ns.model(
+    'SwitchFactoryRequest',
+    {
+        'factory_id': fields.Integer(required=True, description='工厂 ID', example=1),
+    },
+)
 
-register_request_model = auth_ns.model('RegisterRequest', {
-    'username': fields.String(required=True, description='用户名', example='newuser'),
-    'password': fields.String(required=True, description='密码', example='123456'),
-    'nickname': fields.String(description='昵称', example='新用户'),
-    'phone': fields.String(description='手机号', example='13800138000'),
-    'invite_code': fields.String(description='邀请码', example='ABC12345')
-})
+register_request_model = auth_ns.model(
+    'RegisterRequest',
+    {
+        'username': fields.String(required=True, description='用户名', example='newuser'),
+        'password': fields.String(required=True, description='密码', example='123456'),
+        'nickname': fields.String(description='昵称', example='新用户'),
+        'phone': fields.String(required=True, description='手机号', example='13800138000'),
+        'invite_code': fields.String(description='邀请码', example='ABC12345'),
+    },
+)
 
-register_response_data = auth_ns.model('RegisterResponseData', {
-    'id': fields.Integer(description='用户 ID', example=8),
-    'username': fields.String(description='用户名', example='newuser'),
-    'invite_code': fields.String(description='邀请码', example='ABC12345')
-})
+register_response_data = auth_ns.model(
+    'RegisterResponseData',
+    {
+        'id': fields.Integer(description='用户 ID', example=8),
+        'username': fields.String(description='用户名', example='newuser'),
+        'invite_code': fields.String(description='邀请码', example='ABC12345'),
+    },
+)
 
-register_response = auth_ns.clone('RegisterResponse', base_response, {
-    'data': fields.Nested(register_response_data, description='注册结果数据')
-})
+user_info_model = auth_ns.model(
+    'UserInfo',
+    {
+        'id': fields.Integer(description='用户 ID', example=2),
+        'username': fields.String(description='用户名', example='factory_admin'),
+        'nickname': fields.String(description='昵称', example='工厂管理员'),
+        'phone': fields.String(description='手机号', example='18370601281'),
+        'avatar': fields.String(description='头像', example=None),
+        'platform_identity': fields.String(description='平台身份', example='external_user'),
+        'platform_identity_label': fields.String(description='平台身份名称', example='外部人员'),
+        'subject_type': fields.String(description='主体类型', example='factory_subject'),
+        'subject_type_label': fields.String(description='主体类型名称', example='工厂主体'),
+        'status': fields.Integer(description='状态', example=1),
+        'invite_code': fields.String(description='邀请码', example='ABC12346'),
+        'invited_count': fields.Integer(description='邀请人数', example=0),
+        'is_paid': fields.Integer(description='是否付费', example=0),
+        'create_time': fields.String(description='创建时间', example='2026-04-21 01:17:24'),
+        'last_login_time': fields.String(description='最后登录时间', example='2026-05-15 12:35:13'),
+    },
+)
 
-user_info_model = auth_ns.model('UserInfo', {
-    'id': fields.Integer(description='用户 ID', example=2),
-    'username': fields.String(description='用户名', example='factory_admin'),
-    'nickname': fields.String(description='昵称', example='工厂管理员'),
-    'phone': fields.String(description='手机号', example='18370601281'),
-    'avatar': fields.String(description='头像', example=None),
-    'platform_identity': fields.String(description='平台身份', example='external_user'),
-    'platform_identity_label': fields.String(description='平台身份名称', example='外部人员'),
-    'subject_type': fields.String(description='主体类型', example='factory_subject'),
-    'subject_type_label': fields.String(description='主体类型名称', example='工厂主体'),
-    'status': fields.Integer(description='状态', example=1),
-    'invite_code': fields.String(description='邀请码', example='ABC12346'),
-    'invited_count': fields.Integer(description='邀请人数', example=None),
-    'is_paid': fields.Integer(description='是否已付费', example=None),
-    'create_time': fields.String(description='创建时间', example='2026-04-21 01:17:24'),
-    'last_login_time': fields.String(description='最后登录时间', example='2026-05-15 12:35:13')
-})
+factory_info_model = auth_ns.model(
+    'FactoryInfo',
+    {
+        'id': fields.Integer(description='工厂 ID', example=1),
+        'name': fields.String(description='工厂名称', example='测试工厂'),
+        'code': fields.String(description='工厂编码', example='TEST001'),
+        'relation_type': fields.String(description='关系类型', example='owner'),
+        'relation_type_label': fields.String(description='关系类型名称', example='工厂管理员'),
+        'collaborator_type': fields.String(description='协作类型', example=None),
+        'collaborator_type_label': fields.String(description='协作类型名称', example=None),
+        'service_expire_date': fields.String(description='服务到期日期', example=None),
+        'service_status': fields.String(description='服务状态', example='active'),
+    },
+)
 
-factory_info_model = auth_ns.model('FactoryInfo', {
-    'id': fields.Integer(description='工厂 ID', example=1),
-    'name': fields.String(description='工厂名称', example='测试工厂'),
-    'code': fields.String(description='工厂编码', example='TEST001'),
-    'relation_type': fields.String(description='关系类型', example='owner'),
-    'relation_type_label': fields.String(description='关系类型名称', example='工厂管理员'),
-    'collaborator_type': fields.String(description='协作类型', example=None),
-    'collaborator_type_label': fields.String(description='协作类型名称', example=None),
-    'service_expire_date': fields.String(description='服务到期日期', example=None),
-    'service_status': fields.String(description='服务状态', example='active')
-})
+login_response_data = auth_ns.model(
+    'LoginResponseData',
+    {
+        'access_token': fields.String(description='访问令牌', example='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.access'),
+        'refresh_token': fields.String(description='刷新令牌', example='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.refresh'),
+        'user_info': fields.Nested(user_info_model, description='用户信息'),
+        'factories': fields.List(fields.Nested(factory_info_model), description='关联工厂列表'),
+        'current_factory': fields.Nested(factory_info_model, description='当前工厂', allow_null=True),
+    },
+)
 
-login_response_data = auth_ns.model('LoginResponseData', {
-    'access_token': fields.String(description='访问令牌', example='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.access'),
-    'refresh_token': fields.String(description='刷新令牌', example='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.refresh'),
-    'user_info': fields.Nested(user_info_model, description='用户信息'),
-    'factories': fields.List(fields.Nested(factory_info_model), description='关联工厂列表'),
-    'current_factory': fields.Nested(factory_info_model, description='当前工厂', allow_null=True)
-})
+refresh_response_data = auth_ns.model(
+    'RefreshResponseData',
+    {
+        'access_token': fields.String(description='新的访问令牌', example='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.new_access'),
+    },
+)
 
-refresh_response_data = auth_ns.model('RefreshResponseData', {
-    'access_token': fields.String(description='新的访问令牌', example='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.new_access')
-})
-
-login_response = auth_ns.clone('LoginResponse', base_response, {
-    'data': fields.Nested(login_response_data, description='登录结果数据')
-})
-
-refresh_response = auth_ns.clone('RefreshResponse', base_response, {
-    'data': fields.Nested(refresh_response_data, description='刷新令牌结果数据')
-})
-
-user_info_response = auth_ns.clone('UserInfoResponse', base_response, {
-    'data': fields.Nested(user_info_model, description='当前用户信息')
-})
-
-my_factories_response = auth_ns.clone('MyFactoriesResponse', base_response, {
-    'data': fields.List(
-        fields.Nested(factory_info_model),
-        description='当前用户已绑定的工厂列表',
-        example=[{
-            'id': 1,
-            'name': '测试工厂',
-            'code': 'TEST001',
-            'relation_type': 'owner',
-            'relation_type_label': '工厂管理员',
-            'collaborator_type': None,
-            'collaborator_type_label': None,
-            'service_expire_date': None,
-            'service_status': 'active'
-        }]
-    )
-})
+register_response = auth_ns.clone('RegisterResponse', base_response, {'data': fields.Nested(register_response_data, description='注册结果数据')})
+login_response = auth_ns.clone('LoginResponse', base_response, {'data': fields.Nested(login_response_data, description='登录结果数据')})
+refresh_response = auth_ns.clone('RefreshResponse', base_response, {'data': fields.Nested(refresh_response_data, description='刷新令牌结果数据')})
+user_info_response = auth_ns.clone('UserInfoResponse', base_response, {'data': fields.Nested(user_info_model, description='当前用户信息')})
+my_factories_response = auth_ns.clone(
+    'MyFactoriesResponse',
+    base_response,
+    {'data': fields.List(fields.Nested(factory_info_model), description='当前用户已绑定的工厂列表')},
+)
 
 login_request_schema = LoginRequestSchema()
 register_request_schema = RegisterRequestSchema()
@@ -139,7 +140,7 @@ def build_register_payload(user):
     return {
         'id': user.id,
         'username': user.username,
-        'invite_code': user.invite_code
+        'invite_code': user.invite_code,
     }
 
 
@@ -150,11 +151,10 @@ class Login(Resource):
     @auth_ns.response(400, '用户名或密码错误', error_response)
     @auth_ns.response(401, '账号已被禁用', unauthorized_response)
     def post(self):
-        """账号密码登录，并根据身份决定是否附带工厂上下文。"""
-        try:
-            data = login_request_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        """账号密码登录接口，并根据身份决定是否附带工厂上下文。"""
+        data, validation_error = load_json_or_error(login_request_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         user, error = AuthService.authenticate(data['username'], data['password'])
         if error:
@@ -174,14 +174,14 @@ class Login(Resource):
             user,
             factory_id=current_factory['id'],
             relation_type=current_factory['relation_type'],
-            collaborator_type=current_factory.get('collaborator_type')
+            collaborator_type=current_factory.get('collaborator_type'),
         )
         return LoginResponseBuilder.build_employee(
             user,
             access_token,
             refresh_token,
             factories,
-            current_factory
+            current_factory,
         )
 
 
@@ -199,14 +199,7 @@ class RefreshToken(Resource):
             user_id = identity.get('user_id') if isinstance(identity, dict) else int(identity)
 
         additional_claims = {'user_id': user_id}
-        for key in [
-            'factory_id',
-            'relation_type',
-            'collaborator_type',
-            'platform_identity',
-            'subject_type',
-            'has_factory'
-        ]:
+        for key in ['factory_id', 'relation_type', 'collaborator_type', 'platform_identity', 'subject_type', 'has_factory']:
             if key in old_claims:
                 additional_claims[key] = old_claims[key]
 
@@ -226,7 +219,7 @@ class UserInfo(Resource):
             return error_response_data
 
         user_schema = UserLoginSchema()
-        return ApiResponse.success(user_schema.dump(user))
+        return ApiResponse.success(serialize_schema(user_schema, user))
 
 
 @auth_ns.route('/switch-factory')
@@ -245,10 +238,9 @@ class SwitchFactory(Resource):
         if AuthService.is_internal_user(user):
             return ApiResponse.error('平台内部人员不使用工厂切换上下文', 400)
 
-        try:
-            data = switch_factory_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(switch_factory_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         user_factory = AuthService.verify_factory_permission(user.id, data['factory_id'])
         if not user_factory:
@@ -262,7 +254,7 @@ class SwitchFactory(Resource):
             user,
             factory_id=data['factory_id'],
             relation_type=user_factory.relation_type,
-            collaborator_type=user_factory.collaborator_type
+            collaborator_type=user_factory.collaborator_type,
         )
         factories = AuthService.get_user_factories(user.id)
         current_factory = AuthService.build_factory_context(user_factory)
@@ -271,7 +263,7 @@ class SwitchFactory(Resource):
             access_token,
             refresh_token,
             factories,
-            current_factory
+            current_factory,
         )
 
 
@@ -306,40 +298,33 @@ class Register(Resource):
     @auth_ns.response(409, '用户名已存在', error_response)
     def post(self):
         """注册外部普通用户账号，并生成邀请码。"""
-        try:
-            data = register_request_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(register_request_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
-        username = data['username']
-        password = data['password']
-        nickname = data.get('nickname', '')
-        phone = data.get('phone', '')
-        invite_code = data.get('invite_code')
-
-        existing = User.query.filter_by(username=username, is_deleted=0).first()
+        existing = User.query.filter_by(username=data['username'], is_deleted=0).first()
         if existing:
             return ApiResponse.error('用户名已存在', 409)
 
         inviter = None
-        if invite_code:
-            inviter = User.query.filter_by(invite_code=invite_code, is_deleted=0).first()
+        if data.get('invite_code'):
+            inviter = User.query.filter_by(invite_code=data['invite_code'], is_deleted=0).first()
 
-        user_invite_code = hashlib.md5(f'{username}{datetime.now()}'.encode()).hexdigest()[:8].upper()
+        user_invite_code = hashlib.md5(f"{data['username']}{datetime.now()}".encode()).hexdigest()[:8].upper()
         while User.query.filter_by(invite_code=user_invite_code).first():
-            user_invite_code = hashlib.md5(f'{username}{datetime.now()}'.encode()).hexdigest()[:8].upper()
+            user_invite_code = hashlib.md5(f"{data['username']}{datetime.now()}".encode()).hexdigest()[:8].upper()
 
         user = User(
-            username=username,
-            password=bcrypt.generate_password_hash(password).decode('utf-8'),
-            nickname=nickname,
-            phone=phone,
-            platform_identity='external_user',
+            username=data['username'],
+            password=bcrypt.generate_password_hash(data['password']).decode('utf-8'),
+            nickname=data.get('nickname', ''),
+            phone=data.get('phone', ''),
+            platform_identity=PLATFORM_IDENTITY_EXTERNAL,
             status=1,
             invite_code=user_invite_code,
             invited_by=inviter.id if inviter else None,
             invited_count=0,
-            is_paid=0
+            is_paid=0,
         )
         user.save()
 

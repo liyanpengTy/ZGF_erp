@@ -25,7 +25,7 @@ def range_int(min_val, max_val):
         try:
             parsed = int(value)
             if parsed < min_val or parsed > max_val:
-                raise ValueError(f"取值范围 {min_val} - {max_val}")
+                raise ValueError()
             return parsed
         except ValueError as exc:
             raise ValueError(f"必须是 {min_val} - {max_val} 之间的整数") from exc
@@ -40,6 +40,30 @@ def validate_date(value):
         return value
     except ValueError as exc:
         raise ValueError("日期格式必须为 YYYY-MM-DD") from exc
+
+
+def is_empty_query(args, fields):
+    """判断指定查询字段是否全部未传或为空字符串。"""
+    return all(args.get(field) in (None, "") for field in fields)
+
+
+def normalize_page_args(args, default_page=1, default_page_size=10, max_page_size=100):
+    """规范化分页参数，兼容空字符串并校验范围。"""
+    raw_page = args.get("page")
+    raw_page_size = args.get("page_size")
+
+    try:
+        page = int(raw_page or default_page)
+        page_size = int(raw_page_size or default_page_size)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("page 和 page_size 必须为整数") from exc
+
+    if page < 1:
+        raise ValueError("page 必须大于等于 1")
+    if page_size < 1 or page_size > max_page_size:
+        raise ValueError(f"page_size 必须在 1 到 {max_page_size} 之间")
+
+    return page, page_size
 
 
 def _strip_blank_query_args(query_args):

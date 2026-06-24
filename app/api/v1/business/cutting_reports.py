@@ -2,11 +2,16 @@
 
 from flask import request
 from flask_restx import Namespace, Resource, fields
-from marshmallow import ValidationError
 
-from app.api.common.factory_context import resolve_read_factory_context, resolve_write_factory_context
+from app.api.common.business_resource_helpers import (
+    get_accessible_business_resource_or_error,
+    get_business_request_context,
+    get_writable_business_resource_or_error,
+)
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_with_date_parser
+from app.api.common.response_helpers import load_json_or_error, success_schema_page
+from app.api.common.serializers import serialize_schema
 from app.constants.permissions import (
     PERM_BUSINESS_CUTTING_REPORT_ADD,
     PERM_BUSINESS_CUTTING_REPORT_DELETE,
@@ -27,6 +32,7 @@ unauthorized_response = common["unauthorized_response"]
 forbidden_response = common["forbidden_response"]
 build_page_data_model = common["build_page_data_model"]
 build_page_response_model = common["build_page_response_model"]
+build_item_response_model = common["build_item_response_model"]
 
 cutting_report_query_parser = page_with_date_parser.copy()
 cutting_report_query_parser.add_argument("factory_id", type=int, location="args", help="工厂 ID；平台内部用户可选传")
@@ -118,10 +124,12 @@ cutting_report_list_response = build_page_response_model(
     cutting_report_list_data,
     "裁床报工分页数据",
 )
-cutting_report_item_response = cutting_report_ns.clone(
+cutting_report_item_response = build_item_response_model(
+    cutting_report_ns,
     "CuttingReportItemResponse",
     base_response,
-    {"data": fields.Nested(cutting_report_item_model, description="裁床报工详情")},
+    cutting_report_item_model,
+    "裁床报工详情",
 )
 
 cutting_report_schema = WorkCuttingReportSchema()
@@ -131,35 +139,22 @@ cutting_report_create_schema = CuttingReportCreateSchema()
 
 def get_accessible_cutting_report_or_error(report_id):
     """查询当前上下文可访问的裁床报工，不可访问时返回统一错误响应。"""
-    current_user, current_factory_id, error_response_obj = resolve_read_factory_context(
-        allow_internal_without_factory=True,
+    return get_accessible_business_resource_or_error(
+        report_id,
+        CuttingReportService.get_cutting_report_by_id,
+        CuttingReportService.check_permission,
+        "裁床报工不存在",
     )
-    if error_response_obj:
-        return None, None, None, error_response_obj
-
-    report = CuttingReportService.get_cutting_report_by_id(report_id)
-    if not report:
-        return None, None, None, ApiResponse.error("裁床报工不存在", 404)
-
-    has_permission, error = CuttingReportService.check_permission(current_user, current_factory_id, report)
-    if not has_permission:
-        return None, None, None, ApiResponse.error(error, 403)
-    return current_user, current_factory_id, report, None
 
 
 def get_writable_cutting_report_or_error(report_id):
     """查询当前工厂下可撤销的裁床报工，不存在时返回统一错误响应。"""
-    current_user, current_factory_id, error_response_obj = resolve_write_factory_context()
-    if error_response_obj:
-        return None, None, None, error_response_obj
-
-    report = CuttingReportService.get_cutting_report_by_id(report_id)
-    if not report or report.factory_id != current_factory_id:
-        return None, None, None, ApiResponse.error("裁床报工不存在", 404)
-    has_permission, error = CuttingReportService.check_permission(current_user, current_factory_id, report)
-    if not has_permission:
-        return None, None, None, ApiResponse.error(error, 403)
-    return current_user, current_factory_id, report, None
+    return get_writable_business_resource_or_error(
+        report_id,
+        CuttingReportService.get_cutting_report_by_id,
+        CuttingReportService.check_permission,
+        "裁床报工不存在",
+    )
 
 
 @cutting_report_ns.route("")
@@ -173,7 +168,7 @@ class CuttingReportList(Resource):
     def get(self):
         """分页查询裁床报工接口，平台内部用户可跨工厂读取，外部用户按当前工厂读取。"""
         args = cutting_report_query_parser.parse_args()
-        current_user, current_factory_id, error_response_obj = resolve_read_factory_context(
+        current_user, current_factory_id, error_response_obj = get_business_request_context(
             query_factory_id=args.get("factory_id"),
             allow_internal_without_factory=True,
         )
@@ -181,7 +176,7 @@ class CuttingReportList(Resource):
             return error_response_obj
 
         result = CuttingReportService.get_cutting_report_list(current_user, current_factory_id, args)
-        return ApiResponse.success_page_result(result, cutting_reports_schema.dump(result["items"]))
+        return success_schema_page(result, cutting_report_schema)
 
     @login_required
     @button_permission(PERM_BUSINESS_CUTTING_REPORT_ADD)
@@ -192,20 +187,19 @@ class CuttingReportList(Resource):
     @cutting_report_ns.response(403, "无权限", forbidden_response)
     def post(self):
         """创建裁床报工接口，并按模板自动生成一张或多张菲。"""
-        current_user, current_factory_id, error_response_obj = resolve_write_factory_context()
+        current_user, current_factory_id, error_response_obj = get_business_request_context(require_write=True)
         if error_response_obj:
             return error_response_obj
 
-        try:
-            data = cutting_report_create_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(cutting_report_create_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         report, error = CuttingReportService.create_cutting_report(current_user, current_factory_id, data)
         if error:
             return ApiResponse.error(error, 400)
 
-        return ApiResponse.success(cutting_report_schema.dump(report), "创建成功", 201)
+        return ApiResponse.success(serialize_schema(cutting_report_schema, report), "创建成功", 201)
 
 
 @cutting_report_ns.route("/<int:report_id>")
@@ -222,7 +216,7 @@ class CuttingReportDetail(Resource):
         if error_response_data:
             return error_response_data
 
-        return ApiResponse.success(cutting_report_schema.dump(report))
+        return ApiResponse.success(serialize_schema(cutting_report_schema, report))
 
     @login_required
     @button_permission(PERM_BUSINESS_CUTTING_REPORT_DELETE)

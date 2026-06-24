@@ -14,6 +14,8 @@ class Order(BaseModel):
     __table_args__ = (
         db.Index('idx_ord_order_order_no', 'order_no'),
         db.Index('idx_ord_order_factory_id', 'factory_id'),
+        db.Index('idx_ord_order_subject_id', 'subject_id'),
+        db.Index('idx_ord_order_customer_user_id', 'customer_user_id'),
         db.Index('idx_ord_order_status', 'status'),
         db.Index('idx_ord_order_order_date', 'order_date'),
         {'comment': '订单主表'},
@@ -22,11 +24,16 @@ class Order(BaseModel):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     order_no = db.Column(db.String(50), unique=True, nullable=False, comment='订单号')
     factory_id = db.Column(db.Integer, db.ForeignKey('sys_factory.id'), nullable=False, comment='工厂ID')
+    subject_id = db.Column(db.Integer, db.ForeignKey('sys_factory.id'), comment='主体ID，新增业务按该字段做数据隔离')
     customer_id = db.Column(db.Integer, db.ForeignKey('sys_user.id'), comment='客户ID')
+    customer_user_id = db.Column(db.Integer, db.ForeignKey('customer_user.id'), comment='客户用户ID')
     customer_name = db.Column(db.String(100), comment='客户名称')
     order_date = db.Column(db.Date, nullable=False, comment='订单日期')
     delivery_date = db.Column(db.Date, comment='交付日期')
+    expected_finish_at = db.Column(db.DateTime, comment='预计完成时间')
     status = db.Column(db.String(20), default='pending', comment='订单状态')
+    total_quantity = db.Column(db.Integer, default=0, comment='总数量')
+    completed_quantity = db.Column(db.Integer, default=0, comment='已完成数量')
     total_amount = db.Column(db.Numeric(12, 2), default=0, comment='订单总金额')
     remark = db.Column(db.String(500), comment='备注')
     is_deleted = db.Column(db.SmallInteger, default=0, comment='逻辑删除')
@@ -35,8 +42,10 @@ class Order(BaseModel):
     create_by = db.Column(db.Integer, comment='创建人ID')
     update_by = db.Column(db.Integer, comment='更新人ID')
 
-    factory = db.relationship('Factory', backref='orders')
+    factory = db.relationship('Factory', foreign_keys=[factory_id], backref='orders')
+    subject = db.relationship('Factory', foreign_keys=[subject_id], backref='subject_orders')
     customer = db.relationship('User', backref='orders')
+    customer_user = db.relationship('CustomerUser', backref='orders')
     details = db.relationship('OrderDetail', backref='order', cascade='all, delete-orphan')
 
     def to_dict(self):
@@ -45,12 +54,17 @@ class Order(BaseModel):
             'id': self.id,
             'order_no': self.order_no,
             'factory_id': self.factory_id,
+            'subject_id': self.subject_id or self.factory_id,
             'customer_id': self.customer_id,
+            'customer_user_id': self.customer_user_id,
             'customer_name': self.customer_name,
             'order_date': self.order_date.isoformat() if self.order_date else None,
             'delivery_date': self.delivery_date.isoformat() if self.delivery_date else None,
+            'expected_finish_at': self.expected_finish_at.isoformat() if self.expected_finish_at else None,
             'status': self.status,
             'status_label': self.get_status_label(),
+            'total_quantity': self.total_quantity,
+            'completed_quantity': self.completed_quantity,
             'total_amount': float(self.total_amount) if self.total_amount else 0,
             'remark': self.remark,
             'create_time': self.create_time.isoformat() if self.create_time else None,

@@ -2,11 +2,16 @@
 
 from flask import request
 from flask_restx import Namespace, Resource, fields
-from marshmallow import ValidationError
 
-from app.api.common.factory_context import resolve_read_factory_context, resolve_write_factory_context
+from app.api.common.business_resource_helpers import (
+    get_accessible_business_resource_or_error,
+    get_business_request_context,
+    get_writable_business_resource_or_error,
+)
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_with_date_parser
+from app.api.common.response_helpers import load_json_or_error, success_schema_page
+from app.api.common.serializers import serialize_schema
 from app.constants.permissions import (
     PERM_BUSINESS_SHIPMENT_ADD,
     PERM_BUSINESS_SHIPMENT_CANCEL,
@@ -27,6 +32,7 @@ unauthorized_response = common['unauthorized_response']
 forbidden_response = common['forbidden_response']
 build_page_data_model = common['build_page_data_model']
 build_page_response_model = common['build_page_response_model']
+build_item_response_model = common['build_item_response_model']
 build_named_quantity_model = common['build_named_quantity_model']
 
 shipment_query_parser = page_with_date_parser.copy()
@@ -68,9 +74,11 @@ shipment_model = shipment_ns.model('ShipmentView', {
     'id': fields.Integer(description='出货单 ID', example=1),
     'shipment_no': fields.String(description='出货单号', example='SHP1202605160001'),
     'factory_id': fields.Integer(description='工厂 ID', example=1),
+    'subject_id': fields.Integer(description='主体 ID；新业务数据隔离使用该字段', example=1),
     'order_id': fields.Integer(description='订单 ID', example=16),
     'order_no': fields.String(description='订单号', example='DEMO-ORDER-002'),
     'customer_id': fields.Integer(description='客户 ID', allow_null=True),
+    'customer_user_id': fields.Integer(description='客户用户 ID', allow_null=True),
     'customer_name': fields.String(description='客户名称', allow_null=True),
     'ship_date': fields.String(description='出货日期', example='2026-05-16'),
     'status': fields.String(description='状态编码', example='created'),
@@ -126,9 +134,7 @@ shipment_list_response = build_page_response_model(
     shipment_list_data,
     '出货单分页数据',
 )
-shipment_item_response = shipment_ns.clone('ShipmentItemResponse', base_response, {
-    'data': fields.Nested(shipment_model, description='出货单详情'),
-})
+shipment_item_response = build_item_response_model(shipment_ns, 'ShipmentItemResponse', base_response, shipment_model, '出货单详情')
 
 shipment_schema = ShipmentSchema()
 shipments_schema = ShipmentSchema(many=True)
@@ -138,43 +144,33 @@ shipment_cancel_schema = ShipmentCancelSchema()
 
 def get_shipment_request_context():
     """获取出货单接口通用的当前用户和工厂上下文。"""
-    return resolve_read_factory_context(allow_internal_without_factory=True)
+    return get_business_request_context(allow_internal_without_factory=True)
 
 
 def require_shipment_write_context():
     """校验出货单写操作必须存在工厂上下文。"""
-    return resolve_write_factory_context()
+    return get_business_request_context(require_write=True)
 
 
 def get_accessible_shipment_or_error(shipment_id):
     """查询当前上下文可访问的出货单，不可访问时返回统一错误响应。"""
-    current_user, current_factory_id, error_response_data = get_shipment_request_context()
-    if error_response_data:
-        return None, None, None, error_response_data
-
-    shipment = ShipmentService.get_shipment_by_id(shipment_id)
-    if not shipment:
-        return None, None, None, ApiResponse.error('出货单不存在', 404)
-
-    has_permission, error = ShipmentService.check_permission(current_user, current_factory_id, shipment)
-    if not has_permission:
-        return None, None, None, ApiResponse.error(error, 403)
-    return current_user, current_factory_id, shipment, None
+    return get_accessible_business_resource_or_error(
+        shipment_id,
+        ShipmentService.get_shipment_by_id,
+        ShipmentService.check_permission,
+        '出货单不存在',
+    )
 
 
 def get_writable_shipment_or_error(shipment_id):
     """查询当前工厂下可写入的出货单，不存在或超出数据范围时返回统一错误响应。"""
-    current_user, current_factory_id, error_response_data = require_shipment_write_context()
-    if error_response_data:
-        return None, None, None, error_response_data
-
-    shipment = ShipmentService.get_shipment_by_id(shipment_id)
-    if not shipment or shipment.factory_id != current_factory_id:
-        return None, None, None, ApiResponse.error('出货单不存在', 404)
-    has_permission, error = ShipmentService.check_permission(current_user, current_factory_id, shipment)
-    if not has_permission:
-        return None, None, None, ApiResponse.error(error, 403)
-    return current_user, current_factory_id, shipment, None
+    return get_writable_business_resource_or_error(
+        shipment_id,
+        ShipmentService.get_shipment_by_id,
+        ShipmentService.check_permission,
+        '出货单不存在',
+        scope_matcher=lambda shipment, current_factory_id: (shipment.subject_id or shipment.factory_id) == current_factory_id,
+    )
 
 
 @shipment_ns.route('')
@@ -188,7 +184,7 @@ class ShipmentList(Resource):
     def get(self):
         """查询出货单分页列表接口。平台内部用户可直接全局查询，外部用户仍按当前工厂范围查询。"""
         args = shipment_query_parser.parse_args()
-        current_user, current_factory_id, error_response_data = resolve_read_factory_context(
+        current_user, current_factory_id, error_response_data = get_business_request_context(
             query_factory_id=args.get('factory_id'),
             allow_internal_without_factory=True,
         )
@@ -196,9 +192,9 @@ class ShipmentList(Resource):
             return error_response_data
 
         result = ShipmentService.get_shipment_list(current_user, current_factory_id, args)
-        return ApiResponse.success_page_result(
+        return success_schema_page(
             result,
-            shipments_schema.dump(result['items']),
+            shipment_schema,
             extra={'statistics': ShipmentService.build_shipment_list_statistics(result['items'])},
         )
 
@@ -215,15 +211,14 @@ class ShipmentList(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = shipment_create_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(shipment_create_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         shipment, error = ShipmentService.create_shipment(current_user, current_factory_id, data)
         if error:
             return ApiResponse.error(error, 400)
-        return ApiResponse.success(shipment_schema.dump(shipment), '创建成功', 201)
+        return ApiResponse.success(serialize_schema(shipment_schema, shipment), '创建成功', 201)
 
 
 @shipment_ns.route('/<int:shipment_id>')
@@ -239,7 +234,7 @@ class ShipmentDetail(Resource):
         _, _, shipment, error_response_data = get_accessible_shipment_or_error(shipment_id)
         if error_response_data:
             return error_response_data
-        return ApiResponse.success(shipment_schema.dump(shipment))
+        return ApiResponse.success(serialize_schema(shipment_schema, shipment))
 
 
 @shipment_ns.route('/<int:shipment_id>/cancel')
@@ -258,12 +253,11 @@ class ShipmentCancel(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = shipment_cancel_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(shipment_cancel_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         shipment, error = ShipmentService.cancel_shipment(shipment, current_user, data.get('remark', ''))
         if error:
             return ApiResponse.error(error, 400)
-        return ApiResponse.success(shipment_schema.dump(shipment), '作废成功')
+        return ApiResponse.success(serialize_schema(shipment_schema, shipment), '作废成功')

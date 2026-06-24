@@ -9,6 +9,8 @@ from app.constants.identity import (
     SUBJECT_TYPE_FACTORY,
     SUBJECT_TYPE_INDIVIDUAL,
     SUBJECT_TYPE_PARTNER,
+    USER_TYPE_INTERNAL,
+    USER_TYPE_SUBJECT,
     infer_subject_type,
     is_internal_platform_identity,
 )
@@ -35,6 +37,12 @@ class User(BaseModel):
         default=PLATFORM_IDENTITY_EXTERNAL,
         nullable=False,
         comment='平台身份：platform_admin/platform_staff/external_user',
+    )
+    user_type = db.Column(
+        db.String(20),
+        default=USER_TYPE_SUBJECT,
+        nullable=False,
+        comment='用户类型：internal/subject_user/customer',
     )
     status = db.Column(db.SmallInteger, default=1, comment='账号状态：1-正常，0-禁用')
     last_login_time = db.Column(db.DateTime, comment='最后登录时间')
@@ -73,7 +81,12 @@ class User(BaseModel):
     @property
     def is_internal_user(self):
         """判断当前用户是否属于平台内部账号。"""
-        return is_internal_platform_identity(self.platform_identity)
+        return self.user_type == USER_TYPE_INTERNAL or is_internal_platform_identity(self.platform_identity)
+
+    @property
+    def is_subject_user(self):
+        """判断当前用户是否为主体用户。"""
+        return self.user_type == USER_TYPE_SUBJECT and not self.is_internal_user
 
     def get_subject_type(self, relation_types=None):
         """根据平台身份和关系推断主体类型。"""
@@ -93,5 +106,6 @@ class User(BaseModel):
         """导出用户数据并隐藏密码字段。"""
         data = super().to_dict()
         data['platform_identity_label'] = self.platform_identity_label
+        data['is_subject_user'] = self.is_subject_user
         data.pop('password', None)
         return data

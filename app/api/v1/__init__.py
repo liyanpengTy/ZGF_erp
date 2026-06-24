@@ -3,9 +3,11 @@
 from flask import Blueprint
 from flask_restx import Api
 
+from app.api.common.namespace_registry import merge_namespace_routes, register_namespace_routes
 from app.api.v1.auth import NAMESPACE_ROUTES as AUTH_NAMESPACE_ROUTES
 from app.api.v1.base_data import NAMESPACE_ROUTES as BASE_DATA_NAMESPACE_ROUTES
 from app.api.v1.business import NAMESPACE_ROUTES as BUSINESS_NAMESPACE_ROUTES
+from app.api.v1.customer import NAMESPACE_ROUTES as CUSTOMER_NAMESPACE_ROUTES
 from app.api.v1.profile import NAMESPACE_ROUTES as PROFILE_NAMESPACE_ROUTES
 from app.api.v1.system import NAMESPACE_ROUTES as SYSTEM_NAMESPACE_ROUTES
 
@@ -19,13 +21,13 @@ api = Api(
     description='ZGF_ERP_PC_API 文档'
 )
 
-ALL_NAMESPACE_ROUTES = (
-    AUTH_NAMESPACE_ROUTES
-    + SYSTEM_NAMESPACE_ROUTES
-    + PROFILE_NAMESPACE_ROUTES
-    + BASE_DATA_NAMESPACE_ROUTES
-    + BUSINESS_NAMESPACE_ROUTES
+ALL_NAMESPACE_ROUTES = merge_namespace_routes(
+    AUTH_NAMESPACE_ROUTES,
+    SYSTEM_NAMESPACE_ROUTES,
+    PROFILE_NAMESPACE_ROUTES,
+    BASE_DATA_NAMESPACE_ROUTES,
+    BUSINESS_NAMESPACE_ROUTES,
+    CUSTOMER_NAMESPACE_ROUTES,
 )
 
-for namespace, path in ALL_NAMESPACE_ROUTES:
-    api.add_namespace(namespace, path=path)
+register_namespace_routes(api, ALL_NAMESPACE_ROUTES)

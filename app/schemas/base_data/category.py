@@ -17,7 +17,7 @@ class CategorySchema(Schema):
     remark = fields.Str()
     create_time = fields.DateTime(format='%Y-%m-%d %H:%M:%S')
     update_time = fields.DateTime(format='%Y-%m-%d %H:%M:%S')
-    children = fields.List(fields.Nested(lambda: CategorySchema()), load_default=[])
+    children = fields.List(fields.Nested(lambda: CategorySchema()), load_default=list, dump_default=list)
 
 
 class CategoryCreateSchema(Schema):

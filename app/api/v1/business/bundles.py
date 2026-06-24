@@ -2,11 +2,16 @@
 
 from flask import request
 from flask_restx import Namespace, Resource, fields
-from marshmallow import ValidationError
 
-from app.api.common.factory_context import resolve_read_factory_context, resolve_write_factory_context
+from app.api.common.business_resource_helpers import (
+    get_accessible_business_resource_or_error,
+    get_business_request_context,
+    get_writable_business_resource_or_error,
+)
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
+from app.api.common.response_helpers import load_json_or_error, success_schema_page
+from app.api.common.serializers import serialize_schema
 from app.constants.permissions import (
     PERM_BUSINESS_BUNDLE_COMPLETE,
     PERM_BUSINESS_BUNDLE_ISSUE,
@@ -37,6 +42,7 @@ unauthorized_response = common["unauthorized_response"]
 forbidden_response = common["forbidden_response"]
 build_page_data_model = common["build_page_data_model"]
 build_page_response_model = common["build_page_response_model"]
+build_item_response_model = common["build_item_response_model"]
 
 bundle_query_parser = page_parser.copy()
 bundle_query_parser.add_argument("factory_id", type=int, location="args", help="工厂 ID，平台内部用户可选传")
@@ -139,11 +145,7 @@ bundle_list_response = build_page_response_model(
     bundle_list_data,
     "菲分页数据",
 )
-bundle_item_response = bundle_ns.clone(
-    "BundleItemResponse",
-    base_response,
-    {"data": fields.Nested(bundle_item_model, description="菲详情")},
-)
+bundle_item_response = build_item_response_model(bundle_ns, "BundleItemResponse", base_response, bundle_item_model, "菲详情")
 
 bundle_print_preview_model = bundle_ns.model(
     "BundlePrintPreviewView",
@@ -156,10 +158,12 @@ bundle_print_preview_model = bundle_ns.model(
         "lines": fields.List(fields.String, description="按行拆分后的打印预览内容"),
     },
 )
-bundle_print_preview_response = bundle_ns.clone(
+bundle_print_preview_response = build_item_response_model(
+    bundle_ns,
     "BundlePrintPreviewResponse",
     base_response,
-    {"data": fields.Nested(bundle_print_preview_model, description="打印预览数据")},
+    bundle_print_preview_model,
+    "打印预览数据",
 )
 
 bundle_issue_model = bundle_ns.model(
@@ -241,14 +245,15 @@ bundle_in_hand_statistics_model = bundle_ns.model(
         "status_totals": fields.List(fields.Nested(bundle_status_total_model), description="按状态汇总"),
     },
 )
-bundle_in_hand_statistics_response = bundle_ns.clone(
+bundle_in_hand_statistics_response = build_item_response_model(
+    bundle_ns,
     "BundleInHandStatisticsResponse",
     base_response,
-    {"data": fields.Nested(bundle_in_hand_statistics_model, description="在手统计数据")},
+    bundle_in_hand_statistics_model,
+    "在手统计数据",
 )
 
 bundle_schema = ProductionBundleSchema()
-bundles_schema = ProductionBundleSchema(many=True)
 bundle_transfer_schema = BundleTransferSchema()
 bundle_issue_schema = BundleIssueSchema()
 bundle_return_schema = BundleReturnSchema()
@@ -258,35 +263,22 @@ bundle_print_schema = BundlePrintSchema()
 
 def get_accessible_bundle_or_error(bundle_id):
     """查询当前上下文可访问的菲，不可访问时返回统一错误响应。"""
-    current_user, current_factory_id, error_response_obj = resolve_read_factory_context(
-        allow_internal_without_factory=True,
+    return get_accessible_business_resource_or_error(
+        bundle_id,
+        BundleService.get_bundle_by_id,
+        BundleService.check_permission,
+        "菲不存在",
     )
-    if error_response_obj:
-        return None, None, None, error_response_obj
-
-    bundle = BundleService.get_bundle_by_id(bundle_id)
-    if not bundle:
-        return None, None, None, ApiResponse.error("菲不存在", 404)
-
-    has_permission, error = BundleService.check_permission(current_user, current_factory_id, bundle)
-    if not has_permission:
-        return None, None, None, ApiResponse.error(error, 403)
-    return current_user, current_factory_id, bundle, None
 
 
 def get_writable_bundle_or_error(bundle_id):
     """查询当前工厂下可写入的菲，不存在时返回统一错误响应。"""
-    current_user, current_factory_id, error_response_obj = resolve_write_factory_context()
-    if error_response_obj:
-        return None, None, None, error_response_obj
-
-    bundle = BundleService.get_bundle_by_id(bundle_id)
-    if not bundle or bundle.factory_id != current_factory_id:
-        return None, None, None, ApiResponse.error("菲不存在", 404)
-    has_permission, error = BundleService.check_permission(current_user, current_factory_id, bundle)
-    if not has_permission:
-        return None, None, None, ApiResponse.error(error, 403)
-    return current_user, current_factory_id, bundle, None
+    return get_writable_business_resource_or_error(
+        bundle_id,
+        BundleService.get_bundle_by_id,
+        BundleService.check_permission,
+        "菲不存在",
+    )
 
 
 @bundle_ns.route("/in-hand-statistics")
@@ -300,7 +292,7 @@ class BundleInHandStatistics(Resource):
     def get(self):
         """查询菲在手统计接口，支持按工厂、持有人和工序维度汇总。"""
         args = bundle_in_hand_stats_parser.parse_args()
-        current_user, current_factory_id, error_response_obj = resolve_read_factory_context(
+        current_user, current_factory_id, error_response_obj = get_business_request_context(
             query_factory_id=args.get("factory_id"),
             allow_internal_without_factory=True,
         )
@@ -322,7 +314,7 @@ class BundleList(Resource):
     def get(self):
         """分页查询菲列表接口，平台内部用户可跨工厂读取，外部用户按当前工厂读取。"""
         args = bundle_query_parser.parse_args()
-        current_user, current_factory_id, error_response_obj = resolve_read_factory_context(
+        current_user, current_factory_id, error_response_obj = get_business_request_context(
             query_factory_id=args.get("factory_id"),
             allow_internal_without_factory=True,
         )
@@ -330,7 +322,7 @@ class BundleList(Resource):
             return error_response_obj
 
         result = BundleService.get_bundle_list(current_user, current_factory_id, args)
-        return ApiResponse.success_page_result(result, bundles_schema.dump(result["items"]))
+        return success_schema_page(result, bundle_schema)
 
 
 @bundle_ns.route("/<int:bundle_id>")
@@ -347,7 +339,7 @@ class BundleDetail(Resource):
         if error_response_data:
             return error_response_data
 
-        return ApiResponse.success(bundle_schema.dump(bundle))
+        return ApiResponse.success(serialize_schema(bundle_schema, bundle))
 
 
 @bundle_ns.route("/<int:bundle_id>/issue")
@@ -366,10 +358,9 @@ class BundleIssue(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = bundle_issue_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(bundle_issue_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         bundle, error = BundleService.issue_bundle(
             bundle,
@@ -381,7 +372,7 @@ class BundleIssue(Resource):
         if error:
             return ApiResponse.error(error, 400)
 
-        return ApiResponse.success(bundle_schema.dump(bundle), "领货成功")
+        return ApiResponse.success(serialize_schema(bundle_schema, bundle), "领货成功")
 
 
 @bundle_ns.route("/<int:bundle_id>/return")
@@ -400,10 +391,9 @@ class BundleReturn(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = bundle_return_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(bundle_return_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         bundle, error = BundleService.return_bundle(
             bundle,
@@ -414,7 +404,7 @@ class BundleReturn(Resource):
         if error:
             return ApiResponse.error(error, 400)
 
-        return ApiResponse.success(bundle_schema.dump(bundle), "交货成功")
+        return ApiResponse.success(serialize_schema(bundle_schema, bundle), "交货成功")
 
 
 @bundle_ns.route("/<int:bundle_id>/transfer")
@@ -433,10 +423,9 @@ class BundleTransfer(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = bundle_transfer_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(bundle_transfer_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         bundle, error = BundleService.transfer_bundle(
             bundle,
@@ -448,7 +437,7 @@ class BundleTransfer(Resource):
         if error:
             return ApiResponse.error(error, 400)
 
-        return ApiResponse.success(bundle_schema.dump(bundle), "转交成功")
+        return ApiResponse.success(serialize_schema(bundle_schema, bundle), "转交成功")
 
 
 @bundle_ns.route("/<int:bundle_id>/complete")
@@ -467,10 +456,9 @@ class BundleComplete(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = bundle_complete_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(bundle_complete_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         bundle, error = BundleService.complete_bundle(
             bundle,
@@ -480,7 +468,7 @@ class BundleComplete(Resource):
         if error:
             return ApiResponse.error(error, 400)
 
-        return ApiResponse.success(bundle_schema.dump(bundle), "完工确认成功")
+        return ApiResponse.success(serialize_schema(bundle_schema, bundle), "完工确认成功")
 
 
 @bundle_ns.route("/<int:bundle_id>/print-preview")
@@ -516,10 +504,9 @@ class BundlePrint(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = bundle_print_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(bundle_print_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         bundle, error = BundleService.print_bundle(
             bundle,
@@ -529,4 +516,4 @@ class BundlePrint(Resource):
         if error:
             return ApiResponse.error(error, 400)
 
-        return ApiResponse.success(bundle_schema.dump(bundle), "打印登记成功")
+        return ApiResponse.success(serialize_schema(bundle_schema, bundle), "打印登记成功")

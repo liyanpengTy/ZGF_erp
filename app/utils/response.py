@@ -48,6 +48,28 @@ class ApiResponse:
         )
 
     @staticmethod
+    def success_serialized_page(result, serializer, message='操作成功', extra=None, code=200):
+        """序列化分页结果中的 items 后返回标准分页响应。"""
+        return ApiResponse.success_page_result(
+            result,
+            [serializer(item) for item in result['items']],
+            message=message,
+            extra=extra,
+            code=code,
+        )
+
+    @staticmethod
+    def success_mapped_page(result, items, message='操作成功', extra=None, code=200):
+        """使用已转换好的 items 返回标准分页响应。"""
+        return ApiResponse.success_page_result(
+            result,
+            items,
+            message=message,
+            extra=extra,
+            code=code,
+        )
+
+    @staticmethod
     def error(message='操作失败', code=400, data=None):
         """返回标准失败响应。"""
         return {
@@ -60,35 +82,19 @@ class ApiResponse:
     @staticmethod
     def unauthorized(message='未登录或 token 已过期', code=401):
         """返回未授权响应。"""
-        return {
-            'code': code,
-            'message': message,
-            'success': False,
-        }, code
+        return ApiResponse.error(message=message, code=code)
 
     @staticmethod
     def forbidden(message='无权限访问', code=403):
         """返回无权限响应。"""
-        return {
-            'code': code,
-            'message': message,
-            'success': False,
-        }, code
+        return ApiResponse.error(message=message, code=code)
 
     @staticmethod
     def not_found(message='资源不存在', code=404):
         """返回资源不存在响应。"""
-        return {
-            'code': code,
-            'message': message,
-            'success': False,
-        }, code
+        return ApiResponse.error(message=message, code=code)
 
     @staticmethod
     def conflict(message='数据冲突', code=409):
         """返回数据冲突响应。"""
-        return {
-            'code': code,
-            'message': message,
-            'success': False,
-        }, code
+        return ApiResponse.error(message=message, code=code)

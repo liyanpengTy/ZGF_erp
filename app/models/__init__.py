@@ -5,6 +5,7 @@ from app.models.auth.user import User
 from app.models.system.user_factory import UserFactory
 from app.models.system.user_factory_role import UserFactoryRole
 from app.models.system.role import Role, role_menu
+from app.models.system.subject_role import SystemRoleTemplate, SubjectRole, SubjectUserRole, subject_role_menu
 from app.models.system.menu import Menu
 from app.models.system.factory import Factory
 from app.models.system.log import OperationLog, LoginLog
@@ -13,11 +14,13 @@ from app.models.system.reward_record import RewardRecord
 from app.models.base_data.size import Size
 from app.models.base_data.category import Category
 from app.models.base_data.color import Color
+from app.models.customer.customer import CustomerInviteCode, CustomerSubjectRelation, CustomerUser
 from app.models.business.style import Style, StyleImage, StyleSpliceItem, StyleAttribute
 from app.models.business.style_price import StylePrice
 from app.models.business.style_process import StyleProcess
 from app.models.business.style_elastic import StyleElastic
 from app.models.business.process import Process, StyleProcessMapping
+from app.models.business.collaboration_task import CollaborationTask
 from app.models.business.order import (
     Order,
     OrderDetail,
@@ -36,6 +39,10 @@ __all__ = [
     'UserFactoryRole',
     'Role',
     'role_menu',
+    'SystemRoleTemplate',
+    'SubjectRole',
+    'SubjectUserRole',
+    'subject_role_menu',
     'Menu',
     'Factory',
     'OperationLog',
@@ -45,6 +52,9 @@ __all__ = [
     'Size',
     'Category',
     'Color',
+    'CustomerUser',
+    'CustomerSubjectRelation',
+    'CustomerInviteCode',
     'Style',
     'StyleImage',
     'StyleSpliceItem',
@@ -54,6 +64,7 @@ __all__ = [
     'StyleElastic',
     'Process',
     'StyleProcessMapping',
+    'CollaborationTask',
     'Order',
     'OrderDetail',
     'OrderDetailSku',

@@ -5,14 +5,20 @@ from datetime import datetime
 
 from flask import request
 from flask_restx import Namespace, Resource, fields
-from marshmallow import ValidationError
 
 from app.api.common.auth import get_current_claims, require_current_user
-from app.api.common.factory_context import resolve_read_factory_context
+from app.api.common.context_helpers import get_factory_request_context
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_parser
 from app.api.common.resource_helpers import ensure_permission_or_error, get_resource_or_error
-from app.constants.identity import PLATFORM_IDENTITY_EXTERNAL
+from app.api.common.response_helpers import load_json_or_error, success_mapped_page
+from app.constants.identity import (
+    PLATFORM_IDENTITY_EXTERNAL,
+    RELATION_TYPE_EMPLOYEE,
+    ROLE_SCOPE_FACTORY,
+    ROLE_SCOPE_PLATFORM,
+    ROLE_SCOPE_SUBJECT,
+)
 from app.constants.permissions import (
     PERM_FACTORY_MANAGEMENT_ROLE_EDIT,
     PERM_FACTORY_MANAGEMENT_ROLE_QUERY,
@@ -33,7 +39,6 @@ from app.models.auth.user import User
 from app.models.system.factory import Factory
 from app.models.system.user_factory import UserFactory
 from app.schemas.auth.user import UserAssignRolesSchema, UserCreateSchema, UserResetPasswordSchema, UserUpdateSchema
-from app.schemas.system.role import RoleSchema
 from app.services import RoleService, UserService
 from app.utils.permissions import has_any_permission, login_required, permission_required_any
 from app.utils.response import ApiResponse
@@ -45,6 +50,8 @@ base_response = common['base_response']
 error_response = common['error_response']
 unauthorized_response = common['unauthorized_response']
 forbidden_response = common['forbidden_response']
+build_item_response_model = common['build_item_response_model']
+build_list_response_model = common['build_list_response_model']
 
 USER_QUERY_PERMISSION_CODES = [PERM_SYSTEM_USER_QUERY, PERM_FACTORY_MANAGEMENT_USER_QUERY]
 USER_CREATE_PERMISSION_CODES = [PERM_SYSTEM_USER_ADD, PERM_FACTORY_MANAGEMENT_USER_ADD]
@@ -61,220 +68,6 @@ USER_ROLE_ASSIGN_PERMISSION_CODES = [
     PERM_FACTORY_MANAGEMENT_ROLE_EDIT,
     PERM_SYSTEM_FACTORY_MANAGE_ROLES,
 ]
-
-user_query_parser = page_parser.copy()
-user_query_parser.add_argument('username', type=str, location='args', help='用户名，支持模糊查询')
-user_query_parser.add_argument('status', type=int, location='args', help='用户状态', choices=[0, 1])
-user_query_parser.add_argument('factory_id', type=int, location='args', help='工厂ID')
-user_query_parser.add_argument(
-    'relation_type',
-    type=str,
-    location='args',
-    help='工厂关系类型',
-    choices=['owner', 'employee', 'customer', 'collaborator'],
-)
-user_query_parser.add_argument(
-    'platform_identity',
-    type=str,
-    location='args',
-    help='平台身份',
-    choices=['platform_admin', 'platform_staff', 'external_user'],
-)
-
-user_option_query_parser = new_query_parser()
-user_option_query_parser.add_argument('username', type=str, location='args', help='用户名，支持模糊查询')
-user_option_query_parser.add_argument('status', type=int, location='args', help='用户状态', choices=[0, 1])
-user_option_query_parser.add_argument('factory_id', type=int, location='args', help='工厂ID')
-user_option_query_parser.add_argument(
-    'relation_type',
-    type=str,
-    location='args',
-    help='工厂关系类型',
-    choices=['owner', 'employee', 'customer', 'collaborator'],
-)
-user_option_query_parser.add_argument(
-    'platform_identity',
-    type=str,
-    location='args',
-    help='平台身份',
-    choices=['platform_admin', 'platform_staff', 'external_user'],
-)
-
-user_role_query_parser = new_query_parser()
-user_role_query_parser.add_argument('factory_id', type=int, location='args', help='角色查询上下文工厂ID，平台角色固定传 0')
-
-user_create_model = user_ns.model(
-    'UserCreate',
-    {
-        'username': fields.String(required=True, description='用户名', example='testuser'),
-        'password': fields.String(required=True, description='密码', example='123456'),
-        'nickname': fields.String(description='昵称', example='测试用户'),
-        'phone': fields.String(description='手机号', example='13800138000'),
-        'platform_identity': fields.String(
-            description='平台身份，可选 platform_admin、platform_staff、external_user。非平台管理员调用时会强制写入 external_user',
-            example='external_user',
-            choices=['platform_admin', 'platform_staff', 'external_user'],
-        ),
-        'factory_id': fields.Integer(description='工厂ID，创建外部用户时可同时挂靠到指定工厂', example=1),
-    },
-)
-
-user_update_model = user_ns.model(
-    'UserUpdate',
-    {
-        'nickname': fields.String(description='昵称'),
-        'phone': fields.String(description='手机号'),
-        'status': fields.Integer(description='用户状态', example=1, choices=[0, 1]),
-    },
-)
-
-user_reset_password_model = user_ns.model(
-    'ResetPassword',
-    {
-        'password': fields.String(required=True, description='新密码', example='123456'),
-    },
-)
-
-user_assign_roles_model = user_ns.model(
-    'AssignRoles',
-    {
-        'role_ids': fields.List(fields.Integer, required=True, description='角色ID列表', example=[1, 2]),
-        'factory_id': fields.Integer(description='角色分配上下文。平台角色传 0 或不传，工厂角色传工厂ID'),
-    },
-)
-
-user_factory_relation_model = user_ns.model(
-    'UserFactoryRelation',
-    {
-        'factory_id': fields.Integer(description='工厂ID', example=1),
-        'factory_name': fields.String(description='工厂名称', example='测试工厂'),
-        'factory_code': fields.String(description='工厂编码', example='TEST001'),
-        'relation_type': fields.String(description='工厂关系类型编码', example='employee'),
-        'relation_type_label': fields.String(description='工厂关系类型名称', example='工厂员工'),
-        'collaborator_type': fields.String(description='协作细分类型编码', example=None),
-        'collaborator_type_label': fields.String(description='协作细分类型名称', example=None),
-        'entry_date': fields.String(description='入厂日期', example='2026-05-01'),
-        'leave_date': fields.String(description='离厂日期', example=None),
-    },
-)
-
-user_role_binding_model = user_ns.model(
-    'UserRoleBinding',
-    {
-        'role_id': fields.Integer(description='角色ID', example=1),
-        'role_name': fields.String(description='角色名称', example='工厂管理员'),
-        'role_code': fields.String(description='角色编码', example='factory_admin'),
-        'scope_type': fields.String(description='角色归属范围编码', example='factory'),
-        'scope_type_label': fields.String(description='角色归属范围名称', example='工厂角色'),
-        'scope_id': fields.Integer(description='角色归属主键', example=1),
-        'factory_id': fields.Integer(description='角色绑定上下文工厂ID，平台角色固定为 0', example=1),
-        'is_factory_admin': fields.Integer(description='是否工厂管理员角色', example=1),
-    },
-)
-
-user_item_model = user_ns.model(
-    'UserItem',
-    {
-        'id': fields.Integer(description='用户ID', example=2),
-        'username': fields.String(description='用户名', example='factory_admin'),
-        'nickname': fields.String(description='昵称', example='工厂管理员'),
-        'phone': fields.String(description='手机号', example='18370601281'),
-        'avatar': fields.String(description='头像地址', example=None),
-        'platform_identity': fields.String(description='平台身份编码', example='external_user'),
-        'platform_identity_label': fields.String(description='平台身份名称', example='外部人员'),
-        'subject_type': fields.String(description='主体类型编码', example='factory_subject'),
-        'subject_type_label': fields.String(description='主体类型名称', example='工厂主体'),
-        'status': fields.Integer(description='用户状态', example=1),
-        'invite_code': fields.String(description='邀请码', example='ABC12346'),
-        'invited_count': fields.Integer(description='邀请人数', example=0),
-        'is_paid': fields.Integer(description='是否已付费', example=1),
-        'created_by': fields.Integer(description='创建人ID', example=1),
-        'create_time': fields.String(description='创建时间', example='2026-04-21 01:17:24'),
-        'last_login_time': fields.String(description='最后登录时间', example='2026-05-15 12:35:13'),
-        'factory_id': fields.Integer(description='主工厂ID，多工厂时取第一条有效挂靠关系', example=1),
-        'factory_name': fields.String(description='主工厂名称，多工厂时取第一条有效挂靠关系', example='测试工厂'),
-        'factory_ids': fields.List(fields.Integer, description='用户当前绑定的全部工厂ID列表', example=[1, 2]),
-        'factory_relations': fields.List(fields.Nested(user_factory_relation_model), description='用户工厂挂靠关系列表'),
-        'role_ids': fields.List(fields.Integer, description='用户当前绑定的全部角色ID列表', example=[1, 2]),
-        'role_bindings': fields.List(fields.Nested(user_role_binding_model), description='用户角色绑定列表'),
-    },
-)
-
-user_option_model = user_ns.model(
-    'UserOptionItem',
-    {
-        'id': fields.Integer(description='用户ID', example=2),
-        'username': fields.String(description='用户名', example='factory_employee'),
-        'nickname': fields.String(description='昵称', example='工厂员工'),
-        'phone': fields.String(description='手机号', example='18370601281'),
-        'platform_identity': fields.String(description='平台身份编码', example='external_user'),
-        'platform_identity_label': fields.String(description='平台身份名称', example='外部人员'),
-    },
-)
-
-user_list_data = user_ns.model(
-    'SystemUserListData',
-    {
-        'items': fields.List(fields.Nested(user_item_model), description='用户列表'),
-        'total': fields.Integer(description='总条数'),
-        'page': fields.Integer(description='当前页码'),
-        'page_size': fields.Integer(description='每页条数'),
-        'pages': fields.Integer(description='总页数'),
-    },
-)
-
-user_list_response = user_ns.clone('SystemUserListResponse', base_response, {'data': fields.Nested(user_list_data, description='用户分页数据')})
-user_item_response = user_ns.clone('SystemUserItemResponse', base_response, {'data': fields.Nested(user_item_model, description='用户详情数据')})
-user_options_response = user_ns.clone(
-    'SystemUserOptionsResponse',
-    base_response,
-    {'data': fields.List(fields.Nested(user_option_model), description='用户下拉选项列表')},
-)
-
-user_role_item_model = user_ns.model(
-    'SystemUserRoleItem',
-    {
-        'id': fields.Integer(description='角色ID', example=1),
-        'scope_type': fields.String(description='角色归属范围编码', example='factory'),
-        'scope_type_label': fields.String(description='角色归属范围名称', example='工厂角色'),
-        'scope_id': fields.Integer(description='角色归属主键', example=1),
-        'name': fields.String(description='角色名称', example='工厂管理员'),
-        'code': fields.String(description='角色编码', example='factory_admin'),
-        'description': fields.String(description='角色描述', example='拥有工厂内全部管理能力'),
-        'status': fields.Integer(description='角色状态', example=1),
-        'sort_order': fields.Integer(description='排序值', example=1),
-        'data_scope': fields.String(description='数据范围编码', example='own_related'),
-        'data_scope_label': fields.String(description='数据范围名称', example='本人关联数据'),
-        'is_factory_admin': fields.Integer(description='是否工厂管理员角色', example=1),
-        'create_time': fields.String(description='创建时间', example='2026-05-20 10:00:00'),
-        'update_time': fields.String(description='更新时间', example='2026-05-20 10:00:00'),
-    },
-)
-
-permission_summary_model = user_ns.model(
-    'UserPermissionSummary',
-    {
-        'current_factory_id': fields.Integer(description='当前JWT上下文中的工厂ID，平台账号通常为空', example=1),
-        'current_data_scope': fields.String(description='当前上下文生效的数据范围编码', example='all_factory'),
-        'current_data_scope_label': fields.String(description='当前上下文生效的数据范围名称', example='全工厂数据'),
-        'current_permissions': fields.List(fields.String, description='当前上下文下生效的权限并集', example=['business.orders.browse']),
-        'all_permissions': fields.List(
-            fields.String,
-            description='当前账号绑定全部角色后的权限并集',
-            example=['business.orders.browse', 'business.orders.create'],
-        ),
-        'role_bindings': fields.List(fields.Nested(user_role_binding_model), description='当前账号绑定的角色列表'),
-    },
-)
-
-permission_summary_response = user_ns.clone('UserPermissionSummaryResponse', base_response, {'data': fields.Nested(permission_summary_model, description='权限汇总数据')})
-user_roles_response = user_ns.clone('UserRolesResponse', base_response, {'data': fields.List(fields.Nested(user_role_item_model), description='用户角色列表')})
-
-user_create_schema = UserCreateSchema()
-user_update_schema = UserUpdateSchema()
-user_reset_password_schema = UserResetPasswordSchema()
-user_assign_roles_schema = UserAssignRolesSchema()
-role_schema = RoleSchema(many=True)
 
 USER_SYSTEM_PERMISSION_MAP = {
     'query': PERM_SYSTEM_USER_QUERY,
@@ -297,6 +90,228 @@ ROLE_FACTORY_PERMISSION_MAP = {
     'edit': PERM_FACTORY_MANAGEMENT_ROLE_EDIT,
 }
 
+user_query_parser = page_parser.copy()
+user_query_parser.add_argument('username', type=str, location='args', help='用户名，支持模糊查询')
+user_query_parser.add_argument('status', type=int, location='args', help='用户状态', choices=[0, 1])
+user_query_parser.add_argument('factory_id', type=int, location='args', help='工厂 ID')
+user_query_parser.add_argument(
+    'relation_type',
+    type=str,
+    location='args',
+    help='工厂关系类型',
+    choices=['owner', 'employee', 'collaborator'],
+)
+user_query_parser.add_argument(
+    'platform_identity',
+    type=str,
+    location='args',
+    help='平台身份',
+    choices=['platform_admin', 'platform_staff', 'external_user'],
+)
+
+user_option_query_parser = new_query_parser()
+user_option_query_parser.add_argument('username', type=str, location='args', help='用户名，支持模糊查询')
+user_option_query_parser.add_argument('status', type=int, location='args', help='用户状态', choices=[0, 1])
+user_option_query_parser.add_argument('factory_id', type=int, location='args', help='工厂 ID')
+user_option_query_parser.add_argument(
+    'relation_type',
+    type=str,
+    location='args',
+    help='工厂关系类型',
+    choices=['owner', 'employee', 'collaborator'],
+)
+user_option_query_parser.add_argument(
+    'platform_identity',
+    type=str,
+    location='args',
+    help='平台身份',
+    choices=['platform_admin', 'platform_staff', 'external_user'],
+)
+
+user_role_query_parser = new_query_parser()
+user_role_query_parser.add_argument('factory_id', type=int, location='args', help='角色查询上下文工厂 ID，平台角色固定传 0')
+user_role_query_parser.add_argument(
+    'scope_type',
+    type=str,
+    location='args',
+    help='角色范围类型，可选 platform、factory、subject',
+    choices=[ROLE_SCOPE_PLATFORM, ROLE_SCOPE_FACTORY, ROLE_SCOPE_SUBJECT],
+)
+
+user_create_model = user_ns.model(
+    'UserCreate',
+    {
+        'username': fields.String(required=True, description='用户名', example='testuser'),
+        'password': fields.String(required=True, description='密码', example='123456'),
+        'nickname': fields.String(description='昵称', example='测试用户'),
+        'phone': fields.String(description='手机号', example='13800138000'),
+        'platform_identity': fields.String(
+            description='平台身份。可选 platform_admin、platform_staff、external_user。非平台管理员调用时仅允许 external_user',
+            example='external_user',
+            choices=['platform_admin', 'platform_staff', 'external_user'],
+        ),
+        'factory_id': fields.Integer(description='工厂 ID，创建外部用户时可同时挂靠到指定工厂', example=1),
+    },
+)
+
+user_update_model = user_ns.model(
+    'UserUpdate',
+    {
+        'nickname': fields.String(description='昵称'),
+        'phone': fields.String(description='手机号'),
+        'status': fields.Integer(description='用户状态', example=1, choices=[0, 1]),
+    },
+)
+
+user_reset_password_model = user_ns.model(
+    'ResetPassword',
+    {
+        'password': fields.String(required=True, description='新密码', example='123456'),
+    },
+)
+
+user_assign_roles_model = user_ns.model(
+    'AssignRoles',
+    {
+        'role_ids': fields.List(fields.Integer, required=True, description='角色 ID 列表', example=[1, 2]),
+        'factory_id': fields.Integer(description='角色分配上下文。平台角色传 0 或不传，工厂/主体角色传工厂 ID'),
+        'scope_type': fields.String(
+            description='角色范围类型，可选 platform、factory、subject',
+            choices=[ROLE_SCOPE_PLATFORM, ROLE_SCOPE_FACTORY, ROLE_SCOPE_SUBJECT],
+            example='subject',
+        ),
+    },
+)
+
+user_factory_relation_model = user_ns.model(
+    'UserFactoryRelation',
+    {
+        'factory_id': fields.Integer(description='工厂 ID', example=1),
+        'factory_name': fields.String(description='工厂名称', example='测试工厂'),
+        'factory_code': fields.String(description='工厂编码', example='TEST001'),
+        'relation_type': fields.String(description='工厂关系类型编码', example='employee'),
+        'relation_type_label': fields.String(description='工厂关系类型名称', example='工厂员工'),
+        'collaborator_type': fields.String(description='协作细分类型编码', example=None),
+        'collaborator_type_label': fields.String(description='协作细分类型名称', example=None),
+        'entry_date': fields.String(description='入厂日期', example='2026-05-01'),
+        'leave_date': fields.String(description='离厂日期', example=None),
+    },
+)
+
+user_role_binding_model = user_ns.model(
+    'UserRoleBinding',
+    {
+        'role_id': fields.Integer(description='角色 ID', example=1),
+        'role_name': fields.String(description='角色名称', example='工厂管理员'),
+        'role_code': fields.String(description='角色编码', example='factory_admin'),
+        'scope_type': fields.String(description='角色归属范围编码', example='subject'),
+        'scope_type_label': fields.String(description='角色归属范围名称', example='主体角色'),
+        'scope_id': fields.Integer(description='角色归属主键', example=1),
+        'factory_id': fields.Integer(description='角色绑定上下文工厂 ID，平台角色固定为 0', example=1),
+        'is_factory_admin': fields.Integer(description='是否管理员角色', example=1),
+        'role_source': fields.String(description='角色来源，legacy_role 或 subject_role', example='subject_role'),
+        'role_uid': fields.String(description='角色唯一标识，供前端区分不同角色表来源', example='subject:3'),
+    },
+)
+
+user_item_model = user_ns.model(
+    'UserItem',
+    {
+        'id': fields.Integer(description='用户 ID', example=2),
+        'username': fields.String(description='用户名', example='factory_admin'),
+        'nickname': fields.String(description='昵称', example='工厂管理员'),
+        'phone': fields.String(description='手机号', example='18370601281'),
+        'avatar': fields.String(description='头像地址', example=None),
+        'platform_identity': fields.String(description='平台身份编码', example='external_user'),
+        'platform_identity_label': fields.String(description='平台身份名称', example='外部人员'),
+        'subject_type': fields.String(description='主体类型编码', example='factory_subject'),
+        'subject_type_label': fields.String(description='主体类型名称', example='工厂主体'),
+        'status': fields.Integer(description='用户状态', example=1),
+        'invite_code': fields.String(description='邀请码', example='ABC12346'),
+        'invited_count': fields.Integer(description='邀请人数', example=0),
+        'is_paid': fields.Integer(description='是否付费', example=1),
+        'created_by': fields.Integer(description='创建人 ID', example=1),
+        'create_time': fields.String(description='创建时间', example='2026-04-21 01:17:24'),
+        'last_login_time': fields.String(description='最后登录时间', example='2026-05-15 12:35:13'),
+        'factory_id': fields.Integer(description='主工厂 ID，多工厂时取第一条有效挂靠关系', example=1),
+        'factory_name': fields.String(description='主工厂名称，多工厂时取第一条有效挂靠关系', example='测试工厂'),
+        'factory_ids': fields.List(fields.Integer, description='用户当前绑定的全部工厂 ID 列表', example=[1, 2]),
+        'factory_relations': fields.List(fields.Nested(user_factory_relation_model), description='用户工厂挂靠关系列表'),
+        'role_ids': fields.List(fields.Integer, description='用户当前绑定的全部角色 ID 列表', example=[1, 2]),
+        'role_bindings': fields.List(fields.Nested(user_role_binding_model), description='用户角色绑定列表'),
+    },
+)
+
+user_option_model = user_ns.model(
+    'UserOptionItem',
+    {
+        'id': fields.Integer(description='用户 ID', example=2),
+        'username': fields.String(description='用户名', example='factory_employee'),
+        'nickname': fields.String(description='昵称', example='工厂员工'),
+        'phone': fields.String(description='手机号', example='18370601281'),
+        'platform_identity': fields.String(description='平台身份编码', example='external_user'),
+        'platform_identity_label': fields.String(description='平台身份名称', example='外部人员'),
+    },
+)
+
+user_role_item_model = user_ns.model(
+    'SystemUserRoleItem',
+    {
+        'id': fields.Integer(description='角色 ID', example=1),
+        'scope_type': fields.String(description='角色归属范围编码', example='subject'),
+        'scope_type_label': fields.String(description='角色归属范围名称', example='主体角色'),
+        'scope_id': fields.Integer(description='角色归属主键', example=1),
+        'name': fields.String(description='角色名称', example='工厂管理员'),
+        'code': fields.String(description='角色编码', example='factory_admin'),
+        'description': fields.String(description='角色说明', example='拥有工厂内完整管理权限'),
+        'status': fields.Integer(description='角色状态', example=1),
+        'sort_order': fields.Integer(description='排序值', example=1),
+        'data_scope': fields.String(description='数据范围编码', example='subject'),
+        'data_scope_label': fields.String(description='数据范围名称', example='当前主体数据'),
+        'is_factory_admin': fields.Integer(description='是否管理员角色', example=1),
+        'create_time': fields.String(description='创建时间', example='2026-05-20 10:00:00'),
+        'update_time': fields.String(description='更新时间', example='2026-05-20 10:00:00'),
+    },
+)
+
+permission_summary_model = user_ns.model(
+    'UserPermissionSummary',
+    {
+        'current_factory_id': fields.Integer(description='当前 JWT 上下文中的工厂 ID，平台账号通常为空', example=1),
+        'current_data_scope': fields.String(description='当前上下文生效的数据范围编码', example='all_factory'),
+        'current_data_scope_label': fields.String(description='当前上下文生效的数据范围名称', example='全工厂数据'),
+        'current_permissions': fields.List(fields.String, description='当前上下文下生效的权限并集', example=['business.orders.browse']),
+        'all_permissions': fields.List(
+            fields.String,
+            description='当前账号绑定全部角色后的权限并集',
+            example=['business.orders.browse', 'business.orders.create'],
+        ),
+        'role_bindings': fields.List(fields.Nested(user_role_binding_model), description='当前账号绑定的角色列表'),
+    },
+)
+
+user_list_data = user_ns.model(
+    'SystemUserListData',
+    {
+        'items': fields.List(fields.Nested(user_item_model), description='用户列表'),
+        'total': fields.Integer(description='总条数'),
+        'page': fields.Integer(description='当前页码'),
+        'page_size': fields.Integer(description='每页条数'),
+        'pages': fields.Integer(description='总页数'),
+    },
+)
+
+user_list_response = user_ns.clone('SystemUserListResponse', base_response, {'data': fields.Nested(user_list_data, description='用户分页数据')})
+user_item_response = build_item_response_model(user_ns, 'SystemUserItemResponse', base_response, user_item_model, '用户详情数据')
+user_options_response = build_list_response_model(user_ns, 'SystemUserOptionsResponse', base_response, user_option_model, '用户下拉选项列表')
+user_roles_response = build_list_response_model(user_ns, 'UserRolesResponse', base_response, user_role_item_model, '用户角色列表')
+permission_summary_response = build_item_response_model(user_ns, 'UserPermissionSummaryResponse', base_response, permission_summary_model, '权限汇总数据')
+
+user_create_schema = UserCreateSchema()
+user_update_schema = UserUpdateSchema()
+user_reset_password_schema = UserResetPasswordSchema()
+user_assign_roles_schema = UserAssignRolesSchema()
+
 
 def get_required_current_user():
     """获取当前登录用户，不存在时返回统一错误响应。"""
@@ -305,19 +320,19 @@ def get_required_current_user():
 
 def get_user_request_context(query_factory_id=None, allow_internal_without_factory=False):
     """解析用户接口所需的工厂上下文。"""
-    return resolve_read_factory_context(
+    return get_factory_request_context(
         query_factory_id=query_factory_id,
         allow_internal_without_factory=allow_internal_without_factory,
     )
 
 
 def get_target_user_or_error(user_id):
-    """按用户ID查询目标用户，不存在时返回404响应。"""
+    """按用户 ID 查询目标用户，不存在时返回 404。"""
     return get_resource_or_error(lambda: UserService.get_user_by_id(user_id), '用户不存在')
 
 
 def get_active_factory_ids(user):
-    """查询用户当前有效挂靠的工厂ID列表。"""
+    """查询用户当前有效挂靠的工厂 ID 列表。"""
     if not user:
         return []
     factory_records = UserFactory.query.filter_by(user_id=user.id, status=1, is_deleted=0).all()
@@ -337,7 +352,7 @@ def is_target_user_in_factory(target_user, factory_id):
 
 
 def resolve_manage_factory_id(current_user, requested_factory_id=None):
-    """解析当前用户可管理的工厂ID。"""
+    """解析当前用户可管理的工厂 ID。"""
     if not current_user:
         return None, '用户不存在'
     if current_user.is_internal_user:
@@ -351,7 +366,7 @@ def resolve_manage_factory_id(current_user, requested_factory_id=None):
         if RoleService.has_factory_admin_permission(current_user, factory_id):
             return factory_id, None
 
-    return None, '只有工厂管理员可以维护本工厂用户'
+    return None, '只有工厂管理员才可以维护本工厂用户'
 
 
 def build_scoped_user_view(target_user, current_user, current_factory_id=None):
@@ -425,35 +440,6 @@ def check_user_permission(current_user, target_user, action='query', current_fac
     return True, None
 
 
-def check_user_role_permission(current_user, target_user, action='query', factory_id=None):
-    """校验当前用户是否可以查看或分配目标用户角色。"""
-    if not current_user or not target_user:
-        return False, '用户不存在'
-    if current_user.is_platform_admin:
-        return True, None
-
-    system_permission_code = ROLE_SYSTEM_PERMISSION_MAP[action]
-    factory_permission_code = ROLE_FACTORY_PERMISSION_MAP[action]
-
-    if target_user.is_internal_user or factory_id in (None, 0):
-        if not current_user.is_internal_user:
-            return False, '只有平台内部用户可以操作平台角色'
-        return has_any_permission(current_user, [system_permission_code])
-
-    if current_user.is_internal_user:
-        return has_any_permission(
-            current_user,
-            [system_permission_code, factory_permission_code, PERM_SYSTEM_FACTORY_MANAGE_ROLES],
-            factory_id=factory_id,
-        )
-
-    if not RoleService.has_factory_admin_permission(current_user, factory_id):
-        return False, '只有工厂管理员可以分配本工厂角色'
-    if not is_target_user_in_factory(target_user, factory_id):
-        return False, '只能给本工厂用户分配角色'
-    return has_any_permission(current_user, [factory_permission_code], factory_id=factory_id)
-
-
 def resolve_user_role_context_factory_id(current_user, target_user, requested_factory_id=None):
     """解析用户角色接口使用的工厂上下文。"""
     if target_user.is_internal_user:
@@ -483,6 +469,63 @@ def resolve_user_role_context_factory_id(current_user, target_user, requested_fa
     return managed_factory_id, None
 
 
+def resolve_user_role_scope(target_user, requested_scope_type=None):
+    """解析用户角色接口的范围类型。"""
+    if target_user.is_internal_user:
+        return ROLE_SCOPE_PLATFORM, None
+    if requested_scope_type in {ROLE_SCOPE_FACTORY, ROLE_SCOPE_SUBJECT}:
+        return requested_scope_type, None
+    if requested_scope_type == ROLE_SCOPE_PLATFORM:
+        return None, '外部用户不能分配平台角色'
+    return ROLE_SCOPE_SUBJECT, None
+
+
+def resolve_user_role_context(current_user, target_user, requested_scope_type=None, requested_factory_id=None):
+    """解析用户角色接口需要的范围类型和上下文工厂。"""
+    scope_type, error = resolve_user_role_scope(target_user, requested_scope_type=requested_scope_type)
+    if error:
+        return None, None, error
+
+    if scope_type == ROLE_SCOPE_PLATFORM:
+        if requested_factory_id not in (None, 0):
+            return None, None, '平台角色上下文只能是 0'
+        return scope_type, 0, None
+
+    factory_id, error = resolve_user_role_context_factory_id(current_user, target_user, requested_factory_id)
+    if error:
+        return None, None, error
+    return scope_type, factory_id, None
+
+
+def check_user_role_permission(current_user, target_user, action='query', scope_type=None, factory_id=None):
+    """校验当前用户是否可以查看或分配目标用户角色。"""
+    if not current_user or not target_user:
+        return False, '用户不存在'
+    if current_user.is_platform_admin:
+        return True, None
+
+    system_permission_code = ROLE_SYSTEM_PERMISSION_MAP[action]
+    factory_permission_code = ROLE_FACTORY_PERMISSION_MAP[action]
+
+    if scope_type == ROLE_SCOPE_PLATFORM or target_user.is_internal_user or factory_id in (None, 0):
+        if not current_user.is_internal_user:
+            return False, '只有平台内部用户可以操作平台角色'
+        return has_any_permission(current_user, [system_permission_code])
+
+    if current_user.is_internal_user:
+        return has_any_permission(
+            current_user,
+            [system_permission_code, factory_permission_code, PERM_SYSTEM_FACTORY_MANAGE_ROLES],
+            factory_id=factory_id,
+        )
+
+    if not RoleService.has_factory_admin_permission(current_user, factory_id):
+        return False, '只有工厂管理员可以分配本工厂角色'
+    if not is_target_user_in_factory(target_user, factory_id):
+        return False, '只能给本工厂用户分配角色'
+    return has_any_permission(current_user, [factory_permission_code], factory_id=factory_id)
+
+
 @user_ns.route('')
 class UserList(Resource):
     @login_required
@@ -509,7 +552,7 @@ class UserList(Resource):
             args['factory_id'] = current_factory_id
 
         result = UserService.get_user_list(current_user, args, viewer_factory_id=current_factory_id)
-        return ApiResponse.success_page_result(result, result['items'])
+        return success_mapped_page(result, result['items'])
 
     @login_required
     @permission_required_any(USER_CREATE_PERMISSION_CODES)
@@ -524,10 +567,9 @@ class UserList(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = user_create_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(user_create_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         factory_id = data.get('factory_id')
         platform_identity = data.get('platform_identity') or PLATFORM_IDENTITY_EXTERNAL
@@ -574,7 +616,7 @@ class UserList(Resource):
             user_factory = UserFactory(
                 user_id=user.id,
                 factory_id=factory_id,
-                relation_type='employee',
+                relation_type=RELATION_TYPE_EMPLOYEE,
                 status=1,
                 entry_date=datetime.now().date(),
                 remark=f'由 {current_user.username} 创建',
@@ -582,7 +624,11 @@ class UserList(Resource):
             user_factory.save()
 
         return ApiResponse.success(
-            build_scoped_user_view(user, current_user, current_factory_id=factory_id or get_current_claims().get('factory_id')),
+            build_scoped_user_view(
+                user,
+                current_user,
+                current_factory_id=factory_id or get_current_claims().get('factory_id'),
+            ),
             '创建成功',
             201,
         )
@@ -665,10 +711,9 @@ class UserDetail(Resource):
         if permission_error:
             return permission_error
 
-        try:
-            data = user_update_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(user_update_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         target_user = UserService.update_user(target_user, data)
         return ApiResponse.success(
@@ -729,10 +774,9 @@ class UserResetPassword(Resource):
         if permission_error:
             return permission_error
 
-        try:
-            data = user_reset_password_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(user_reset_password_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         UserService.reset_password(target_user, data['password'])
         return ApiResponse.success(message='密码重置成功')
@@ -757,17 +801,28 @@ class UserRoles(Resource):
             return error_response_data
 
         args = user_role_query_parser.parse_args()
-        factory_id, error = resolve_user_role_context_factory_id(current_user, target_user, args.get('factory_id'))
+        scope_type, factory_id, error = resolve_user_role_context(
+            current_user,
+            target_user,
+            requested_scope_type=args.get('scope_type'),
+            requested_factory_id=args.get('factory_id'),
+        )
         if error:
             return ApiResponse.error(error, 400)
 
-        has_permission, error = check_user_role_permission(current_user, target_user, action='query', factory_id=factory_id)
+        has_permission, error = check_user_role_permission(
+            current_user,
+            target_user,
+            action='query',
+            scope_type=scope_type,
+            factory_id=factory_id,
+        )
         permission_error = ensure_permission_or_error(has_permission, error, 403)
         if permission_error:
             return permission_error
 
-        roles = UserService.get_user_roles(user_id, factory_id)
-        return ApiResponse.success_list(role_schema.dump(roles))
+        roles = UserService.get_user_roles(user_id, factory_id, scope_type=scope_type)
+        return ApiResponse.success_list([RoleService.serialize_role(role) for role in roles])
 
     @login_required
     @permission_required_any(USER_ROLE_ASSIGN_PERMISSION_CODES)
@@ -776,7 +831,7 @@ class UserRoles(Resource):
     @user_ns.response(403, '无权限', forbidden_response)
     @user_ns.response(404, '用户不存在', error_response)
     def post(self, user_id):
-        """用户角色分配接口，会替换当前上下文下的旧角色。"""
+        """用户角色分配接口，会替换当前上下文下的旧角色绑定。"""
         current_user, error_response_data = get_required_current_user()
         if error_response_data:
             return error_response_data
@@ -785,27 +840,36 @@ class UserRoles(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = user_assign_roles_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(user_assign_roles_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
-        role_ids = data['role_ids']
-        factory_id = data.get('factory_id')
+        scope_type, factory_id, error = resolve_user_role_context(
+            current_user,
+            target_user,
+            requested_scope_type=data.get('scope_type'),
+            requested_factory_id=data.get('factory_id'),
+        )
+        if error:
+            return ApiResponse.error(error, 400)
 
-        if factory_id is None and not current_user.is_internal_user:
-            factory_id, error = resolve_manage_factory_id(current_user)
-            if error:
-                return ApiResponse.error(error, 403)
-
-        if factory_id is None and not target_user.is_internal_user:
-            return ApiResponse.error('请指定工厂ID', 400)
-
-        has_permission, error = check_user_role_permission(current_user, target_user, action='edit', factory_id=factory_id)
+        has_permission, error = check_user_role_permission(
+            current_user,
+            target_user,
+            action='edit',
+            scope_type=scope_type,
+            factory_id=factory_id,
+        )
         if not has_permission:
             return ApiResponse.error(error, 403)
 
-        success, error = UserService.assign_roles(user_id, role_ids, factory_id, current_user)
+        success, error = UserService.assign_roles(
+            user_id,
+            data['role_ids'],
+            factory_id,
+            current_user,
+            scope_type=scope_type,
+        )
         if not success:
             return ApiResponse.error(error, 400)
         return ApiResponse.success(message='角色分配成功')

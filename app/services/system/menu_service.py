@@ -6,6 +6,8 @@ from app.models.system.menu import Menu
 from app.models.system.role import Role, role_menu
 from app.models.system.user_factory_role import UserFactoryRole
 from app.services.base.base_service import BaseService
+from app.utils.datetime_helper import safe_isoformat
+from app.utils.serializers import serialize_schema
 
 
 class MenuService(BaseService):
@@ -38,7 +40,7 @@ class MenuService(BaseService):
             if menu.parent_id == parent_id:
                 children = MenuService.build_menu_tree(menus, menu.id, menu_schema)
                 if menu_schema:
-                    menu_dict = menu_schema.dump(menu)
+                    menu_dict = serialize_schema(menu_schema, menu)
                 else:
                     menu_dict = {
                         'id': menu.id,
@@ -51,8 +53,8 @@ class MenuService(BaseService):
                         'icon': menu.icon,
                         'sort_order': menu.sort_order,
                         'status': menu.status,
-                        'create_time': menu.create_time.isoformat() if menu.create_time else None,
-                        'update_time': menu.update_time.isoformat() if menu.update_time else None
+                        'create_time': safe_isoformat(menu.create_time),
+                        'update_time': safe_isoformat(menu.update_time)
                     }
                 if children:
                     menu_dict['children'] = children

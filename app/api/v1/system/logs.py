@@ -6,6 +6,8 @@ from app.api.common.auth import require_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import page_with_date_parser
 from app.api.common.resource_helpers import ensure_permission_or_error, get_resource_or_error
+from app.api.common.response_helpers import success_schema_page
+from app.api.common.serializers import serialize_schema
 from app.schemas.system.log import LoginLogSchema, OperationLogSchema
 from app.services import LogService
 from app.utils.permissions import login_required
@@ -20,6 +22,7 @@ unauthorized_response = common['unauthorized_response']
 forbidden_response = common['forbidden_response']
 build_page_data_model = common['build_page_data_model']
 build_page_response_model = common['build_page_response_model']
+build_item_response_model = common['build_item_response_model']
 
 operation_log_query_parser = page_with_date_parser.copy()
 operation_log_query_parser.add_argument('username', type=str, location='args', help='用户名，支持模糊查询')
@@ -95,17 +98,9 @@ login_log_list_response = build_page_response_model(
     '登录日志分页数据',
 )
 
-operation_log_item_response = log_ns.clone('OperationLogItemResponse', base_response, {
-    'data': fields.Nested(operation_log_item_model, description='操作日志详情数据'),
-})
-
-login_log_item_response = log_ns.clone('LoginLogItemResponse', base_response, {
-    'data': fields.Nested(login_log_item_model, description='登录日志详情数据'),
-})
-
-stats_response = log_ns.clone('StatsResponse', base_response, {
-    'data': fields.Nested(stats_data, description='日志统计数据'),
-})
+operation_log_item_response = build_item_response_model(log_ns, 'OperationLogItemResponse', base_response, operation_log_item_model, '操作日志详情数据')
+login_log_item_response = build_item_response_model(log_ns, 'LoginLogItemResponse', base_response, login_log_item_model, '登录日志详情数据')
+stats_response = build_item_response_model(log_ns, 'StatsResponse', base_response, stats_data, '日志统计数据')
 
 operation_log_schema = OperationLogSchema()
 operation_logs_schema = OperationLogSchema(many=True)
@@ -132,7 +127,7 @@ class OperationLogList(Resource):
             return error_response_data
 
         result = LogService.get_operation_log_list(current_user, args)
-        return ApiResponse.success_page_result(result, operation_logs_schema.dump(result['items']))
+        return success_schema_page(result, operation_log_schema)
 
 
 @log_ns.route('/operation/<int:log_id>')
@@ -157,7 +152,7 @@ class OperationLogDetail(Resource):
         if permission_error:
             return permission_error
 
-        return ApiResponse.success(operation_log_schema.dump(log))
+        return ApiResponse.success(serialize_schema(operation_log_schema, log))
 
 
 @log_ns.route('/login')
@@ -174,7 +169,7 @@ class LoginLogList(Resource):
             return error_response_data
 
         result = LogService.get_login_log_list(current_user, args)
-        return ApiResponse.success_page_result(result, login_logs_schema.dump(result['items']))
+        return success_schema_page(result, login_log_schema)
 
 
 @log_ns.route('/login/<int:log_id>')
@@ -199,7 +194,7 @@ class LoginLogDetail(Resource):
         if permission_error:
             return permission_error
 
-        return ApiResponse.success(login_log_schema.dump(log))
+        return ApiResponse.success(serialize_schema(login_log_schema, log))
 
 
 @log_ns.route('/stats')

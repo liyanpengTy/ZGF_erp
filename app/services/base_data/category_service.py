@@ -2,6 +2,7 @@
 
 from app.models.base_data.category import Category
 from app.services.base.base_service import BaseService
+from app.utils.datetime_helper import safe_isoformat
 
 
 class CategoryService(BaseService):
@@ -108,8 +109,8 @@ class CategoryService(BaseService):
                     'sort_order': category.sort_order,
                     'status': category.status,
                     'remark': category.remark,
-                    'create_time': category.create_time.isoformat() if category.create_time else None,
-                    'update_time': category.update_time.isoformat() if category.update_time else None,
+                    'create_time': safe_isoformat(category.create_time),
+                    'update_time': safe_isoformat(category.update_time),
                 }
                 if children:
                     category_dict['children'] = children

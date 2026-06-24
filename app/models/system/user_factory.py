@@ -35,7 +35,7 @@ class UserFactory(BaseModel):
     relation_type = db.Column(
         db.String(20),
         nullable=False,
-        comment='关系类型：owner/employee/customer/collaborator',
+        comment='关系类型：owner/employee/customer(旧客户关系，已弃用)/collaborator',
     )
     collaborator_type = db.Column(
         db.String(30),
@@ -58,7 +58,7 @@ class UserFactory(BaseModel):
         labels = {
             RELATION_TYPE_OWNER: '工厂管理员',
             RELATION_TYPE_EMPLOYEE: '工厂员工',
-            RELATION_TYPE_CUSTOMER: '订单客户',
+            RELATION_TYPE_CUSTOMER: '旧订单客户（已弃用）',
             RELATION_TYPE_COLLABORATOR: '协作用户',
         }
         return labels.get(self.relation_type, self.relation_type)

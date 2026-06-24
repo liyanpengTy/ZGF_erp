@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.extensions import db
@@ -50,15 +50,15 @@ class ShipmentService(BaseService):
 
     @staticmethod
     def _build_shipment_query(current_user, current_factory_id=None, factory_id=None):
-        """构建出货单查询对象，统一处理内部用户与外部用户的工厂范围。"""
+        """构建出货单查询对象，统一处理主体范围与旧工厂字段兼容。"""
         query = Shipment.query.options(*ShipmentService.get_shipment_query_options()).filter_by(is_deleted=0)
         if current_user.is_internal_user:
             if factory_id:
-                query = query.filter_by(factory_id=factory_id)
+                query = query.filter(or_(Shipment.subject_id == factory_id, Shipment.factory_id == factory_id))
         else:
             if not current_factory_id:
                 return None
-            query = query.filter_by(factory_id=current_factory_id)
+            query = query.filter(or_(Shipment.subject_id == current_factory_id, Shipment.factory_id == current_factory_id))
 
         target_factory_id = factory_id if current_user.is_internal_user else current_factory_id
         return ShipmentService.apply_shipment_data_scope(query, current_user, current_factory_id=target_factory_id)
@@ -67,7 +67,6 @@ class ShipmentService(BaseService):
     def apply_shipment_data_scope(query, current_user, current_factory_id=None):
         """按当前用户数据范围收口出货单查询。"""
         own_related_filter = BusinessDataScopeService.build_or_filter(
-            Shipment.customer_id == current_user.id,
             Shipment.create_by == current_user.id,
             Shipment.order.has(Order.create_by == current_user.id),
         )
@@ -129,7 +128,8 @@ class ShipmentService(BaseService):
             return False, '用户不存在'
         if not shipment:
             return False, '出货单不存在'
-        if not current_user.is_internal_user and shipment.factory_id != current_factory_id:
+        shipment_subject_id = shipment.subject_id or shipment.factory_id
+        if not current_user.is_internal_user and shipment_subject_id != current_factory_id:
             return False, '无权限操作'
 
         scoped_query = ShipmentService.apply_shipment_data_scope(
@@ -138,7 +138,7 @@ class ShipmentService(BaseService):
                 Shipment.is_deleted == 0,
             ),
             current_user,
-            current_factory_id=shipment.factory_id,
+            current_factory_id=shipment_subject_id,
         )
         if scoped_query.first():
             return True, None
@@ -257,17 +257,17 @@ class ShipmentService(BaseService):
             selectinload(Order.details).selectinload(OrderDetail.skus).joinedload(OrderDetailSku.size),
         ).filter_by(
             id=data['order_id'],
-            factory_id=current_factory_id,
             is_deleted=0,
+        ).filter(
+            or_(Order.subject_id == current_factory_id, Order.factory_id == current_factory_id),
         ).first()
         if not order:
-            return None, '订单不存在或不属于当前工厂'
+            return None, '订单不存在或不属于当前主体'
 
         has_scope = BusinessDataScopeService.check_creator_customer_scope(
             current_user,
             current_factory_id=current_factory_id,
             creator_user_id=order.create_by,
-            customer_user_id=order.customer_id,
         )
         if not has_scope:
             return None, '当前订单不在当前数据范围内，不能创建出货单'
@@ -280,8 +280,10 @@ class ShipmentService(BaseService):
             shipment = Shipment(
                 shipment_no=ShipmentService.generate_shipment_no(current_factory_id),
                 factory_id=current_factory_id,
+                subject_id=order.subject_id or current_factory_id,
                 order_id=order.id,
                 customer_id=order.customer_id,
+                customer_user_id=order.customer_user_id,
                 customer_name=order.customer_name,
                 ship_date=datetime.strptime(data['ship_date'], '%Y-%m-%d').date(),
                 status='created',

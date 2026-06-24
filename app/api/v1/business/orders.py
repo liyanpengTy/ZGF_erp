@@ -2,7 +2,6 @@
 
 from flask import request
 from flask_restx import Namespace, Resource, fields
-from marshmallow import ValidationError
 
 from app.constants.permissions import (
     PERM_BUSINESS_ORDER_ADD,
@@ -10,9 +9,20 @@ from app.constants.permissions import (
     PERM_BUSINESS_ORDER_EDIT,
     PERM_BUSINESS_ORDER_QUERY,
 )
-from app.api.common.factory_context import resolve_read_factory_context, resolve_write_factory_context
+from app.api.common.business_resource_helpers import (
+    get_accessible_business_resource_or_error,
+    get_business_request_context,
+)
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser, page_with_date_parser
+from app.api.common.response_helpers import load_json_or_error, success_mapped_page
+from app.api.common.serializers import (
+    build_mapping_serializer,
+    safe_isoformat,
+    serialize_object_list,
+    serialize_schema,
+    serialize_schema_list,
+)
 from app.schemas.business.order import OrderCreateSchema, OrderSchema, OrderStatusUpdateSchema, OrderUpdateSchema
 from app.services import OrderService
 from app.utils.business_permissions import button_permission
@@ -28,6 +38,8 @@ unauthorized_response = common['unauthorized_response']
 forbidden_response = common['forbidden_response']
 build_page_data_model = common['build_page_data_model']
 build_page_response_model = common['build_page_response_model']
+build_item_response_model = common['build_item_response_model']
+build_list_response_model = common['build_list_response_model']
 build_named_quantity_model = common['build_named_quantity_model']
 
 order_query_parser = page_with_date_parser.copy()
@@ -111,12 +123,17 @@ order_item_model = order_ns.model('OrderItem', {
     'id': fields.Integer(description='订单 ID', example=4),
     'order_no': fields.String(description='订单号', example='ORD1202605140002'),
     'factory_id': fields.Integer(description='所属工厂 ID', example=1),
+    'subject_id': fields.Integer(description='所属主体 ID；新业务数据隔离使用该字段', example=1),
     'customer_id': fields.Integer(description='客户 ID', example=4),
+    'customer_user_id': fields.Integer(description='客户用户 ID；客户账号体系使用该字段', example=1),
     'customer_name': fields.String(description='客户名称', example='工厂客户'),
     'order_date': fields.String(description='订单日期', example='2026-05-14'),
     'delivery_date': fields.String(description='交期', example='2026-05-22'),
+    'expected_finish_at': fields.String(description='预计完成时间', example='2026-05-20 18:00:00'),
     'status': fields.String(description='订单状态', example='pending'),
     'status_label': fields.String(description='订单状态名称', example='待确认'),
+    'total_quantity': fields.Integer(description='订单总数量', example=465),
+    'completed_quantity': fields.Integer(description='已完成数量', example=0),
     'total_amount': fields.Float(description='订单总金额', example=0),
     'remark': fields.String(description='订单备注', example='测试数据-订单2-2235#'),
     'create_time': fields.String(description='创建时间', example='2026-05-14 23:23:35'),
@@ -277,9 +294,7 @@ order_list_data = build_page_data_model(order_ns, 'OrderListData', order_item_mo
 }, items_description='订单列表')
 
 order_list_response = build_page_response_model(order_ns, 'OrderListResponse', base_response, order_list_data, '订单分页数据')
-order_item_response = order_ns.clone('OrderItemResponse', base_response, {
-    'data': fields.Nested(order_item_model, description='订单详情数据'),
-})
+order_item_response = build_item_response_model(order_ns, 'OrderItemResponse', base_response, order_item_model, '订单详情数据')
 order_option_model = order_ns.model('OrderOptionItem', {
     'id': fields.Integer(description='订单 ID', example=1),
     'order_no': fields.String(description='订单号', example='ORD1202605140002'),
@@ -289,12 +304,8 @@ order_option_model = order_ns.model('OrderOptionItem', {
     'order_date': fields.String(description='订单日期', example='2026-05-14'),
     'delivery_date': fields.String(description='交期', example='2026-05-22'),
 })
-order_options_response = order_ns.clone('OrderOptionsResponse', base_response, {
-    'data': fields.List(fields.Nested(order_option_model), description='订单下拉选项列表'),
-})
-order_statistics_response = order_ns.clone('OrderStatisticsResponse', base_response, {
-    'data': fields.Nested(order_statistics_data_model, description='订单统计数据'),
-})
+order_options_response = build_list_response_model(order_ns, 'OrderOptionsResponse', base_response, order_option_model, '订单下拉选项列表')
+order_statistics_response = build_item_response_model(order_ns, 'OrderStatisticsResponse', base_response, order_statistics_data_model, '订单统计数据')
 
 order_production_sku_item_model = order_ns.model('OrderProductionSkuItem', {
     'order_detail_sku_id': fields.Integer(description='订单 SKU ID', example=119),
@@ -361,9 +372,7 @@ order_production_statistics_data_model = order_ns.model('OrderProductionStatisti
     'details': fields.List(fields.Nested(order_production_detail_item_model), description='订单明细生产统计列表'),
 })
 
-order_production_statistics_response = order_ns.clone('OrderProductionStatisticsResponse', base_response, {
-    'data': fields.Nested(order_production_statistics_data_model, description='订单生产统计数据'),
-})
+order_production_statistics_response = build_item_response_model(order_ns, 'OrderProductionStatisticsResponse', base_response, order_production_statistics_data_model, '订单生产统计数据')
 
 order_shipment_availability_sku_item_model = order_ns.model('OrderShipmentAvailabilitySkuItem', {
     'order_detail_sku_id': fields.Integer(description='订单 SKU ID', example=119),
@@ -412,9 +421,7 @@ order_shipment_availability_data_model = order_ns.model('OrderShipmentAvailabili
     'details': fields.List(fields.Nested(order_shipment_availability_detail_item_model), description='订单明细可出货统计列表'),
 })
 
-order_shipment_availability_response = order_ns.clone('OrderShipmentAvailabilityResponse', base_response, {
-    'data': fields.Nested(order_shipment_availability_data_model, description='订单可出货统计数据'),
-})
+order_shipment_availability_response = build_item_response_model(order_ns, 'OrderShipmentAvailabilityResponse', base_response, order_shipment_availability_data_model, '订单可出货统计数据')
 
 order_detail_sku_create_model = order_ns.model('OrderDetailSkuCreate', {
     'splice_config': fields.Nested(order_sku_splice_config_model, required=True, description='SKU 配置对象'),
@@ -429,6 +436,7 @@ order_detail_create_model = order_ns.model('OrderDetailCreate', {
 
 order_create_model = order_ns.model('OrderCreate', {
     'customer_id': fields.Integer(description='客户 ID', example=2),
+    'customer_user_id': fields.Integer(description='客户用户 ID；必须已关联当前主体', example=1),
     'customer_name': fields.String(description='客户名称', example='factory_customer'),
     'order_date': fields.String(required=True, description='订单日期', example='2026-05-15'),
     'delivery_date': fields.String(description='交付日期', example='2026-05-31'),
@@ -438,6 +446,7 @@ order_create_model = order_ns.model('OrderCreate', {
 
 order_update_model = order_ns.model('OrderUpdate', {
     'customer_id': fields.Integer(description='客户 ID', example=2),
+    'customer_user_id': fields.Integer(description='客户用户 ID；必须已关联当前主体', example=1),
     'customer_name': fields.String(description='客户名称', example='factory_customer'),
     'delivery_date': fields.String(description='交付日期', example='2026-05-31'),
     'remark': fields.String(description='备注', example='更新备注'),
@@ -455,114 +464,97 @@ order_status_update_schema = OrderStatusUpdateSchema()
 
 def get_order_request_context(query_factory_id=None, require_write=False, allow_internal_without_factory=False):
     """获取订单接口通用的当前用户与工厂上下文。"""
-    if require_write:
-        return resolve_write_factory_context()
-    return resolve_read_factory_context(
+    return get_business_request_context(
         query_factory_id=query_factory_id,
+        require_write=require_write,
         allow_internal_without_factory=allow_internal_without_factory,
     )
 
 
 def get_accessible_order_or_error(order_id):
     """查询当前上下文可访问的订单，不可访问时返回统一错误响应。"""
-    current_user, current_factory_id, error_response_data = get_order_request_context(
+    return get_accessible_business_resource_or_error(
+        order_id,
+        OrderService.get_order_by_id,
+        OrderService.check_permission,
+        '订单不存在',
         allow_internal_without_factory=True,
     )
-    if error_response_data:
-        return None, None, None, error_response_data
-
-    order = OrderService.get_order_by_id(order_id)
-    if not order:
-        return None, None, None, ApiResponse.error('订单不存在', 404)
-
-    has_permission, error = OrderService.check_permission(current_user, current_factory_id, order)
-    if not has_permission:
-        return None, None, None, ApiResponse.error(error, 403)
-
-    return current_user, current_factory_id, order, None
 
 
-def serialize_order(order):
-    """序列化订单详情，不附带统计字段。"""
-    return order_schema.dump(order)
-
-
-def serialize_orders(orders):
-    """批量序列化订单列表，不附带订单内嵌统计。"""
-    return [serialize_order(order) for order in orders]
-
-
-def serialize_order_option(order):
-    """序列化订单下拉选项。"""
-    return {
-        'id': order.id,
-        'order_no': order.order_no,
-        'customer_id': order.customer_id,
-        'customer_name': order.customer_name,
-        'status': order.status,
-        'order_date': order.order_date.isoformat() if order.order_date else None,
-        'delivery_date': order.delivery_date.isoformat() if order.delivery_date else None,
-    }
-
-
-def serialize_order_statistics(order):
-    """序列化独立订单统计结果。"""
+def _build_order_statistics_base_payload(order):
+    """构建订单统计类接口共用的基础字段。"""
     return {
         'order_id': order.id,
         'order_no': order.order_no,
         'customer_id': order.customer_id,
         'customer_name': order.customer_name,
-        'order_date': order.order_date.isoformat() if order.order_date else None,
-        'delivery_date': order.delivery_date.isoformat() if order.delivery_date else None,
+        'order_date': safe_isoformat(order.order_date),
+        'delivery_date': safe_isoformat(order.delivery_date),
         'status': order.status,
         'remark': order.remark,
-        'statistics': OrderService.build_order_statistics(order),
-        'details': [
-            {
-                'detail_id': detail.id,
-                'style_id': detail.style_id,
-                'style_no': detail.style.style_no if detail.style else None,
-                'style_name': detail.style.name if detail.style else None,
-                'remark': detail.remark,
-                'statistics': OrderService.build_detail_statistics(detail),
-            }
-            for detail in order.details
-        ],
     }
+
+
+def _serialize_order_statistics_detail(detail):
+    """构建订单统计接口中的明细统计结构。"""
+    return {
+        'detail_id': detail.id,
+        'style_id': detail.style_id,
+        'style_no': detail.style.style_no if detail.style else None,
+        'style_name': detail.style.name if detail.style else None,
+        'remark': detail.remark,
+        'statistics': OrderService.build_detail_statistics(detail),
+    }
+
+
+def serialize_order(order):
+    """序列化订单详情，不附带统计字段。"""
+    return serialize_schema(order_schema, order)
+
+
+def serialize_orders(orders):
+    """批量序列化订单列表，不附带订单内嵌统计。"""
+    return serialize_schema_list(order_schema, orders)
+
+
+serialize_order_option = build_mapping_serializer(
+    {
+        'id': 'id',
+        'order_no': 'order_no',
+        'customer_id': 'customer_id',
+        'customer_name': 'customer_name',
+        'status': 'status',
+        'order_date': ('order_date', safe_isoformat),
+        'delivery_date': ('delivery_date', safe_isoformat),
+    }
+)
+
+
+def serialize_order_statistics(order):
+    """序列化独立订单统计结果。"""
+    payload = _build_order_statistics_base_payload(order)
+    payload['statistics'] = OrderService.build_order_statistics(order)
+    payload['details'] = serialize_object_list(order.details, _serialize_order_statistics_detail)
+    return payload
 
 
 def serialize_order_production_statistics(order):
     """序列化独立订单生产统计结果。"""
     production_statistics = OrderService.build_order_production_statistics(order)
-    return {
-        'order_id': order.id,
-        'order_no': order.order_no,
-        'customer_id': order.customer_id,
-        'customer_name': order.customer_name,
-        'order_date': order.order_date.isoformat() if order.order_date else None,
-        'delivery_date': order.delivery_date.isoformat() if order.delivery_date else None,
-        'status': order.status,
-        'remark': order.remark,
-        'summary': production_statistics['summary'],
-        'details': production_statistics['details'],
-    }
+    payload = _build_order_statistics_base_payload(order)
+    payload['summary'] = production_statistics['summary']
+    payload['details'] = production_statistics['details']
+    return payload
 
 
 def serialize_order_shipment_availability(order):
     """序列化独立订单可出货统计结果。"""
     shipment_availability = OrderService.build_order_shipment_availability(order)
-    return {
-        'order_id': order.id,
-        'order_no': order.order_no,
-        'customer_id': order.customer_id,
-        'customer_name': order.customer_name,
-        'order_date': order.order_date.isoformat() if order.order_date else None,
-        'delivery_date': order.delivery_date.isoformat() if order.delivery_date else None,
-        'status': order.status,
-        'remark': order.remark,
-        'summary': shipment_availability['summary'],
-        'details': shipment_availability['details'],
-    }
+    payload = _build_order_statistics_base_payload(order)
+    payload['summary'] = shipment_availability['summary']
+    payload['details'] = shipment_availability['details']
+    return payload
 
 
 @order_ns.route('')
@@ -584,7 +576,7 @@ class OrderList(Resource):
             return error_response_data
 
         result = OrderService.get_order_list(current_user, current_factory_id, args)
-        return ApiResponse.success_page_result(
+        return success_mapped_page(
             result,
             serialize_orders(result['items']),
             extra={'statistics': OrderService.build_order_list_statistics(result['items'])},
@@ -603,10 +595,9 @@ class OrderList(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = order_create_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(order_create_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         order, error = OrderService.create_order(current_user, current_factory_id, data)
         if error:
@@ -647,7 +638,7 @@ class OrderDetail(Resource):
     @order_ns.response(404, '订单不存在', error_response)
     def get(self, order_id):
         """查询订单详情接口，返回订单主信息、明细与 SKU 配置。"""
-        _, _, order, error_response_data = get_accessible_order_or_error(order_id)
+        _, current_factory_id, order, error_response_data = get_accessible_order_or_error(order_id)
         if error_response_data:
             return error_response_data
 
@@ -667,12 +658,13 @@ class OrderDetail(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = order_update_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(order_update_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
-        order = OrderService.update_order(order, data)
+        order, update_error = OrderService.update_order(order, data, current_factory_id=current_factory_id)
+        if update_error:
+            return ApiResponse.error(update_error, 400)
         return ApiResponse.success(serialize_order(order), '更新成功')
 
     @login_required
@@ -724,10 +716,9 @@ class OrderStatus(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = order_status_update_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(order_status_update_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         order = OrderService.update_order_status(order, data['status'])
         return ApiResponse.success(serialize_order(order), '状态更新成功')

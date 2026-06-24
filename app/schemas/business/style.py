@@ -16,13 +16,16 @@ class StyleSchema(Schema):
     season = fields.Str()
     material = fields.Str()
     description = fields.Str()
-    status = fields.Int(default=1)
+    status = fields.Int(dump_default=1)
     images = fields.List(fields.Str())
-    need_cutting = fields.Int(default=0)
-    cutting_reserve = fields.Float(default=0)
+    need_cutting = fields.Int(dump_default=0)
+    cutting_reserve = fields.Float(dump_default=0)
     custom_attributes = fields.Dict()
-    is_splice = fields.Int(default=0, validate=validate.OneOf([0, 1]))
-    splice_data = fields.List(fields.Dict(), description='拼接数据，格式：[{"sequence":1,"description":"红色棉麻"}]')
+    is_splice = fields.Int(dump_default=0, validate=validate.OneOf([0, 1]))
+    splice_data = fields.List(
+        fields.Dict(),
+        metadata={'description': '拼接数据，格式：[{"sequence":1,"description":"红色棉麻"}]'},
+    )
     create_time = fields.DateTime()
     update_time = fields.DateTime()
 
@@ -39,11 +42,11 @@ class StyleCreateSchema(Schema):
     material = fields.Str()
     description = fields.Str()
     images = fields.List(fields.Str())
-    need_cutting = fields.Int(default=0)
-    cutting_reserve = fields.Float(default=0)
+    need_cutting = fields.Int(load_default=0)
+    cutting_reserve = fields.Float(load_default=0)
     custom_attributes = fields.Dict()
-    is_splice = fields.Int(default=0, validate=validate.OneOf([0, 1]))
-    splice_data = fields.List(fields.Dict(), description='拼接数据')
+    is_splice = fields.Int(load_default=0, validate=validate.OneOf([0, 1]))
+    splice_data = fields.List(fields.Dict(), metadata={'description': '拼接数据'})
 
 
 class StyleUpdateSchema(Schema):
@@ -63,4 +66,4 @@ class StyleUpdateSchema(Schema):
     cutting_reserve = fields.Float()
     custom_attributes = fields.Dict()
     is_splice = fields.Int(validate=validate.OneOf([0, 1]))
-    splice_data = fields.List(fields.Dict(), description='拼接数据')
+    splice_data = fields.List(fields.Dict(), metadata={'description': '拼接数据'})

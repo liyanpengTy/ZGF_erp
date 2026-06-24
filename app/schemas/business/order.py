@@ -58,12 +58,17 @@ class OrderSchema(Schema):
     id = fields.Int()
     order_no = fields.Str()
     factory_id = fields.Int()
+    subject_id = fields.Int()
     customer_id = fields.Int()
+    customer_user_id = fields.Int()
     customer_name = fields.Str()
     order_date = fields.DateTime(format="%Y-%m-%d")
     delivery_date = fields.DateTime(format="%Y-%m-%d")
+    expected_finish_at = fields.DateTime(format="%Y-%m-%d %H:%M:%S")
     status = fields.Str()
     status_label = fields.Str()
+    total_quantity = fields.Int()
+    completed_quantity = fields.Int()
     total_amount = fields.Float()
     remark = fields.Str()
     create_time = fields.DateTime(format="%Y-%m-%d %H:%M:%S")
@@ -75,6 +80,7 @@ class OrderCreateSchema(Schema):
     """创建订单入参。"""
 
     customer_id = fields.Int()
+    customer_user_id = fields.Int(validate=validate.Range(min=1))
     customer_name = fields.Str(validate=validate.Length(max=100))
     order_date = fields.Str(required=True, validate=validate.Regexp(r"^\d{4}-\d{2}-\d{2}$"))
     delivery_date = fields.Str(validate=validate.Regexp(r"^\d{4}-\d{2}-\d{2}$"))
@@ -90,6 +96,7 @@ class OrderUpdateSchema(Schema):
     """更新订单入参。"""
 
     customer_id = fields.Int()
+    customer_user_id = fields.Int(validate=validate.Range(min=1))
     customer_name = fields.Str(validate=validate.Length(max=100))
     delivery_date = fields.Str(validate=validate.Regexp(r"^\d{4}-\d{2}-\d{2}$"))
     remark = fields.Str(validate=validate.Length(max=500))

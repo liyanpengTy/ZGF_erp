@@ -2,14 +2,17 @@
 
 from flask import request
 from flask_restx import Namespace, Resource, fields
-from marshmallow import ValidationError
 
 from app.api.common.auth import require_current_user
 from app.api.common.models import get_common_models
+from app.api.common.response_helpers import load_json_or_error
+from app.api.common.serializers import serialize_schema
+from app.models.auth.user import User
 from app.models.system.reward_record import RewardRecord
-from app.schemas.auth.user import UserSchema, UserUpdateSchema
-from app.schemas.profile.profile import PasswordChangeSchema
+from app.schemas.auth.user import UserSchema
+from app.schemas.profile.profile import PasswordChangeSchema, ProfileUpdateSchema
 from app.services import ProfileService
+from app.utils.datetime_helper import safe_isoformat
 from app.utils.permissions import login_required
 from app.utils.response import ApiResponse
 
@@ -20,106 +23,119 @@ base_response = common['base_response']
 error_response = common['error_response']
 unauthorized_response = common['unauthorized_response']
 
-profile_update_model = profile_ns.model('ProfileUpdate', {
-    'nickname': fields.String(description='昵称', example='新昵称'),
-    'phone': fields.String(description='手机号', example='13800138000'),
-    'avatar': fields.String(description='头像 URL', example='/uploads/avatar/avatar.jpg'),
-})
+profile_update_model = profile_ns.model(
+    'ProfileUpdate',
+    {
+        'nickname': fields.String(description='昵称', example='新昵称'),
+        'phone': fields.String(description='手机号', example='13800138000'),
+        'avatar': fields.String(description='头像 URL', example='/uploads/avatar/avatar.jpg'),
+    },
+)
 
-password_change_model = profile_ns.model('PasswordChange', {
-    'old_password': fields.String(required=True, description='旧密码', example='123456'),
-    'new_password': fields.String(required=True, description='新密码', example='654321'),
-    'confirm_password': fields.String(required=True, description='确认新密码', example='654321'),
-})
+password_change_model = profile_ns.model(
+    'PasswordChange',
+    {
+        'old_password': fields.String(required=True, description='旧密码', example='123456'),
+        'new_password': fields.String(required=True, description='新密码', example='654321'),
+        'confirm_password': fields.String(required=True, description='确认新密码', example='654321'),
+    },
+)
 
-user_info_model = profile_ns.model('ProfileUserInfo', {
-    'id': fields.Integer(description='用户 ID'),
-    'username': fields.String(description='用户名'),
-    'nickname': fields.String(description='昵称'),
-    'phone': fields.String(description='手机号'),
-    'avatar': fields.String(description='头像地址'),
-    'platform_identity': fields.String(description='平台身份'),
-    'platform_identity_label': fields.String(description='平台身份名称'),
-    'subject_type': fields.String(description='主体类型'),
-    'subject_type_label': fields.String(description='主体类型名称'),
-    'status': fields.Integer(description='状态'),
-    'invite_code': fields.String(description='邀请码'),
-    'invited_count': fields.Integer(description='邀请人数'),
-    'is_paid': fields.Integer(description='是否已付费'),
-    'create_time': fields.String(description='创建时间'),
-    'last_login_time': fields.String(description='最后登录时间'),
-})
+user_info_model = profile_ns.model(
+    'ProfileUserInfo',
+    {
+        'id': fields.Integer(description='用户 ID'),
+        'username': fields.String(description='用户名'),
+        'nickname': fields.String(description='昵称'),
+        'phone': fields.String(description='手机号'),
+        'avatar': fields.String(description='头像地址'),
+        'platform_identity': fields.String(description='平台身份'),
+        'platform_identity_label': fields.String(description='平台身份名称'),
+        'subject_type': fields.String(description='主体类型'),
+        'subject_type_label': fields.String(description='主体类型名称'),
+        'status': fields.Integer(description='状态'),
+        'invite_code': fields.String(description='邀请码'),
+        'invited_count': fields.Integer(description='邀请人数'),
+        'is_paid': fields.Integer(description='是否付费'),
+        'create_time': fields.String(description='创建时间'),
+        'last_login_time': fields.String(description='最后登录时间'),
+    },
+)
 
-profile_statistics_detail_model = profile_ns.model('ProfileStatisticsDetail', {
-    'total_operations': fields.Integer(description='累计操作次数'),
-    'total_logins': fields.Integer(description='累计登录次数'),
-    'today_logined': fields.Boolean(description='今日是否已登录'),
-})
+profile_statistics_detail_model = profile_ns.model(
+    'ProfileStatisticsDetail',
+    {
+        'total_operations': fields.Integer(description='累计操作次数'),
+        'total_logins': fields.Integer(description='累计登录次数'),
+        'today_logined': fields.Boolean(description='今日是否已登录'),
+    },
+)
 
-profile_stats_model = profile_ns.model('ProfileStats', {
-    'user_id': fields.Integer(description='用户 ID'),
-    'username': fields.String(description='用户名'),
-    'nickname': fields.String(description='昵称'),
-    'phone': fields.String(description='手机号'),
-    'avatar': fields.String(description='头像地址'),
-    'platform_identity': fields.String(description='平台身份'),
-    'platform_identity_label': fields.String(description='平台身份名称'),
-    'subject_type': fields.String(description='主体类型'),
-    'subject_type_label': fields.String(description='主体类型名称'),
-    'create_time': fields.String(description='创建时间'),
-    'last_login_time': fields.String(description='最后登录时间'),
-    'statistics': fields.Nested(profile_statistics_detail_model, description='个人统计数据'),
-})
+profile_stats_model = profile_ns.model(
+    'ProfileStats',
+    {
+        'user_id': fields.Integer(description='用户 ID'),
+        'username': fields.String(description='用户名'),
+        'nickname': fields.String(description='昵称'),
+        'phone': fields.String(description='手机号'),
+        'avatar': fields.String(description='头像地址'),
+        'platform_identity': fields.String(description='平台身份'),
+        'platform_identity_label': fields.String(description='平台身份名称'),
+        'subject_type': fields.String(description='主体类型'),
+        'subject_type_label': fields.String(description='主体类型名称'),
+        'create_time': fields.String(description='创建时间'),
+        'last_login_time': fields.String(description='最后登录时间'),
+        'statistics': fields.Nested(profile_statistics_detail_model, description='个人统计数据'),
+    },
+)
 
-avatar_response_data = profile_ns.model('AvatarResponseData', {
-    'avatar': fields.String(description='头像相对路径'),
-    'url': fields.String(description='头像访问地址'),
-})
+avatar_response_data = profile_ns.model(
+    'AvatarResponseData',
+    {
+        'avatar': fields.String(description='头像相对路径'),
+        'url': fields.String(description='头像访问地址'),
+    },
+)
 
-profile_invited_user_model = profile_ns.model('ProfileInvitedUser', {
-    'id': fields.Integer(description='用户 ID'),
-    'username': fields.String(description='用户名'),
-    'nickname': fields.String(description='昵称'),
-    'create_time': fields.String(description='创建时间'),
-})
+profile_invited_user_model = profile_ns.model(
+    'ProfileInvitedUser',
+    {
+        'id': fields.Integer(description='用户 ID'),
+        'username': fields.String(description='用户名'),
+        'nickname': fields.String(description='昵称'),
+        'create_time': fields.String(description='创建时间'),
+    },
+)
 
-invite_info_model = profile_ns.model('InviteInfo', {
-    'invite_code': fields.String(description='邀请码'),
-    'invited_count': fields.Integer(description='邀请人数'),
-    'invited_users': fields.List(fields.Nested(profile_invited_user_model), description='被邀请用户列表'),
-})
+invite_info_model = profile_ns.model(
+    'InviteInfo',
+    {
+        'invite_code': fields.String(description='邀请码'),
+        'invited_count': fields.Integer(description='邀请人数'),
+        'invited_users': fields.List(fields.Nested(profile_invited_user_model), description='被邀请用户列表'),
+    },
+)
 
-invite_reward_model = profile_ns.model('InviteReward', {
-    'need_count': fields.Integer(description='达成奖励所需邀请人数'),
-    'current_count': fields.Integer(description='当前邀请人数'),
-    'progress': fields.Integer(description='当前进度百分比'),
-    'pending_rewards': fields.Integer(description='待发放奖励数量'),
-    'reward_received': fields.Boolean(description='是否已领取奖励'),
-    'reward_type': fields.String(description='奖励类型'),
-})
+invite_reward_model = profile_ns.model(
+    'InviteReward',
+    {
+        'need_count': fields.Integer(description='达成奖励所需邀请人数'),
+        'current_count': fields.Integer(description='当前邀请人数'),
+        'progress': fields.Integer(description='当前进度百分比'),
+        'pending_rewards': fields.Integer(description='待发放奖励数量'),
+        'reward_received': fields.Boolean(description='是否已领取奖励'),
+        'reward_type': fields.String(description='奖励类型'),
+    },
+)
 
-user_info_response = profile_ns.clone('ProfileUserInfoResponse', base_response, {
-    'data': fields.Nested(user_info_model, description='个人信息数据'),
-})
-
-profile_stats_response = profile_ns.clone('ProfileStatsResponse', base_response, {
-    'data': fields.Nested(profile_stats_model, description='个人统计数据'),
-})
-
-avatar_response = profile_ns.clone('AvatarResponse', base_response, {
-    'data': fields.Nested(avatar_response_data, description='头像上传结果'),
-})
-
-invite_info_response = profile_ns.clone('InviteInfoResponse', base_response, {
-    'data': fields.Nested(invite_info_model, description='邀请信息数据'),
-})
-
-invite_reward_response = profile_ns.clone('InviteRewardResponse', base_response, {
-    'data': fields.Nested(invite_reward_model, description='邀请奖励数据'),
-})
+user_info_response = profile_ns.clone('ProfileUserInfoResponse', base_response, {'data': fields.Nested(user_info_model, description='个人信息数据')})
+profile_stats_response = profile_ns.clone('ProfileStatsResponse', base_response, {'data': fields.Nested(profile_stats_model, description='个人统计数据')})
+avatar_response = profile_ns.clone('AvatarResponse', base_response, {'data': fields.Nested(avatar_response_data, description='头像上传结果')})
+invite_info_response = profile_ns.clone('InviteInfoResponse', base_response, {'data': fields.Nested(invite_info_model, description='邀请信息数据')})
+invite_reward_response = profile_ns.clone('InviteRewardResponse', base_response, {'data': fields.Nested(invite_reward_model, description='邀请奖励数据')})
 
 user_schema = UserSchema()
-profile_update_schema = UserUpdateSchema()
+profile_update_schema = ProfileUpdateSchema()
 password_change_schema = PasswordChangeSchema()
 
 
@@ -133,7 +149,7 @@ def build_invite_info_payload(user, invited_users):
                 'id': invited_user.id,
                 'username': invited_user.username,
                 'nickname': invited_user.nickname,
-                'create_time': invited_user.create_time.isoformat() if invited_user.create_time else None,
+                'create_time': safe_isoformat(invited_user.create_time),
             }
             for invited_user in invited_users
         ],
@@ -164,7 +180,7 @@ class ProfileInfo(Resource):
         user, error_response_data = require_current_user()
         if error_response_data:
             return error_response_data
-        return ApiResponse.success(user_schema.dump(user))
+        return ApiResponse.success(serialize_schema(user_schema, user))
 
     @login_required
     @profile_ns.expect(profile_update_model)
@@ -177,13 +193,13 @@ class ProfileInfo(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = profile_update_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(profile_update_schema, request.get_json(silent=True) or {})
+        if validation_error:
+            return validation_error
 
-        user = ProfileService.update_profile(user, data)
-        return ApiResponse.success(user_schema.dump(user), '更新成功')
+        if data:
+            user = ProfileService.update_profile(user, data)
+        return ApiResponse.success(serialize_schema(user_schema, user), '更新成功')
 
 
 @profile_ns.route('/password')
@@ -199,10 +215,9 @@ class ChangePassword(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = password_change_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(password_change_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         success, message = ProfileService.change_password(
             user,
@@ -259,8 +274,6 @@ class InviteInfo(Resource):
     @profile_ns.response(401, '未登录', unauthorized_response)
     def get(self):
         """查询邀请信息接口，返回邀请码、邀请人数和被邀请用户列表。"""
-        from app.models.auth.user import User
-
         user, error_response_data = require_current_user()
         if error_response_data:
             return error_response_data
@@ -285,5 +298,4 @@ class InviteReward(Resource):
             status='pending',
             is_deleted=0,
         ).count()
-
         return ApiResponse.success(build_invite_reward_payload(user, pending_count))

@@ -2,12 +2,13 @@
 
 from flask import request
 from flask_restx import Namespace, Resource, fields
-from marshmallow import ValidationError
 
 from app.api.common.auth import get_current_claims, require_current_user
 from app.api.common.models import get_common_models
 from app.api.common.parsers import new_query_parser
 from app.api.common.resource_helpers import ensure_permission_or_error, get_resource_or_error
+from app.api.common.response_helpers import load_json_or_error
+from app.api.common.serializers import serialize_schema
 from app.constants.permissions import (
     PERM_SYSTEM_MENU_ADD,
     PERM_SYSTEM_MENU_DELETE,
@@ -134,16 +135,15 @@ class MenuList(Resource):
         if permission_error:
             return permission_error
 
-        try:
-            data = menu_create_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(menu_create_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         menu, error = MenuService.create_menu(data)
         if error:
             return ApiResponse.error(error, 400)
 
-        return ApiResponse.success(menu_schema.dump(menu), '创建成功', 201)
+        return ApiResponse.success(serialize_schema(menu_schema, menu), '创建成功', 201)
 
 
 @menu_ns.route('/<int:menu_id>')
@@ -168,7 +168,7 @@ class MenuDetail(Resource):
         if error_response_data:
             return error_response_data
 
-        return ApiResponse.success(menu_schema.dump(menu))
+        return ApiResponse.success(serialize_schema(menu_schema, menu))
 
     @login_required
     @permission_required(PERM_SYSTEM_MENU_EDIT)
@@ -191,16 +191,15 @@ class MenuDetail(Resource):
         if error_response_data:
             return error_response_data
 
-        try:
-            data = menu_update_schema.load(request.get_json() or {})
-        except ValidationError as exc:
-            return ApiResponse.error(str(exc.messages), 400)
+        data, validation_error = load_json_or_error(menu_update_schema, request.get_json() or {})
+        if validation_error:
+            return validation_error
 
         menu, error = MenuService.update_menu(menu, data)
         if error:
             return ApiResponse.error(error, 400)
 
-        return ApiResponse.success(menu_schema.dump(menu), '更新成功')
+        return ApiResponse.success(serialize_schema(menu_schema, menu), '更新成功')
 
     @login_required
     @permission_required(PERM_SYSTEM_MENU_DELETE)
